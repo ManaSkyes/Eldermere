@@ -911,7 +911,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const st = player.state, hs = Math.hypot(st.vel.x, st.vel.z), moving = hs > 0.3 || !!st.move || !!st.roll;
     const a = acoustics(), who = { crouching: st.crouching, moving: moving || !!(st.trav && st.noise > 0), character, route: st.trav?.kind || null };
     const noise = noiseOf(st.noise + st.noiseSpike, { ...who, mass: a.mass, gearKg: carryInfo.gearKg });
-    st.loudness = noise; st.visibility = visibilityOf(who);   // (enemies use these too: src/game/enemies.js)
+    const visibility = visibilityOf(who); // one player visibility calculation per frame, shared by every listener
+    st.loudness = noise; st.visibility = visibility;   // (enemies use these too: src/game/enemies.js)
     // each sentry: line of sight from its eyes to your head or chest (crouching lowers both), its gaze sweeping
     const ph = player.height * (1 - 0.35 * st.crouch), time = performance.now() / 1000;
     const head = { x: st.pos.x, y: st.pos.y + ph * 0.88, z: st.pos.z }, chest = { x: st.pos.x, y: st.pos.y + ph * 0.6, z: st.pos.z };
@@ -926,7 +927,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       const seen = !lineBlocked(shapes, eye, head) || !lineBlocked(shapes, eye, chest);
       // Cloaked dodge (Sneak): mid-roll you can't be seen or heard by anyone who hasn't already spotted you
       const cloaked = (!!st.roll && hasNode(character, 'sneak', 'cloakedDodge') && s.awareness < 1) || vanished;
-      const r = stepAwareness(s, { x: st.pos.x, y: st.pos.y + player.height * 0.8, z: st.pos.z, noise: cloaked ? (vanished ? noise * 0.3 : 0) : noise, visibility: visibilityOf(who), seen: seen && !cloaked, open: seen }, dt);
+      const r = stepAwareness(s, { x: st.pos.x, y: st.pos.y + player.height * 0.8, z: st.pos.z, noise: cloaked ? (vanished ? noise * 0.3 : 0) : noise, visibility, seen: seen && !cloaked, open: seen }, dt);
       const col = s.awareness >= 1 ? '#e04848' : s.awareness >= STEALTH.suspicious ? '#e0b848' : '#5fbf6a';
       s.headMat.color.set(col); s.headMat.emissive.set(col).multiplyScalar(0.35);
       // spotted: it turns to face you and shoots while it can see you (an arrow every 1.4 s)
@@ -1347,8 +1348,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         box.querySelector('b').textContent = sp.name; box.querySelector('small').textContent = lay ? `${Math.ceil(pr.mana)} MP · Q to change` : 'no focus in hand';
         box.classList.toggle('nofocus', !lay); } }
     { const ns = input.locked && !wheel.open && nearStation(); promptEl.textContent = ns ? `${keyName(input.bindings.interact[0])}: ${ns.name}` : ''; }
-    regen(dt); if (input.locked) { stealth(dt); courseUpdate(dt); }   // paused: nothing hurts you, nothing watches
-    lap('Stealth, courses');
+    regen(dt);
+    if (input.locked) stealth(dt);
+    lap('Stealth');
+    if (input.locked) courseUpdate(dt);
+    lap('Courses');
     { // sparkles on the routes you can use, near you (not the one you're on)
       const st = player.state, chest = { x: st.pos.x, y: st.pos.y + player.height * 0.6, z: st.pos.z }, pts = [];
       for (const r of routes) {

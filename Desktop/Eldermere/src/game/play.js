@@ -42,6 +42,7 @@ import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../dat
 import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
 import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
+import { runWorkerStressTest } from './workers/stressTest.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -1150,6 +1151,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
+    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Worker pool stress test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Runs the same deterministic CPU workload across different worker counts. Keep the camera still; results measure worker throughput, not full game speedup.</p><button type="button" data-worker-stress style="cursor:pointer">Run worker stress test</button> <span data-worker-stress-status style="font-size:11px">Ready</span><pre data-worker-stress-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No test run yet.</pre></details>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
     `<label style="display:block;cursor:pointer"><input type="checkbox" data-cycle checked> Time passes</label>` +
     `<label style="display:block;margin-top:6px">Weather <select data-wx>${Object.entries(WEATHER).map(([k, w]) => k === 'magic' ? ['low', 'medium', 'high'].map(l => `<option value="magic_${l}">${w.name} (${l})</option>`).join('') : `<option value="${k}">${w.name}</option>`).join('')}</select> <input type="range" data-wxs min="0.1" max="1.5" step="0.05" value="1" style="width:70px;vertical-align:middle"></label>` +
@@ -1175,6 +1177,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!full.hidden) lines.push('', 'Full performance monitor', full.querySelector('.pp-full-content').innerText);
     const benchText = probeEl.querySelector('.pp-bench').innerText.trim();
     if (benchText) lines.push('', 'Measure each part', benchText);
+    if (workerStressReport) lines.push('', 'Worker pool stress test', probeEl.querySelector('[data-worker-stress-report]').innerText);
     lines.push('', 'Feature switches');
     for (const [key, label] of PROBE_ROWS) {
       const input = probeEl.querySelector(`[data-p="${key}"]`);
@@ -1249,6 +1252,28 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     fx.probe.bloomOff = probe.bloomOff; fx.probe.blurOff = probe.blurOff; fx.probe.toneMapOff = probe.toneMapOff; fx.probe.gradeOff = probe.gradeOff; fx.probe.vignetteOff = probe.vignetteOff;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
+  let workerStressReport = null;
+  probeEl.querySelector('[data-worker-stress]').addEventListener('click', async event => {
+    const button = event.currentTarget, status = probeEl.querySelector('[data-worker-stress-status]'), output = probeEl.querySelector('[data-worker-stress-report]');
+    button.disabled = true; status.textContent = 'Running…'; output.textContent = 'Starting workers and warming up…';
+    try {
+      workerStressReport = await runWorkerStressTest();
+      const rows = workerStressReport.results.map(r => `  ${r.workers} worker(s): ${r.elapsedMs.toFixed(1)} ms · ${r.iterationsPerSecond.toLocaleString()} iterations/s · ${r.speedupVsFirst}× vs first · startup ${r.initMs.toFixed(1)} ms · checksum ${r.valid ? 'PASS' : 'FAIL'}`);
+      output.textContent = [
+        `Logical processors reported: ${workerStressReport.hardwareConcurrency ?? 'unknown'}`,
+        `Recommended pool size: ${workerStressReport.recommendedWorkers}`,
+        `Work per run: ${workerStressReport.totalIterations.toLocaleString()} iterations`,
+        ...rows,
+        '',
+        workerStressReport.note,
+      ].join('\\n');
+      status.textContent = workerStressReport.results.every(r => r.valid) ? 'Complete · checksums passed' : 'Warning · validation failed';
+    } catch (error) {
+      workerStressReport = { error: error?.message || String(error) };
+      output.textContent = `Worker test failed: ${workerStressReport.error}\\nCheck the browser console and whether this page is served in a context that permits module workers.`;
+      status.textContent = 'Failed';
+    } finally { button.disabled = false; }
+  });
   probeEl.addEventListener('change', e => { if (e.target.dataset.p !== undefined || e.target.dataset.fx !== undefined) resetGpuSamples(); });
   probeEl.addEventListener('input', e => { if (e.target.dataset.hour !== undefined) sky.setHour(+e.target.value, true); });
   probeEl.addEventListener('change', e => { if (e.target.dataset.cycle !== undefined) sky.cycle = e.target.checked; });

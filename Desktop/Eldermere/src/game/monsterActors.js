@@ -530,7 +530,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
       // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
       // their actor, target, flight path and group brain remain individual and unchanged.
-      if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && A.layer > 0 && vis && !A.mo.actName && A.alive) batSwarm.add(A);
+      if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
         A.C.puffs.lod = tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15; }

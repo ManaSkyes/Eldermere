@@ -1354,9 +1354,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     'clear-noon': { label: 'Clear · noon', hour: 12, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
     'late-clear': { label: 'Clear · late afternoon', hour: 17, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
     night: { label: 'Clear · night lighting', hour: 22, weather: 'clear', strength: 1, surface: 'dry', temp: 8 },
-    rain: { label: 'Rainstorm · maximum puddles', hour: 16, weather: 'rain', strength: 1.5, surface: 'puddles', temp: 12 },
+    rain: { label: 'Rainstorm · maximum puddles', hour: 16, weather: 'downpour', strength: 1.5, surface: 'puddles', temp: 12 },
     snow: { label: 'Snowstorm · maximum snow', hour: 12, weather: 'snow', strength: 1.5, surface: 'snow2', temp: -5 },
-    fog: { label: 'Thick fog · afternoon', hour: 16, weather: 'clear', strength: 1, surface: 'dry', temp: 12, fog: 'thick' },
+    fog: { label: 'Thick fog · afternoon', hour: 16, weather: 'fog', strength: 1, surface: 'dry', temp: 12, fog: 'thick' },
   };
   const surfacePresets = {
     dry: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 0 },

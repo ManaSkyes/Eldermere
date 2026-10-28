@@ -1324,7 +1324,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       hairLine,
       `Shader compile error: ${probeInfo.shaderErr || 'none recorded'}`,
       'Note: renderer counters are last-render counters; the headline totals accumulate postFX renders too.'
-    ].join('\\n');
+    ].join('\n');
   }
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)

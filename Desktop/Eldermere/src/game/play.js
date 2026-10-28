@@ -1137,7 +1137,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
-  probeEl.innerHTML = `<b>Performance (F8)</b><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div>` +
+  probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><b>Performance (F8)</b><button type="button" data-expand-probe title="Expand advanced performance details" aria-expanded="false" style="cursor:pointer;color:#e8e4f4;background:#302b52;border:1px solid #7770b5;border-radius:4px;padding:2px 8px;font-size:16px;line-height:1.3">⤢</button></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<div style="border-top:1px solid #5a5490;margin-top:7px;padding-top:5px;font-weight:600">Post-processing (live switches)</div>` +
     POSTFX_PROBE.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" checked> ${t}</label>`).join('') +
@@ -1153,6 +1153,27 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block">Surfaces <select data-sf><option value="auto">With the weather</option><option value="dry">Dry</option><option value="wet">Wet</option><option value="puddles">Puddles</option><option value="snow1">Snow (light)</option><option value="snow2">Snow (deep)</option><option value="ice">Ice</option><option value="dust">Dust</option></select> · <input type="checkbox" data-ta checked> Temp auto <input type="range" data-tv min="-20" max="40" step="1" value="15" style="width:70px;vertical-align:middle"> </label>` +
     `<label style="display:block;margin-top:6px">Resolution <select data-p="scale"><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option></select></label>`;
   root.querySelector('.play').appendChild(probeEl);
+  // Top-right expand control: enlarge the monitor and reveal the full detailed readings.
+  let probeExpanded = false;
+  const setProbeExpanded = expanded => {
+    probeExpanded = !!expanded;
+    probeEl.style.width = probeExpanded ? 'min(680px, calc(100vw - 32px))' : '';
+    probeEl.style.maxWidth = 'calc(100vw - 32px)';
+    probeEl.style.maxHeight = probeExpanded ? 'calc(100vh - 56px)' : '';
+    probeEl.style.overflowY = probeExpanded ? 'auto' : '';
+    probeEl.style.minWidth = probeExpanded ? 'min(420px, calc(100vw - 32px))' : '230px';
+    probeEl.querySelector('[data-expand-probe]').textContent = probeExpanded ? '⤡' : '⤢';
+    probeEl.querySelector('[data-expand-probe]').title = probeExpanded ? 'Collapse performance details' : 'Expand advanced performance details';
+    probeEl.querySelector('[data-expand-probe]').setAttribute('aria-expanded', String(probeExpanded));
+    const stats = probeEl.querySelector('.pp-stats');
+    stats.style.maxHeight = probeExpanded ? 'none' : '155px';
+    stats.style.overflow = probeExpanded ? 'visible' : 'hidden';
+  };
+  probeEl.querySelector('[data-expand-probe]').addEventListener('click', e => {
+    e.stopPropagation();
+    setProbeExpanded(!probeExpanded);
+  });
+  setProbeExpanded(false);
   // Keep the advanced monitor discoverable from the pause menu as well as the F8 shortcut.
   $('[data-act=performance]').onclick = () => {
     probe.on = probe.open = true;

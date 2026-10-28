@@ -1143,7 +1143,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">World / area fog is a scene shader path, separate from postFX; disabling it removes scene.fog entirely. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
-    `<button data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +
+    `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
     `<label style="display:block;cursor:pointer"><input type="checkbox" data-cycle checked> Time passes</label>` +
     `<label style="display:block;margin-top:6px">Weather <select data-wx>${Object.entries(WEATHER).map(([k, w]) => k === 'magic' ? ['low', 'medium', 'high'].map(l => `<option value="magic_${l}">${w.name} (${l})</option>`).join('') : `<option value="${k}">${w.name}</option>`).join('')}</select> <input type="range" data-wxs min="0.1" max="1.5" step="0.05" value="1" style="width:70px;vertical-align:middle"></label>` +
@@ -1152,8 +1152,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block">Fog <select data-fl><option value="auto">With the weather</option><option value="thin">Thin</option><option value="normal">Normal</option><option value="thick">Thick</option></select> · Aurora <select data-au><option value="auto">With the weather</option><option value="off">Never</option><option value="on">On</option></select></label>` +
     `<label style="display:block">Surfaces <select data-sf><option value="auto">With the weather</option><option value="dry">Dry</option><option value="wet">Wet</option><option value="puddles">Puddles</option><option value="snow1">Snow (light)</option><option value="snow2">Snow (deep)</option><option value="ice">Ice</option><option value="dust">Dust</option></select> · <input type="checkbox" data-ta checked> Temp auto <input type="range" data-tv min="-20" max="40" step="1" value="15" style="width:70px;vertical-align:middle"> </label>` +
     `<label style="display:block;margin-top:6px">Resolution <select data-p="scale"><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option></select></label>`;
-  // Explicit button colors keep labels readable even when the game's global button theme overrides browser defaults.
-  probeEl.querySelectorAll('button').forEach(b => { b.style.color = '#e8e4f4'; b.style.background = 'rgba(90,84,144,.35)'; b.style.border = '1px solid #6a5da4'; b.style.borderRadius = '4px'; b.style.padding = '3px 6px'; });
+  // F8 owns its button palette: !important also beats global button rules that otherwise make labels unreadable.
+  const styleProbeButton = b => { b.style.setProperty('color', '#f4f0ff', 'important'); b.style.setProperty('background-color', 'rgba(90,84,144,.42)', 'important'); b.style.setProperty('border', '1px solid #9384d4', 'important'); b.style.setProperty('border-radius', '4px', 'important'); b.style.setProperty('padding', '4px 7px', 'important'); b.style.setProperty('font', 'inherit', 'important'); b.style.setProperty('text-shadow', '0 1px 2px #171329', 'important'); b.style.setProperty('opacity', '1', 'important'); };
+  probeEl.querySelectorAll('button').forEach(styleProbeButton);
+  probeEl.querySelectorAll('button').forEach(b => { if (!b.textContent.trim()) console.warn('F8 monitor button is missing a text label:', b); });
   root.querySelector('.play').appendChild(probeEl);
   probeEl.querySelector('[data-full-toggle]').addEventListener('click', () => {
     const full = probeEl.querySelector('.pp-full');
@@ -1253,7 +1255,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (ds.au !== undefined) { weather.aurora = q('au').value === 'auto' ? null : q('au').value === 'on' ? 1 : 0; weather.retarget(4); } });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.fx; if (!k) return; probe[k] = e.target.checked; applyProbe(); });
-  const closeProbe = () => { probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
+  const closeProbe = () => { if (scenarioBench?.on) restoreScenarioState(); probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
     // Capture immediately with '=' while the monitor is active, without needing to click the panel.
     // Use the physical Equal key so the shortcut works regardless of Shift / keyboard layout.
@@ -1328,6 +1330,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // "Measure each part": each part of the scene switched off in turn for a moment, the GPU's and the CPU's time
   // measured with and without it — what each one costs, in one table
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
+  const scenarioBench = { on: false, phase: 'idle', frame: 0, logic: [], submit: [], frameMs: [], calls: [], tris: [], report: '', saved: null, clearRestoreForce: false, restoreForce: null, restoreForceDelay: 0 };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
     { name: 'World / area fog', off: () => { probe.fogOff = true; applyProbe(); }, on: () => { probe.fogOff = false; applyProbe(); } },
@@ -1344,9 +1347,119 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { name: 'Far shadows', off: () => { bench.farOff = true; }, on: () => { bench.farOff = false; } },
   ];
   const benchEl = () => probeEl.querySelector('.pp-bench');
+  const scenarioStatus = () => probeEl.querySelector('.pp-scenario-status');
+  const scenarioReportEl = () => probeEl.querySelector('.pp-scenario-report');
+  const scenarioCopyButton = () => probeEl.querySelector('[data-scenario-copy]');
+  const scenarioPresets = {
+    'clear-noon': { label: 'Clear · noon', hour: 12, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
+    'late-clear': { label: 'Clear · late afternoon', hour: 17, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
+    night: { label: 'Clear · night lighting', hour: 22, weather: 'clear', strength: 1, surface: 'dry', temp: 8 },
+    rain: { label: 'Rainstorm · maximum puddles', hour: 16, weather: 'rain', strength: 1.5, surface: 'puddles', temp: 12 },
+    snow: { label: 'Snowstorm · maximum snow', hour: 12, weather: 'snow', strength: 1.5, surface: 'snow2', temp: -5 },
+    fog: { label: 'Thick fog · afternoon', hour: 16, weather: 'clear', strength: 1, surface: 'dry', temp: 12, fog: 'thick' },
+  };
+  const surfacePresets = {
+    dry: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 0 },
+    puddles: { wet: 1, puddle: 1, gutter: 1, snow: 0, ice: 0, dust: 0 },
+    snow2: { wet: 0.3, puddle: 0, gutter: 0, snow: 1, ice: 0, dust: 0 },
+  };
+  const sortedMedian = values => {
+    const a = values.filter(Number.isFinite).slice().sort((x, y) => x - y);
+    if (!a.length) return NaN;
+    const m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+  const percentile95 = values => {
+    const a = values.filter(Number.isFinite).slice().sort((x, y) => x - y);
+    return a.length ? a[Math.min(a.length - 1, Math.ceil(a.length * 0.95) - 1)] : NaN;
+  };
+  const fmtMs = n => Number.isFinite(n) ? `${n.toFixed(2)} ms` : 'unavailable';
+  const saveScenarioState = () => ({
+    hour: sky.hour, cycle: sky.cycle, wx: { ...(weather.state || { kind: 'clear', strength: 1 }) },
+    clouds: weather.clouds == null ? null : { ...weather.clouds },
+    wind: weather.wind == null ? null : { ...weather.wind },
+    fog: weather.fog, aurora: weather.aurora, temp: weather.temp,
+    surface: weathering ? { ...weathering.state } : {},
+    force: weathering?.force == null ? null : { ...weathering.force },
+    ui: Object.fromEntries(['wx','wxs','cl','clc','wa','ws','fl','au','sf','ta','tv','cycle','hour'].map(k => {
+      const el = probeEl.querySelector(`[data-${k}]`); return [k, el ? (el.type === 'checkbox' ? el.checked : el.value) : null];
+    })),
+    sync: probe.sync,
+  });
+  const restoreScenarioState = () => {
+    const B = scenarioBench, old = B.saved;
+    if (!old) { B.on = false; B.phase = 'idle'; return; }
+    sky.cycle = false;
+    sky.setHour(old.hour, true);
+    weather.set(old.wx.kind || 'clear', old.wx.strength ?? 1, 0.2);
+    weather.clouds = old.clouds; weather.wind = old.wind; weather.fog = old.fog; weather.aurora = old.aurora; weather.temp = old.temp;
+    weather.retarget(0.2);
+    if (weathering) {
+      Object.assign(weathering.state, old.surface || {});
+      // One forced update restores the snow-depth texture as well as surface uniforms.
+      weathering.force = { ...(old.surface || {}) };
+      B.clearRestoreForce = true; B.restoreForce = old.force; B.restoreForceDelay = 2;
+    }
+    sky.cycle = old.cycle;
+    for (const [k, value] of Object.entries(old.ui || {})) {
+      const el = probeEl.querySelector(`[data-${k}]`);
+      if (el && value != null) { if (el.type === 'checkbox') el.checked = !!value; else el.value = value; }
+    }
+    probe.sync = old.sync;
+    B.on = false; B.phase = 'idle'; B.saved = null;
+    probeEl.querySelector('[data-scenario-run]').disabled = false;
+    scenarioStatus().textContent = 'Benchmark complete. Original time, weather, and surface settings restored.';
+    resetGpuSamples();
+  };
+  const startScenarioBenchmark = () => {
+    const B = scenarioBench;
+    if (B.on || bench.on || !weather || !sky || !weathering) {
+      scenarioStatus().textContent = 'Cannot start: finish the other benchmark first, and make sure weather/surface systems are available.';
+      return;
+    }
+    const preset = scenarioPresets[probeEl.querySelector('[data-scenario]').value] || scenarioPresets['clear-noon'];
+    B.saved = saveScenarioState();
+    B.on = true; B.phase = 'warmup'; B.frame = 0;
+    B.logic = []; B.submit = []; B.frameMs = []; B.calls = []; B.tris = [];
+    B.report = ''; B.clearRestoreForce = false; B.restoreForce = null; B.restoreForceDelay = 0;
+    probe.sync = true; sky.cycle = false; sky.setHour(preset.hour, true);
+    weather.set(preset.weather, preset.strength, 0.15);
+    weather.clouds = null; weather.wind = null; weather.fog = preset.fog || null; weather.aurora = null; weather.temp = preset.temp;
+    weather.retarget(0.15);
+    weathering.force = { ...surfacePresets[preset.surface] };
+    const q = k => probeEl.querySelector(`[data-${k}]`);
+    q('hour').value = preset.hour; q('cycle').checked = false;
+    q('wx').value = preset.weather; q('wxs').value = preset.strength;
+    q('cl').value = 'auto'; q('wa').checked = true; q('fl').value = preset.fog || 'auto'; q('au').value = 'auto';
+    q('sf').value = preset.surface; q('ta').checked = false; q('tv').value = preset.temp;
+    probeEl.querySelector('[data-scenario-run]').disabled = true;
+    scenarioCopyButton().disabled = true;
+    scenarioReportEl().textContent = '';
+    scenarioStatus().textContent = `Preparing ${preset.label}: setting weather/surfaces instantly, warming shaders and reflections…`;
+    resetGpuSamples();
+  };
+  probeEl.querySelector('[data-scenario-run]').addEventListener('click', startScenarioBenchmark);
+  probeEl.querySelector('[data-scenario-copy]').addEventListener('click', async () => {
+    const button = scenarioCopyButton();
+    if (!scenarioBench.report) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(scenarioBench.report);
+      else {
+        const area = document.createElement('textarea'); area.value = scenarioBench.report;
+        area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area);
+        area.select(); const ok = document.execCommand('copy'); area.remove();
+        if (!ok) throw new Error('Clipboard copy was blocked');
+      }
+      button.textContent = 'Copied!';
+      setTimeout(() => { if (button.isConnected) button.textContent = 'Copy benchmark report'; }, 1600);
+    } catch (err) {
+      button.textContent = 'Copy failed — select report manually';
+      console.warn('Could not copy scenario benchmark report', err);
+    }
+  });
   probeEl.addEventListener('click', e => { const id = e.target.dataset?.spawn; if (!id) return; const st = player.state, fx = -Math.sin(st.yaw), fz = -Math.cos(st.yaw);
     monsters.spawn(id, { x: st.pos.x + fx * 8, y: st.pos.y, z: st.pos.z + fz * 8, yaw: Math.atan2(-fx, -fz) }); });
-  probeEl.addEventListener('click', e => { if (e.target.dataset.bench === undefined || bench.on) return;
+  probeEl.addEventListener('click', e => { if (e.target.dataset.bench === undefined || bench.on || scenarioBench.on) return;
     Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 }, res: [], sync: probe.sync }); probe.sync = true; resetGpuSamples(); benchEl().textContent = 'Measuring…'; });
   function benchStep(logic, submit) {
     const B = bench; B.n++; if (B.n > 40 && B.n < 130) { B.acc.l += logic; B.acc.s += submit; B.acc.k++; }
@@ -1505,6 +1618,59 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       glc.deleteQuery(item.q);
     }
     if (probe.on) { probeInfo.logic = (probeInfo.logic || 0) * 0.9 + (cpu1 - cpu0) * 0.1; probeInfo.submit = (probeInfo.submit || 0) * 0.9 + (cpu2 - cpu1) * 0.1; if (probe.sync) { if (!tq) glc.readPixels(0, 0, 1, 1, glc.RGBA, glc.UNSIGNED_BYTE, px1); } probeInfo.gpuWait = (probeInfo.gpuWait || 0) * 0.9 + (performance.now() - cpu2) * 0.1; }
+    if (scenarioBench.on) {
+      const B = scenarioBench;
+      B.frame++;
+      if (B.phase === 'warmup' && B.frame >= 120) {
+        B.phase = 'measure'; B.frame = 0;
+        B.logic = []; B.submit = []; B.frameMs = []; B.calls = []; B.tris = [];
+        resetGpuSamples();
+        scenarioStatus().textContent = 'Measuring 180 frames after warm-up…';
+      } else if (B.phase === 'measure') {
+        B.logic.push(cpu1 - cpu0); B.submit.push(cpu2 - cpu1); B.frameMs.push(dt * 1000);
+        B.calls.push(probeAcc.calls); B.tris.push(probeAcc.tris);
+        if (B.frame >= 180) {
+          const preset = scenarioPresets[probeEl.querySelector('[data-scenario]').value] || scenarioPresets['clear-noon'];
+          const mainGpu = sortedMedian(probeInfo.gpuSamples.main), reflGpu = sortedMedian(probeInfo.gpuSamples.reflection);
+          const cpuGame = sortedMedian(B.logic), cpuSend = sortedMedian(B.submit);
+          const triMedian = sortedMedian(B.tris);
+          B.report = [
+            'ELDERMERE SCENARIO BENCHMARK',
+            new Date().toLocaleString(),
+            'Map: currently loaded map (not changed by benchmark)',
+            `Scenario: ${preset.label}`,
+            `Time: ${String(Math.floor(preset.hour)).padStart(2, '0')}:${String(Math.floor(preset.hour % 1 * 60)).padStart(2, '0')}`,
+            `Weather: ${preset.weather} · intensity ${preset.strength}`,
+            `Surface: ${preset.surface} · instant forced state`,
+            'Warm-up: 120 frames · measured: 180 frames',
+            '',
+            'PERFORMANCE (median / 95th percentile)',
+            `Frame delta: ${fmtMs(sortedMedian(B.frameMs))} / ${fmtMs(percentile95(B.frameMs))}`,
+            `CPU game: ${fmtMs(cpuGame)} / ${fmtMs(percentile95(B.logic))}`,
+            `CPU draw submission: ${fmtMs(cpuSend)} / ${fmtMs(percentile95(B.submit))}`,
+            `GPU main scene + postFX: ${fmtMs(mainGpu)}`,
+            `GPU reflections: ${fmtMs(reflGpu)}`,
+            `GPU measured total: ${fmtMs(Number.isFinite(mainGpu) && Number.isFinite(reflGpu) ? mainGpu + reflGpu : NaN)}`,
+            `Draw calls per frame: ${Math.round(sortedMedian(B.calls))} median`,
+            `Triangles per frame: ${Number.isFinite(triMedian) ? (triMedian / 1e6).toFixed(3) + 'M median' : 'unavailable'}`,
+            `GPU timer samples: main ${probeInfo.gpuSamples.main.length}, reflections ${probeInfo.gpuSamples.reflection.length}`,
+            '',
+            'Notes: GPU values are asynchronous timer-query measurements when supported. CPU draw-submission time is not GPU time. FPS may be capped; compare timings with the same map, camera, resolution, and character/creature state.'
+          ].join('\\n');
+          scenarioReportEl().textContent = B.report;
+          scenarioCopyButton().disabled = false;
+          scenarioStatus().textContent = 'Measurements collected. Restoring your original conditions…';
+          restoreScenarioState();
+        }
+      }
+    }
+    if (scenarioBench.clearRestoreForce && weathering) {
+      scenarioBench.restoreForceDelay--;
+      if (scenarioBench.restoreForceDelay <= 0) {
+        weathering.force = scenarioBench.restoreForce;
+        scenarioBench.clearRestoreForce = false; scenarioBench.restoreForce = null;
+      }
+    }
     if (bench.on) benchStep(cpu1 - cpu0, cpu2 - cpu1);
     if (book.isOpen && body) renderFigure();
     if (book.isOpen) renderBeast(dt);

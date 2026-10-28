@@ -45,7 +45,7 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     bucket.body = makeMesh(bodyGeo, bodyMat, bucket.key + ' bodies', next);
     bucket.head = makeMesh(headGeo, bodyMat, bucket.key + ' heads', next);
     bucket.wings = makeMesh(wingGeo, wingMat, bucket.key + ' wings', next * 2);
-    for (const mesh of old) { scene.remove(mesh); mesh.dispose(); }
+    for (const mesh of old) scene.remove(mesh);
   }
   function beginFrame() { current.length = 0; }
   function add(actor) {
@@ -75,9 +75,9 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     }
     for (const bucket of buckets.values()) {
       const n = bucket.actors.length;
-      bucket.body.count = bucket.head.count = n; bucket.wings.count = n * 2;
-      if (!n) continue;
+      if (!n) { bucket.body.count = bucket.head.count = bucket.wings.count = 0; continue; }
       ensureCapacity(bucket, n);
+      bucket.body.count = bucket.head.count = n; bucket.wings.count = n * 2;
       // Keep each cell's conservative world-space bounds tight enough for useful frustum culling.
       const cx = (bucket.gx + 0.5) * CELL, cz = (bucket.gz + 0.5) * CELL;
       const cy = (bucket.minY + bucket.maxY) * 0.5;
@@ -107,7 +107,6 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
       actor.C.root.visible = actor._batProxyWasVisible !== false; actor._batProxyHidden = false;
     }
     for (const bucket of buckets.values()) scene.remove(bucket.body, bucket.head, bucket.wings);
-    for (const bucket of buckets.values()) { bucket.body.dispose(); bucket.head.dispose(); bucket.wings.dispose(); }
     buckets.clear();
     bodyGeo.dispose(); headGeo.dispose(); wingGeo.dispose(); bodyMat.dispose(); wingMat.dispose();
   }

@@ -578,6 +578,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   return {
     spawn, actors, targets, nearTargets, groups, update,
     setBatInstancing(on) { batInstancing = !!on; },
+    setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },

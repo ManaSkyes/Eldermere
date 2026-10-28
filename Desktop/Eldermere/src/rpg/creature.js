@@ -19,7 +19,7 @@
 //
 //   const C = buildCreature(THREE, spec)  → { root, mesh, bones: { 'chain:joint' → Bone }, chain(name) → [Bone],
 //                                             skeleton, update(t), dispose() }
-export function buildCreature(THREE, spec, { particles = null } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
+export function buildCreature(THREE, spec, { particles = null, instances = null } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const root = new THREE.Group(); root.name = 'creature';
   // ---- chains (mirrored copies made here) ----
@@ -239,7 +239,7 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
   // off screen, not drawn: the bind-pose bounds grown to cover what its moves can do (a swoop, a pounce, a rear-up)
   for (const m of meshes) m.frustumCulled = true;
   // ---- parts ----
-  const parts = [], glows = [];
+  const parts = [], glows = [], instancedParts = [];
   const glowTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(cv); return t; })();
   for (const p of spec.parts || []) {
     for (const sd of p.mirror ? ['L', 'R'] : [null]) {
@@ -258,7 +258,9 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
         if (p.dir) { const d = V(p.dir[0] * fx, p.dir[1], p.dir[2]).normalize(); o.quaternion.setFromUnitVectors(V(0, 1, 0), d); }
         if (p.scale) o.scale.set(...p.scale);
       }
-      o.position.copy(at); b.add(o); parts.push(o); o.userData.noReflect = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+      o.position.copy(at); parts.push(o); o.userData.noReflect = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+      if (instances && o.isMesh) instancedParts.push(instances.register(o, b));
+      else b.add(o);
     }
   }
   // The skeleton is posed once a frame and its matrices worked out then (sync), not again by every render pass (the
@@ -266,7 +268,7 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
   root.updateMatrixWorld(true);
   root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false; for (const m of meshes) { m.updateMatrix(); m.matrixAutoUpdate = false; }
   const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
-  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); }
+  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) for (const h of instancedParts) instances.update(h); }
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     chain: name => byChain[name] || [],
@@ -276,7 +278,7 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
     update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = uniforms.uSmoke.value / (look.smoke ?? 0.6); },
-    dispose() { puffs?.remove(); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
+    dispose() { puffs?.remove(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }
 const fract = x => x - Math.floor(x);

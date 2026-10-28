@@ -1162,7 +1162,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       lines.push(`${label}: ${input?.checked ? 'ON' : 'OFF'}`);
     }
     lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
-    const copyText = lines.join('\\n');
+    const copyText = lines.join('\n');
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(copyText);
       else {

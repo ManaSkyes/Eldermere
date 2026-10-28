@@ -1258,7 +1258,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     button.disabled = true; status.textContent = 'Running…'; output.textContent = 'Starting workers and warming up…';
     try {
       workerStressReport = await runWorkerStressTest();
-      const rows = workerStressReport.results.map(r => `  ${r.workers} worker(s): ${r.elapsedMs.toFixed(1)} ms · ${r.iterationsPerSecond.toLocaleString()} iterations/s · ${r.speedupVsFirst}× vs first · startup ${r.initMs.toFixed(1)} ms · checksum ${r.valid ? 'PASS' : 'FAIL'}`);
+      const rows = workerStressReport.results.map(r => `  ${r.workers} worker(s): ${r.elapsedMs.toFixed(1)} ms · ${r.iterationsPerSecond.toLocaleString()} iterations/s · ${r.speedupVsFirst}× vs first · startup ${r.initMs.toFixed(1)} ms · warm-up ${r.warmupMs.toFixed(1)} ms · checksum ${r.valid ? 'PASS' : 'FAIL'}`);
       output.textContent = [
         `Logical processors reported: ${workerStressReport.hardwareConcurrency ?? 'unknown'}`,
         `Recommended pool size: ${workerStressReport.recommendedWorkers}`,

@@ -551,7 +551,46 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   const frustum = new THREE.Frustum(), pmat = new THREE.Matrix4(), sph = new THREE.Sphere(new THREE.Vector3(), 3); let frameN = 0;
   const nearTargets = [], barCand = [], barShown = new Set();
-  const VIS = 55, WAKE = 70;   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
+  const VIS = 55, WAKE = 70;
+  // One shared, soft contact-shadow batch for every creature: no shadow maps and one draw call.
+  const shadowSize = 32, shadowPixels = new Uint8Array(shadowSize * shadowSize * 4);
+  for (let y = 0; y < shadowSize; y++) for (let x = 0; x < shadowSize; x++) {
+    const dx = (x + 0.5) / shadowSize * 2 - 1, dz = (y + 0.5) / shadowSize * 2 - 1;
+    const r = Math.sqrt(dx * dx + dz * dz), a = Math.max(0, 1 - r);
+    const i = (y * shadowSize + x) * 4;
+    shadowPixels[i] = shadowPixels[i + 1] = shadowPixels[i + 2] = 255;
+    shadowPixels[i + 3] = Math.round(255 * a * a * (3 - 2 * a));
+  }
+  const shadowTexture = new THREE.DataTexture(shadowPixels, shadowSize, shadowSize, THREE.RGBAFormat);
+  shadowTexture.needsUpdate = true; shadowTexture.magFilter = THREE.LinearFilter; shadowTexture.minFilter = THREE.LinearFilter; shadowTexture.generateMipmaps = false;
+  const shadowGeometry = new THREE.PlaneGeometry(1, 1);
+  const shadowMaterial = new THREE.MeshBasicMaterial({ map: shadowTexture, color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const shadowBatch = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, 4096);
+  shadowBatch.name = 'creature-contact-shadows'; shadowBatch.count = 0; shadowBatch.frustumCulled = false; shadowBatch.renderOrder = 1;
+  scene.add(shadowBatch);
+  const shadowDummy = new THREE.Object3D(), shadowColor = new THREE.Color();
+  function updateCreatureShadows(player) {
+    let count = 0;
+    for (const A of actors) {
+      if (!A.alive || !A.attached || count >= shadowBatch.instanceMatrix.count) continue;
+      const dx = A.pos.x - player.pos.x, dz = A.pos.z - player.pos.z, d2 = dx * dx + dz * dz;
+      if (d2 > VIS * VIS) continue;
+      const lift = Math.max(0, A.alt || 0) + (A.M.hover || 0);
+      const radius = Math.max(0.32, Math.min(1.35, (A.M.stats.radius || 0.5) * 1.35));
+      const spread = 1 + Math.min(2.5, lift * 0.22);
+      shadowDummy.position.set(A.pos.x, A.pos.y + 0.025, A.pos.z);
+      shadowDummy.rotation.set(-Math.PI / 2, 0, 0);
+      shadowDummy.scale.set(radius * 2.4 * spread, radius * 1.65 * spread, 1);
+      shadowDummy.updateMatrix(); shadowBatch.setMatrixAt(count, shadowDummy.matrix);
+      const fade = Math.min(1, lift / 5);
+      shadowColor.setRGB(0.12 + fade * 0.5, 0.12 + fade * 0.5, 0.14 + fade * 0.52);
+      shadowBatch.setColorAt(count, shadowColor);
+      count++;
+    }
+    shadowBatch.count = count;
+    shadowBatch.instanceMatrix.needsUpdate = true;
+    if (shadowBatch.instanceColor) shadowBatch.instanceColor.needsUpdate = true;
+  }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
   function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
   function update(dt, player, hooks = {}) {
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
@@ -641,6 +680,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
     }
+    updateCreatureShadows(player);
     batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
     barCand.sort((a, b) => a.barD - b.barD);
@@ -656,6 +696,6 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

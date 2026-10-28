@@ -36,18 +36,29 @@ export async function runWorkerStressTest({ totalIterations = 2_400_000, workerC
         const end = Math.floor(totalIterations * (chunk + 1) / chunks);
         tasks.push({ type: 'cpu-stress', payload: { start, end, seed } });
       }
-      const start = now();
-      const parts = await pool.runBatch(tasks);
-      const elapsedMs = now() - start;
-      const checksum = parts.reduce((sum, part) => (sum + part.checksum) >>> 0, 0);
-      const signal = parts.reduce((sum, part) => sum + part.signal, 0);
+      const samples = [], checksums = [], signals = [];
+      let valid = true;
       const reference = checksumRange(0, totalIterations, seed);
-      const valid = checksum === reference && parts.reduce((sum, p) => sum + (p.end - p.start), 0) === totalIterations;
+      for (let sample = 0; sample < 3; sample++) {
+        const start = now();
+        const parts = await pool.runBatch(tasks);
+        samples.push(now() - start);
+        const checksum = parts.reduce((sum, part) => (sum + part.checksum) >>> 0, 0);
+        const signal = parts.reduce((sum, part) => sum + part.signal, 0);
+        const covered = parts.reduce((sum, part) => sum + (part.end - part.start), 0);
+        checksums.push(checksum); signals.push(signal);
+        valid = valid && checksum === reference && covered === totalIterations;
+      }
+      const sorted = [...samples].sort((a, b) => a - b);
+      const elapsedMs = sorted[1];
+      const checksum = checksums[checksums.length - 1];
+      const signal = signals[signals.length - 1];
       if (expectedChecksum == null) expectedChecksum = checksum;
       results.push({
-        workers: count, iterations: totalIterations, initMs, warmupMs, elapsedMs,
+        workers: count, iterations: totalIterations, repeats: samples.length, samplesMs: samples.map(n => Number(n.toFixed(1))),
+        initMs, warmupMs, elapsedMs,
         iterationsPerSecond: Math.round(totalIterations / Math.max(0.001, elapsedMs / 1000)),
-        speedupVsFirst: null, checksum, valid: valid && checksum === expectedChecksum,
+        speedupVsFirst: null, checksum, valid: valid && checksums.every(n => n === expectedChecksum),
         signal: Number(signal.toFixed(4)),
       });
     } finally {

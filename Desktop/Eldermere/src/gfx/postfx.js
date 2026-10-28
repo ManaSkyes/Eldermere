@@ -77,7 +77,7 @@ export function createPostFX(THREE, renderer) {
     api.afterScene?.(sceneRT, camera);                                                         // (the reflections take their copy here)
     if (bloom > 0) {
       bright.uniforms.tex.value = sceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / sceneRT.width, 1 / sceneRT.height); pass(bright, rtA);
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 1; i++) { // one separable blur iteration: two quarter-resolution passes instead of four
         blur.uniforms.tex.value = rtA.texture; blur.uniforms.dir.value.set(1 / rtA.width, 0); pass(blur, rtB);
         blur.uniforms.tex.value = rtB.texture; blur.uniforms.dir.value.set(0, 1 / rtA.height); pass(blur, rtA);
       }

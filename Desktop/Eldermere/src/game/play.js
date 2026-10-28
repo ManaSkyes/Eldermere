@@ -245,6 +245,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     else { scene.fog.color.copy(S.fog); scene.fog.near = S.near; scene.fog.far = S.far; }
     // a screech's darkness on you: you see a tenth as far (the fog closes in, dark), less as it wears off
     if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; scene.fog.far = scene.fog.far * (1 - k + k * sight); scene.fog.near = Math.min(scene.fog.near, scene.fog.far * 0.25); scene.fog.color.lerp(blind.col, k * 0.85); }
+    if (probe.fogOff) { scene.fog.near = 1e6; scene.fog.far = 1e6 + 1; } // diagnostic: isolate world/area fog from post-processing
   }
   // ---- what monsters' auras lay on you: less sight, less hearing (src/game/monsterActors.js debuff) ----
   const blind = { k: 0, t: 0, sight: 1, hearing: 1, col: new THREE.Color('#05030a') };
@@ -678,7 +679,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   addEventListener('resize', resize); resize();
 
   // ---- pause and controls ----
-  const probe = { on: false, open: false, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, umbraParts: true, umbra2weight: false, buildings: true, ground: true, water: true, glow: true, bloomOff: false, blurOff: false, toneMapOff: false, gradeOff: false, vignetteOff: false, scale: 1 };
+  const probe = { on: false, open: false, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, umbraParts: true, umbra2weight: false, buildings: true, ground: true, water: true, glow: true, fogOff: false, bloomOff: false, blurOff: false, toneMapOff: false, gradeOff: false, vignetteOff: false, scale: 1 };
   const showPause = on => { pause.hidden = !on; root.querySelector('.play').classList.toggle('is-paused', on); };
   input.on('lock', () => { probe.open = false; showPause(false); audio.start(); });
   input.on('unlock', () => { if (invOpen || probe.open) return; showPause(true); showControls(false); });
@@ -1138,7 +1139,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>Performance (F8)</b><span style="display:flex;gap:5px"><button type="button" data-copy-data style="cursor:pointer;white-space:nowrap">Copy data to clipboard</button><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></span></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" ${k === 'umbra2weight' ? '' : 'checked'}> ${t}</label>`).join('') +
     `<details open style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Post-processing diagnostics (A/B)</summary>` +
-    [['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details>` +
+    [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync"> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +
@@ -1172,7 +1173,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
     lines.push('', 'Post-processing diagnostics');
-    for (const [key, label] of [['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
+    for (const [key, label] of [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
     lines.push('', 'Post-processing pass timings (CPU submission; not GPU)');
     for (const [name, q] of Object.entries(fx.passStats || {})) lines.push(`${name}: ${q.avgMs.toFixed(3)} ms · ${q.calls} calls · ${q.triangles} triangles`);
     const copyText = lines.join('\n');
@@ -1202,7 +1203,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       ['Trees and bushes', !probe.trees ? 'Disabled' : counts.treeInstances ? 'Instanced · ' + counts.treeInstances + ' visible LOD instances' : 'Instanced renderer · no trees in range'], ['Grass, flowers and reeds', !probe.small ? 'Disabled' : counts.foliageInstances ? 'Instanced · ' + counts.foliageInstances + ' visible LOD instances' : 'Instanced renderer · no small plants in range'], ['Reserve bat instancing', probe.batinst ? (counts.batInstances ? 'Enabled · ' + counts.batInstances + ' proxy bats' : 'Enabled · no reserve bats currently visible') : 'Disabled · full creature models used'],
       ['Instanced Umbrafiend details', probe.umbraParts ? 'Enabled' : 'Disabled'], ['Umbrafiend skinning variant', probe.umbra2weight ? 'Two-influence shader' : 'Standard four-influence shader'],
       ['Buildings, props and rocks', !probe.buildings ? 'Disabled' : counts.buildings ? 'Enabled · ' + counts.buildings + ' tagged objects' : 'Enabled · no tagged objects'], ['Ground and roads', !probe.ground ? 'Disabled' : counts.ground ? 'Enabled · ' + counts.ground + ' tagged objects' : 'Enabled · no tagged objects'], ['Water', !probe.water ? 'Disabled' : counts.water ? 'Enabled · ' + counts.water + ' tagged objects' : 'Enabled · no tagged objects'],
-      ['Glow / post-processing', probe.glow ? 'Enabled' : 'Disabled'], ['Bloom extraction + blur', probe.bloomOff ? 'Disabled' : 'Enabled'], ['Bloom blur', probe.blurOff ? 'Disabled' : 'Enabled'], ['ACES tone mapping', probe.toneMapOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Color grade', probe.gradeOff ? 'Disabled' : 'Enabled'], ['Vignette', probe.vignetteOff ? 'Disabled' : 'Enabled'], ['Puddle reflections', reflections && reflections.mode !== 'off' ? reflections.mode : 'Off'],
+      ['Glow / post-processing', probe.glow ? 'Enabled' : 'Disabled'], ['World / area fog', probe.fogOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Bloom extraction + blur', probe.bloomOff ? 'Disabled' : 'Enabled'], ['Bloom blur', probe.blurOff ? 'Disabled' : 'Enabled'], ['ACES tone mapping', probe.toneMapOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Color grade', probe.gradeOff ? 'Disabled' : 'Enabled'], ['Vignette', probe.vignetteOff ? 'Disabled' : 'Enabled'], ['Puddle reflections', reflections && reflections.mode !== 'off' ? reflections.mode : 'Off'],
       ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
       ['GPU timing method', tq ? 'Asynchronous GPU timer query' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured']
     ];
@@ -1244,7 +1245,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (ds.au !== undefined) { weather.aurora = q('au').value === 'auto' ? null : q('au').value === 'on' ? 1 : 0; weather.retarget(4); } });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.fx; if (!k) return; probe[k] = e.target.checked; applyProbe(); });
-  const closeProbe = () => { probe.on = probe.open = false; probe.sync = false; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = r[0] !== 'umbra2weight'; for (const k of ['bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = i.dataset.p !== 'sync' && i.dataset.p !== 'umbra2weight'; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
+  const closeProbe = () => { probe.on = probe.open = false; probe.sync = false; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = r[0] !== 'umbra2weight'; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = i.dataset.p !== 'sync' && i.dataset.p !== 'umbra2weight'; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
     // Capture immediately with '=' while the monitor is active, without needing to click the panel.
     // Use the physical Equal key so the shortcut works regardless of Shift / keyboard layout.
@@ -1312,6 +1313,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
+    { name: 'World / area fog', off: () => { probe.fogOff = true; applyProbe(); }, on: () => { probe.fogOff = false; applyProbe(); } },
     { name: 'PostFX: bloom extraction + blur', off: () => { probe.bloomOff = true; applyProbe(); }, on: () => { probe.bloomOff = false; applyProbe(); } },
     { name: 'PostFX: blur only', off: () => { probe.blurOff = true; applyProbe(); }, on: () => { probe.blurOff = false; applyProbe(); } },
     { name: 'PostFX: ACES tone mapping', off: () => { probe.toneMapOff = true; applyProbe(); }, on: () => { probe.toneMapOff = false; applyProbe(); } },

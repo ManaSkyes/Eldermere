@@ -238,7 +238,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const webMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0.94, skinning: true, emissive: new THREE.Color(look.webGlow || '#000000') });
   const smokeWebMat = look.shade ? smokeWebMaterial(THREE, uniforms, look) : null;
   // (all the membranes of one kind are one mesh: a bat's eight wing panels were eight skinned draws)
-  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
+  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
   // off screen, not drawn: the bind-pose bounds grown to cover what its moves can do (a swoop, a pounce, a rear-up)
   for (const m of meshes) m.frustumCulled = true;
   // ---- parts ----
@@ -257,7 +257,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
         const g = p.kind === 'cone' ? new THREE.ConeGeometry(p.r, p.len, 6) : new THREE.SphereGeometry(p.r, 12, 8);
         if (p.kind === 'cone') g.translate(0, p.len / 2, 0);
         const mat = p.emissive ? new THREE.MeshBasicMaterial({ color: p.emissive, transparent: !!p.opacity, opacity: p.opacity ?? 1 }) : new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color || '#ddd').convertSRGBToLinear(), roughness: 0.5 });
-        o = new THREE.Mesh(g, mat); o.castShadow = !p.emissive;
+        o = new THREE.Mesh(g, mat); o.castShadow = !look.shade && !p.emissive;
         if (p.dir) { const d = V(p.dir[0] * fx, p.dir[1], p.dir[2]).normalize(); o.quaternion.setFromUnitVectors(V(0, 1, 0), d); }
         if (p.scale) o.scale.set(...p.scale);
       }

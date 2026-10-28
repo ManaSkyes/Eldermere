@@ -38,6 +38,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const blocked = (a, b) => lineBlocked(near(a, b), a, b);
   const actors = [], targets = [], shots = [];
   const batSwarm = createBatSwarmInstances(THREE, scene);
+  let batInstancing = true;
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
   function bar() {
@@ -529,7 +530,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
       // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
       // their actor, target, flight path and group brain remain individual and unchanged.
-      if (A.id === 'nocturianBat' && G.kind === 'swarm' && A.layer > 0 && vis && !A.mo.actName && A.alive) batSwarm.add(A);
+      if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && A.layer > 0 && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
         A.C.puffs.lod = tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15; }
@@ -552,6 +553,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
+    setBatInstancing(on) { batInstancing = !!on; },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },

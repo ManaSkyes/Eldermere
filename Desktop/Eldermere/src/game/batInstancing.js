@@ -15,15 +15,15 @@ export function createBatSwarmInstances(THREE, scene, capacity = 512) {
   wingGeo.setIndex(I); wingGeo.computeVertexNormals();
   const bodyMat = new THREE.MeshStandardMaterial({ color: '#21172d', roughness: 0.92, metalness: 0 });
   const wingMat = new THREE.MeshStandardMaterial({ color: '#180f24', roughness: 1, side: THREE.DoubleSide });
-  const batch = (geo, mat, name) => {
-    const mesh = new THREE.InstancedMesh(geo, mat, capacity);
+  const batch = (geo, mat, name, max = capacity) => {
+    const mesh = new THREE.InstancedMesh(geo, mat, max);
     mesh.name = 'Instanced Nocturian swarm · ' + name;
     mesh.count = 0; mesh.frustumCulled = false; mesh.castShadow = false; mesh.receiveShadow = false;
     mesh.userData.instancedBatSwarm = true; scene.add(mesh); return mesh;
   };
   const body = batch(bodyGeo, bodyMat, 'bodies');
   const head = batch(headGeo, bodyMat, 'heads');
-  const wings = batch(wingGeo, wingMat, 'wings');
+  const wings = batch(wingGeo, wingMat, 'wings', capacity * 2);
   const root = new THREE.Object3D(), b = new THREE.Object3D(), h = new THREE.Object3D(), wl = new THREE.Object3D(), wr = new THREE.Object3D();
   root.add(b, h, wl, wr);
   b.position.set(0, 0, 0); b.scale.set(1.05, 0.85, 1.35);

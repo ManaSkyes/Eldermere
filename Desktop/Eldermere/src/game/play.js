@@ -679,6 +679,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
 
   // ---- pause and controls ----
   const probe = { on: false, open: false, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, buildings: true, ground: true, water: true, glow: true, scale: 1 };
+  const POSTFX_PROBE = [
+    ['bloomExtraction', 'Bloom extraction'],
+    ['bloomBlur', 'Bloom blur'],
+    ['toneMapping', 'ACES tone mapping'],
+    ['colorGrade', 'Color grading'],
+    ['vignette', 'Vignette'],
+  ];
+  const postFxProbeState = { bloomExtraction: true, bloomBlur: true, toneMapping: true, colorGrade: true, vignette: true };
   const showPause = on => { pause.hidden = !on; root.querySelector('.play').classList.toggle('is-paused', on); };
   input.on('lock', () => { probe.open = false; showPause(false); audio.start(); });
   input.on('unlock', () => { if (invOpen || probe.open) return; showPause(true); showControls(false); });
@@ -1130,6 +1138,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
   probeEl.innerHTML = `<b>Performance (F8)</b><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
+    `<div style="border-top:1px solid #5a5490;margin-top:7px;padding-top:5px;font-weight:600">Post-processing (live switches)</div>` +
+    POSTFX_PROBE.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" checked> ${t}</label>`).join('') +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Makes the CPU wait each frame until the GPU has finished, so its time shows separately (slows the game a little while on)"><input type="checkbox" data-p="sync"> Time the GPU (waits for it)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +
@@ -1152,6 +1162,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     sun.castShadow = probe.shadows;
     const fl = dungeonLights?.foliage; if (fl) { fl.hideBig = !probe.trees; fl.hideSmall = !probe.small; fl.dirty = true; }
     fx.probeOff = !probe.glow;
+    fx.setEffects(postFxProbeState);
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
   probeEl.addEventListener('input', e => { if (e.target.dataset.hour !== undefined) sky.setHour(+e.target.value, true); });
@@ -1164,8 +1175,23 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (ds.sf !== undefined && weathering) weathering.force = { auto: null, dry: { wet: 0, puddle: 0, gutter: 0, snow: 0 }, wet: { wet: 1, puddle: 0, gutter: 0, snow: 0 }, puddles: { wet: 1, puddle: 1, gutter: 1, snow: 0 }, snow1: { wet: 0.2, puddle: 0, snow: 0.45 }, snow2: { wet: 0.3, puddle: 0, snow: 1 }, ice: { wet: 1, puddle: 0.8, gutter: 0.6, snow: 0, ice: 1 }, dust: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 1 } }[q('sf').value];
     if (ds.ta !== undefined || ds.tv !== undefined) { if (ds.tv !== undefined) q('ta').checked = false; weather.temp = q('ta').checked ? null : +q('tv').value; }
     if (ds.au !== undefined) { weather.aurora = q('au').value === 'auto' ? null : q('au').value === 'on' ? 1 : 0; weather.retarget(4); } });
-  probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
-  const closeProbe = () => { probe.on = probe.open = false; probe.sync = false; probeEl.hidden = true; for (const r of PROBE_ROWS) probe[r[0]] = true; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => i.checked = i.dataset.p !== 'sync'); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
+  probeEl.addEventListener('change', e => {
+    const fxKey = e.target.dataset.fx;
+    if (fxKey) {
+      postFxProbeState[fxKey] = e.target.checked;
+      fx.setEffects(postFxProbeState);
+      return;
+    }
+    const k = e.target.dataset.p;
+    if (!k) return;
+    probe[k] = k === 'scale' ? +e.target.value : e.target.checked;
+    if (k !== 'sync') applyProbe();
+  });
+  const closeProbe = () => { probe.on = probe.open = false; probe.sync = false; probeEl.hidden = true; for (const r of PROBE_ROWS) probe[r[0]] = true; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => {
+      if (i.dataset.p) i.checked = i.dataset.p !== 'sync';
+      if (i.dataset.fx) { i.checked = true; postFxProbeState[i.dataset.fx] = true; }
+    });
+    probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
     if (e.code === 'Escape' && probe.on && !input.locked) { e.preventDefault(); closeProbe(); return; }
     if (e.code !== 'F8') return; e.preventDefault();
@@ -1224,6 +1250,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
+    ...POSTFX_PROBE.map(([k, t]) => ({ name: t, off: () => { postFxProbeState[k] = false; fx.setEffects(postFxProbeState); }, on: () => { postFxProbeState[k] = true; fx.setEffects(postFxProbeState); } })),
     { name: 'Puddle reflections', off: () => { bench.rm = reflections?.mode; if (reflections) reflections.mode = 'off'; }, on: () => { if (reflections) reflections.mode = bench.rm; } },
     { name: 'Lamp light on surfaces', off: () => { if (weathering) weathering.lampsOff = true; }, on: () => { if (weathering) weathering.lampsOff = false; } },
     { name: 'Your character', off: () => { bench.hideBody = true; }, on: () => { bench.hideBody = false; } },

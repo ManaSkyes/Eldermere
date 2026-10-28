@@ -33,15 +33,22 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
     batch.items.pop(); batch.mesh.count = batch.items.length; batch.mesh.instanceMatrix.needsUpdate = true; handle.batch = null; handle.slot = -1;
   }
   function register(source, bone) {
-    const handle = { source, bone, local: source.matrix.clone(), batch: null, slot: -1, active: true };
+    const handle = { source, bone, local: source.matrix.clone(), batch: null, slot: -1, active: true, visible: true };
     handles.add(handle);
     if (enabled) addToBatch(handle); else { bone.add(source); source.visible = true; }
     return handle;
   }
+  const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
   function update(handle) {
     if (!handle?.active || !handle.batch) return;
-    handle.batch.mesh.setMatrixAt(handle.slot, new THREE.Matrix4().multiplyMatrices(handle.bone.matrixWorld, handle.local));
+    handle.batch.mesh.setMatrixAt(handle.slot, handle.visible === false ? hiddenMatrix : new THREE.Matrix4().multiplyMatrices(handle.bone.matrixWorld, handle.local));
     handle.batch.mesh.instanceMatrix.needsUpdate = true;
+  }
+  function setVisible(handle, visible) {
+    if (!handle?.active) return;
+    handle.visible = !!visible;
+    if (handle.batch) update(handle);
+    else handle.source.visible = handle.visible;
   }
   function unregister(handle) {
     if (!handle?.active) return;
@@ -51,10 +58,10 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
     on = !!on; if (on === enabled) return; enabled = on;
     for (const h of handles) {
       if (enabled) addToBatch(h);
-      else { removeFromBatch(h); h.bone.add(h.source); h.source.visible = true; }
+      else { removeFromBatch(h); h.bone.add(h.source); h.source.visible = h.visible !== false; }
     }
   }
-  return { register, update, unregister, setEnabled, get enabled() { return enabled; }, get counts() {
+  return { register, update, setVisible, unregister, setEnabled, get enabled() { return enabled; }, get counts() {
     let batchesN = 0, instancesN = 0; for (const b of batches.values()) { batchesN++; instancesN += b.items.length; }
     return { batches: batchesN, instances: instancesN };
   } };

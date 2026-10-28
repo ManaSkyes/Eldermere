@@ -516,6 +516,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       const d = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z), fighting = G.state === 'fight';
       sph.center.set(A.pos.x, A.pos.y + 1 + (A.alt || 0), A.pos.z); const on = !hooks.ear || frustum.intersectsSphere(sph);
       let tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
+      // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
+      // Keep only the first 30 bat visuals while that merged swarm is idle; the remaining actors still exist and
+      // participate in AI/combat, and the full combat tower/display rules take over when the group engages.
+      if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
       if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
       if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
       A.near = d < 7 && tier < 2;

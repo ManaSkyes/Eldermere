@@ -1381,6 +1381,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     fog: weather.fog, aurora: weather.aurora, temp: weather.temp,
     surface: weathering ? { ...weathering.state } : {},
     force: weathering?.force == null ? null : { ...weathering.force },
+    reflectionMode: reflections?.mode || settings.reflections || 'planar',
     ui: Object.fromEntries(['wx','wxs','cl','clc','wa','ws','fl','au','sf','ta','tv','cycle','hour'].map(k => {
       const el = probeEl.querySelector(`[data-${k}]`); return [k, el ? (el.type === 'checkbox' ? el.checked : el.value) : null];
     })),
@@ -1401,6 +1402,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       B.clearRestoreForce = true; B.restoreForce = old.force; B.restoreForceDelay = 2;
     }
     sky.cycle = old.cycle;
+    if (reflections) reflections.mode = old.reflectionMode || 'planar';
     for (const [k, value] of Object.entries(old.ui || {})) {
       const el = probeEl.querySelector(`[data-${k}]`);
       if (el && value != null) { if (el.type === 'checkbox') el.checked = !!value; else el.value = value; }
@@ -1427,6 +1429,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     weather.clouds = null; weather.wind = null; weather.fog = preset.fog || null; weather.aurora = null; weather.temp = preset.temp;
     weather.retarget(0.15);
     weathering.force = { ...surfacePresets[preset.surface] };
+    // A puddle benchmark must actually exercise the mirror pass even if the player's saved option is Off/SSR.
+    // Snow intentionally suppresses puddle reflections in reflections.js while the snow layer covers the ground.
+    if (preset.surface === 'puddles' && reflections) reflections.mode = 'planar';
     const q = k => probeEl.querySelector(`[data-${k}]`);
     q('hour').value = preset.hour; q('cycle').checked = false;
     q('wx').value = preset.weather; q('wxs').value = preset.strength;
@@ -1642,6 +1647,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
             `Time: ${String(Math.floor(preset.hour)).padStart(2, '0')}:${String(Math.floor(preset.hour % 1 * 60)).padStart(2, '0')}`,
             `Weather: ${preset.weather} · intensity ${preset.strength}`,
             `Surface: ${preset.surface} · instant forced state`,
+            `Reflections: ${preset.surface === 'puddles' ? 'planar mirror forced on for this test' : preset.surface === 'snow2' ? 'suppressed by snow cover (expected)' : (reflections?.mode || 'unavailable')}`,
             'Warm-up: 120 frames · measured: 180 frames',
             '',
             'PERFORMANCE (median / 95th percentile)',

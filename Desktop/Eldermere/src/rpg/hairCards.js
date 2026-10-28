@@ -202,7 +202,7 @@ export function createHairRenderer(THREE, { headBone, skeleton, bindMatrix = nul
 export function makeGuideSim(guides, head) {
   const n = SEG + 1, G = guides.length;
   const rest = new Float32Array(G * n * 3), p = new Float32Array(G * n * 3), prev = new Float32Array(G * n * 3), seg = new Float32Array(G * n);
-  const bend = new Float32Array(G * n), pull = new Float32Array(G * n), dampK = new Float32Array(G * n), tied = new Uint8Array(G), restInside = new Uint8Array(G * n);
+  const bend = new Float32Array(G * n), pull = new Float32Array(G * n), dampK = new Float32Array(G * n), tied = new Uint8Array(G), activeFrom = new Uint8Array(G), restInside = new Uint8Array(G * n);
   // Whether each rest-pose point starts inside the skull is invariant for this hairstyle.
   // Cache it once so every 60 Hz physics tick can skip the inverse transform and ellipsoid test
   // for points that are intentionally embedded in the scalp/face.
@@ -210,8 +210,11 @@ export function makeGuideSim(guides, head) {
   // (the rest becomes swing); inertia — how much speeding up and slowing down throws it; stiffness, damping, gravity
   const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
   guides.forEach((gd, k) => {
-    tied[k] = gd.loose === 0 ? 1 : 0; let L = 0;
+    tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;
     gd.points.forEach((q, s) => { const i = k * n + s; rest.set(q, i * 3); if (s) { const a = gd.points[s - 1]; seg[i] = Math.hypot(q[0] - a[0], q[1] - a[1], q[2] - a[2]); L += seg[i]; }
+      // The first 25 cm are strongly style-locked; keep them on the authored curve and simulate only the free length.
+      // Very short loose hair therefore needs no point physics, while the card geometry and guide texture stay unchanged.
+      if (L >= 0.25 && activeFrom[k] === n) activeFrom[k] = s;
       const ex = (q[0] - head.C[0]) / (head.Rad[0] * 0.9), ey = (q[1] - head.C[1]) / (head.Rad[1] * 0.9), ez = (q[2] - head.C[2]) / (head.Rad[2] * 0.9);
       restInside[i] = ex * ex + ey * ey + ez * ez < 1 ? 1 : 0;
       const u = Math.max(0, Math.min(1, (L - 0.25) / 1.6)), f = u * u * (3 - 2 * u);   // free from ~2.5 cm, fully free by ~18 cm (decimetres)
@@ -275,7 +278,7 @@ export function makeGuideSim(guides, head) {
       const o0 = k * n * 3; xf(WM, rest, o0, p, o0); prev[o0] = p[o0]; prev[o0 + 1] = p[o0 + 1]; prev[o0 + 2] = p[o0 + 2];   // the root rides the head
       for (let s = 1; s < n; s++) {
         const i = k * n + s, o = i * 3, q = o - 3;
-        if (tied[k]) { xf(WM, rest, o, p, o); prev[o] = p[o]; prev[o + 1] = p[o + 1]; prev[o + 2] = p[o + 2]; continue; }
+        if (tied[k] || s < activeFrom[k]) { xf(WM, rest, o, p, o); prev[o] = p[o]; prev[o + 1] = p[o + 1]; prev[o + 2] = p[o + 2]; continue; }
         const gust = 0.6 + 0.4 * Math.sin(t * 1.7 + k * 0.37 + s * 0.2);
         const damp = Math.min(0.9, dampK[i] * dm), fr = s / n;
         for (let a = 0; a < 3; a++) { const cur = p[o + a]; p[o + a] = cur + (cur - prev[o + a]) * (1 - damp) + (a === 1 ? g : 0) + wind[a] * wk * gust * fr + (a === 0 ? ix : a === 1 ? iy : iz) * fr; prev[o + a] = cur; }

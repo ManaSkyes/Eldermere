@@ -70,7 +70,7 @@ h1{font-size:18px;margin:0 0 5px}p{color:var(--muted);line-height:1.45;margin:7p
   animatedWingMat.onBeforeCompile = shader => {
     shader.uniforms.uTime = {value:0};
     shader.vertexShader = shader.vertexShader.replace('#include <common>','#include <common>\nuniform float uTime;\nattribute float aPhase;');
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex','#include <begin_vertex\ntransformed.y += abs(position.x) * sin(uTime * 12.0 + aPhase) * 0.42;');
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\ntransformed.y += abs(position.x) * sin(uTime * 12.0 + aPhase) * 0.42;');
     animatedWingMat.userData.shader = shader;
   };
   const dummy = new THREE.Object3D(), local = new THREE.Object3D();

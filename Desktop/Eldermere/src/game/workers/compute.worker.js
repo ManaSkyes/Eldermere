@@ -22,3 +22,5 @@ self.onmessage = ({ data }) => {
     self.postMessage({ id, ok: false, error: error?.message || String(error) });
   }
 };
+
+self.postMessage({ type: 'ready' });

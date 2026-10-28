@@ -85,7 +85,6 @@ export function startPlay(root, save, { onExit }) {
           <div class="pause-main">
             <button class="btn" data-act="resume">Click to play</button>
             <button class="btn ghost" data-act="controls">Controls</button>
-            <button class="btn ghost" data-act="performance">Advanced performance monitor (F8)</button>
             <button class="btn ghost" data-act="exit">Leave the test grounds</button>
           </div>
           <div class="pause-controls" hidden></div>
@@ -1174,13 +1173,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     setProbeExpanded(!probeExpanded);
   });
   setProbeExpanded(false);
-  // Keep the advanced monitor discoverable from the pause menu as well as the F8 shortcut.
-  $('[data-act=performance]').onclick = () => {
-    probe.on = probe.open = true;
-    probeEl.hidden = false;
-    input.unlock();
-    showPause(false);
-  };
   const isCrystalLight = o => o.color && (o.color.getHexString() === '6fb6ff' || o.color.getHexString() === '8ac8ff');
   const applyProbe = () => {
     scene.traverse(o => {

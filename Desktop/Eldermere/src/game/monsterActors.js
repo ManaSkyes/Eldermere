@@ -43,6 +43,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
   let batInstancing = true, umbrafiendTwoInfluence = false;
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
+  const motionOpts = { speed: 0, ik: false };   // reused for each actor's synchronous pose update
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
   function bar() {
     const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8;
@@ -674,8 +675,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
         const every = isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
-        if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)) }); A.lodDt = 0; placeBody(A); }
-      } else { if (A.mo.actName) { A.mo.update(A.lodDt, { speed: 0, ik: false }); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
+        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
+      } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)

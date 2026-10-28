@@ -1679,6 +1679,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
             `Scenario: ${preset.label}`,
             `Time: ${String(Math.floor(preset.hour)).padStart(2, '0')}:${String(Math.floor(preset.hour % 1 * 60)).padStart(2, '0')}`,
             `Weather: ${preset.weather} · intensity ${preset.strength}`,
+            `Atmospheric haze prototype: ${atmosphereSettings.enabled ? `ON · start ${atmosphereSettings.start} · end ${atmosphereSettings.end} · strength ${atmosphereSettings.strength}` : 'OFF'}`,
             `Surface: ${preset.surface} · instant forced state`,
             `Reflections: ${preset.surface === 'puddles' ? 'planar mirror forced on for this test' : preset.surface === 'snow2' ? 'suppressed by snow cover (expected)' : (reflections?.mode || 'unavailable')}`,
             'Warm-up: 120 frames · measured: 180 frames',

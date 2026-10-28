@@ -524,8 +524,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.poise = Math.min(A.maxPoise, A.poise + A.maxPoise * 0.12 * dt);
       // ---- detail tiers ----
       //   0 engaged and close (or mid-attack): everything, every frame
-      //   1 on screen within 35 m: animated every 2nd frame (feet only within 15 m)
-      //   2 on screen, 35–55 m: animated every 6th frame, a trickle of smoke
+      //   1 on screen within 35 m: other monsters animate every 2nd frame (feet only within 15 m)
+      //   2 on screen, 35–55 m: other monsters animate every 6th frame, a trickle of smoke
       //   3 off screen or past 55 m: taken out of the scene (no draw, no matrix walk, no smoke), not animated
       const d = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z), fighting = G.state === 'fight';
       sph.center.set(A.pos.x, A.pos.y + 1 + (A.alt || 0), A.pos.z); const on = !hooks.ear || frustum.intersectsSphere(sph);
@@ -538,8 +538,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
       const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
-      // Umbrafiends keep their full bodies and actors at every distance, but the soft shadow details
-      // and pose refreshes are reduced for distant tiers to make large packs affordable.
+      // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
+      // and distant glow sprites are reduced to make large packs affordable.
       if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
       const speed = memberThink(A, dt, player);
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
@@ -559,7 +559,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (fighting && d < 30 && vis) { barCand.push(A); A.barD = d; }
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
-        const every = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 3 : 10) : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
+        const every = isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
         if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)) }); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { A.mo.update(A.lodDt, { speed: 0, ik: false }); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);

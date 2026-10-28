@@ -1400,6 +1400,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     lap('Sparkles, sounds, events');
     stepMorph(dt);
+    body?.setHairSimulationEnabled(thirdPerson); // first-person view hides the head only during rendering, so use camera mode, not mesh visibility
     placeBody(dt); if (bench.hideBody && body) body.root.visible = false;
     if (input.locked) harvest.update(dt, player.state, body); else harvest.cancel();   // (a body to skin: the prompt, the knife, the skill checks)
     // the swing's ghost: laid down while the blow is live (a little before its hit window to a little after)

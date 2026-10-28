@@ -19,7 +19,7 @@
 //
 //   const C = buildCreature(THREE, spec)  → { root, mesh, bones: { 'chain:joint' → Bone }, chain(name) → [Bone],
 //                                             skeleton, update(t), dispose() }
-export function buildCreature(THREE, spec, { particles = null } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
+export function buildCreature(THREE, spec, { particles = null, instances = null, twoInfluenceVariant = false } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const root = new THREE.Group(); root.name = 'creature';
   // ---- chains (mirrored copies made here) ----
@@ -177,6 +177,9 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
   const meshes = [];
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
+  // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
+  // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
+  const bodyMatTwoInfluence = look.shade && twoInfluenceVariant ? shadeBodyMaterial(THREE, uniforms, look, true) : null;
   const mesh = new THREE.SkinnedMesh(geo, bodyMat); mesh.name = 'creature-body'; mesh.castShadow = !look.shade; mesh.receiveShadow = true; mesh.frustumCulled = false;
   root.add(mesh); mesh.bind(skeleton); meshes.push(mesh);
   // fur (look.fur: { length m, density strands/m, shells, tip colour }): shells of the same skin pushed out along its
@@ -235,11 +238,11 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
   const webMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0.94, skinning: true, emissive: new THREE.Color(look.webGlow || '#000000') });
   const smokeWebMat = look.shade ? smokeWebMaterial(THREE, uniforms, look) : null;
   // (all the membranes of one kind are one mesh: a bat's eight wing panels were eight skinned draws)
-  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
+  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
   // off screen, not drawn: the bind-pose bounds grown to cover what its moves can do (a swoop, a pounce, a rear-up)
   for (const m of meshes) m.frustumCulled = true;
   // ---- parts ----
-  const parts = [], glows = [];
+  const parts = [], glows = [], instancedParts = [];
   const glowTex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(cv); return t; })();
   for (const p of spec.parts || []) {
     for (const sd of p.mirror ? ['L', 'R'] : [null]) {
@@ -254,11 +257,13 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
         const g = p.kind === 'cone' ? new THREE.ConeGeometry(p.r, p.len, 6) : new THREE.SphereGeometry(p.r, 12, 8);
         if (p.kind === 'cone') g.translate(0, p.len / 2, 0);
         const mat = p.emissive ? new THREE.MeshBasicMaterial({ color: p.emissive, transparent: !!p.opacity, opacity: p.opacity ?? 1 }) : new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color || '#ddd').convertSRGBToLinear(), roughness: 0.5 });
-        o = new THREE.Mesh(g, mat); o.castShadow = !p.emissive;
+        o = new THREE.Mesh(g, mat); o.castShadow = !look.shade && !p.emissive;
         if (p.dir) { const d = V(p.dir[0] * fx, p.dir[1], p.dir[2]).normalize(); o.quaternion.setFromUnitVectors(V(0, 1, 0), d); }
         if (p.scale) o.scale.set(...p.scale);
       }
-      o.position.copy(at); b.add(o); parts.push(o); o.userData.noReflect = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+      o.position.copy(at); parts.push(o); o.userData.noReflect = true; o.updateMatrix(); o.matrixAutoUpdate = false;
+      if (instances && o.isMesh) instancedParts.push(instances.register(o, b));
+      else b.add(o);
     }
   }
   // The skeleton is posed once a frame and its matrices worked out then (sync), not again by every render pass (the
@@ -266,9 +271,11 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
   root.updateMatrixWorld(true);
   root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false; for (const m of meshes) { m.updateMatrix(); m.matrixAutoUpdate = false; }
   const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
-  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); }
+  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) for (const h of instancedParts) instances.update(h); }
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
+    setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
+    setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
     // quaternion.identity() fires the Euler sync on every bone, and that was a sixth of a monster's frame
@@ -276,7 +283,7 @@ export function buildCreature(THREE, spec, { particles = null } = {}) {   // par
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
     update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = uniforms.uSmoke.value / (look.smoke ?? 0.6); },
-    dispose() { puffs?.remove(); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
+    dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }
 const fract = x => x - Math.floor(x);
@@ -350,10 +357,33 @@ function noiseTexture(THREE) {
   noiseTex = new THREE.DataTexture(d, N, N, THREE.RGBAFormat); noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping; noiseTex.magFilter = THREE.LinearFilter; noiseTex.minFilter = THREE.LinearFilter; noiseTex.needsUpdate = true;
   return noiseTex;
 }
-function shadeBodyMaterial(THREE, U, look) {
+function shadeBodyMaterial(THREE, U, look, twoInfluence = false) {
   const m = new THREE.MeshStandardMaterial({ color: look.body || '#07040c', roughness: 1, metalness: 0, skinning: true, emissive: new THREE.Color(look.rim || '#2a1050') });   // (solid, so it writes depth and is cheap: where it thins to smoke it's cut away, not blended)
   m.onBeforeCompile = sh => {
     sh.uniforms.uTime = U.uTime; sh.uniforms.uNz = U.uNz;
+    if (twoInfluence) {
+      // Umbrafiend body vertices are authored with one or two non-zero influences. Keep the same
+      // skeleton and pose, but avoid fetching and blending the unused Z/W bone matrices.
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <skinbase_vertex>', `#ifdef USE_SKINNING
+          mat4 boneMatX = getBoneMatrix( skinIndex.x );
+          mat4 boneMatY = getBoneMatrix( skinIndex.y );
+        #endif`)
+        .replace('#include <skinnormal_vertex>', `#ifdef USE_SKINNING
+          mat4 skinMatrix = mat4( 0.0 );
+          skinMatrix += skinWeight.x * boneMatX;
+          skinMatrix += skinWeight.y * boneMatY;
+          skinMatrix = bindMatrixInverse * skinMatrix * bindMatrix;
+          objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;
+        #endif`)
+        .replace('#include <skinning_vertex>', `#ifdef USE_SKINNING
+          vec4 skinVertex = bindMatrix * vec4( transformed, 1.0 );
+          vec4 skinned = vec4( 0.0 );
+          skinned += boneMatX * skinVertex * skinWeight.x;
+          skinned += boneMatY * skinVertex * skinWeight.y;
+          transformed = ( bindMatrixInverse * skinned ).xyz;
+        #endif`);
+    }
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; attribute float aSolid; varying float vSolid;').replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vSolid = aSolid;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uTime; varying vec3 vWP; varying float vSolid;' + NOISE)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -363,6 +393,7 @@ function shadeBodyMaterial(THREE, U, look) {
           float d = vSolid + (fbm(vWP * 6.0 + vec3(0.0, -uTime * 1.1, 0.0)) - 0.5) * 0.7;   // where it thins to smoke the edge frays and moves
           if (d < 0.3) discard; }`);
   };
+  m.customProgramCacheKey = () => twoInfluence ? 'umbrafiend-two-influence-skinning-v1' : 'umbrafiend-four-influence-skinning-v1';
   return m;
 }
 function smokeMaterial(THREE, U, inflate, alpha, look) {

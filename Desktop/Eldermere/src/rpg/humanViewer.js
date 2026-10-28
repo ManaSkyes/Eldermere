@@ -433,8 +433,9 @@ export function startViewer(THREE, human, ui) {
   }
   // Hair physics: the head's skinning matrix this frame (rest -> now, in the character's space)
   const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
+  let hairSimulationEnabled = true; // game camera can pause simulation independently of temporary render visibility
   function simulateHair(dt) {
-    if (!hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible && !game) return;   // (stopping is safe: the physics starts again from the style when it resumes)
+    if (!hairSimulationEnabled || !hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible) return;   // hidden hair is paused and resets safely when shown again
     root.updateMatrixWorld(true);
     const bone = rig.skeleton.bones[headBone];
     meshInv.copy(cardsMesh.matrixWorld).invert();
@@ -1704,7 +1705,7 @@ export function startViewer(THREE, human, ui) {
     if (!perfSec.open || !renderer) return;
     const st = Object.entries(perf.stages).map(([k, v]) => `  ${k.padEnd(9)} ${v.toFixed(1)} ms`).join('\n');
     const info = renderer.info;
-    perfOut.textContent = `FPS ${perf.fps.toFixed(0)} (frame ${perf.frameMs.toFixed(1)} ms)\n  render   ${(perf.renderMs || 0).toFixed(1)} ms   draw calls ${info.render.calls}, triangles ${(info.render.triangles / 1000).toFixed(0)}k\n  cloth    ${(perf.clothMs || 0).toFixed(1)} ms   hair physics ${(perf.hairSimMs || 0).toFixed(1)} ms\nLast rebuild (any slider or transformation):\n${st}`;
+    perfOut.textContent = `FPS ${perf.fps.toFixed(0)} (frame ${perf.frameMs.toFixed(1)} ms)\n  render   ${(perf.renderMs || 0).toFixed(1)} ms   draw calls ${info.render.calls}, triangles ${(info.render.triangles / 1000).toFixed(0)}k\n  cloth ${(perf.clothMs || 0).toFixed(1)} ms   hair physics ${(perf.hairSimMs || 0).toFixed(1)} ms   tail/cape ${(perf.tailCapeMs || 0).toFixed(1)} ms\nLast rebuild (any slider or transformation):\n${st}`;
   }, 500);
   const lashSec = section('Lashes', false);
   for (const [k, lab] of [['upper', 'Upper length'], ['lower', 'Lower length'], ['density', 'Density'], ['thickness', 'Thickness'], ['curl', 'Curl']]) {
@@ -1952,9 +1953,10 @@ export function startViewer(THREE, human, ui) {
       if (!perf.off.cloth) simulateCloth(Math.min(dt, 1 / 30));
       const fc = performance.now();
       if (!perf.off.hairSim && !perf.off.hair) simulateHair(Math.min(dt, 1 / 30));
-      if (!perf.off.cloth) stepTailCape(Math.min(dt, 1 / 30), clock.elapsedTime);
       const fh = performance.now();
-      perf.clothMs = fc - fs; perf.hairSimMs = fh - fc;
+      if (!perf.off.cloth) stepTailCape(Math.min(dt, 1 / 30), clock.elapsedTime);
+      const ft = performance.now();
+      perf.clothMs = fc - fs; perf.hairSimMs = fh - fc; perf.tailCapeMs = ft - fh;
     } catch (err) { report(err.message || String(err)); }
     if (game) return;
     // camera: buttons and tabs set the view; the wheel zooms anywhere between
@@ -2034,7 +2036,7 @@ export function startViewer(THREE, human, ui) {
     setTurn(a) { rotY = a; },
     act(name, opts = {}) { return startAction('move', { move: name, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
-    hairLOD(d) { hairR.lod(d); }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
+    hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {
       const h = rig.byName.head; if (!h) return;
       h.scale.setScalar(on ? 1 : 0.001); h.updateMatrixWorld(true);

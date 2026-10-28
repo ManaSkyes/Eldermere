@@ -260,14 +260,15 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // One shared scan every 0.25 s keeps the cost bounded even for very large groups.
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
-      let nearest = null, nearestD2 = Infinity;
+      let nearest = null, nearestD2 = Infinity, aliveCount = 0;
       for (const member of live) {
         if (!member.alive) continue;
+        aliveCount++;
         const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
         if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
       }
       const detectDist = nearest ? Math.sqrt(nearestD2) : dist;
-      const detectSize = groupDetectionScale(live.reduce((count, member) => count + (member.alive ? 1 : 0), 0));
+      const detectSize = groupDetectionScale(aliveCount);
       const ey = nearest ? nearest.pos.y + (nearest.M.hover || 0) + (nearest.alt || 0) + 1.1 : G.center.y + (M.hover || 0) + avgAlt(G) + 0.4;
       const eye = nearest ? { x: nearest.pos.x, y: ey, z: nearest.pos.z } : { x: G.center.x, y: ey, z: G.center.z };
       const chest = { x: p.x, y: p.y + 1.2, z: p.z };

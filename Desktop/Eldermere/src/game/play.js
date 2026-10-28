@@ -1010,7 +1010,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { const st = player.state;
     const mT0 = performance.now();
     if (input.pressed?.('resetPose')) { body?.resetPose?.(); combat.reset?.(); toast?.('Pose reset.'); }   // (K: a body in a twist, back to standing)
-    monsters.update(dt, { pos: st.pos, height: player.height }, { hurt: (pts, why) => { if (!st.invulnerable) hurt(Math.min(1, pts / Math.max(1, derived(character).maxHp)), why); },
+    monsters.update(dt, { pos: st.pos, height: player.height, loudness: st.loudness ?? 0, visibility: st.visibility ?? 1 }, { hurt: (pts, why) => { if (!st.invulnerable) hurt(Math.min(1, pts / Math.max(1, derived(character).maxHp)), why); },
       tryBlock: (dx, dz, pw) => { if (st.invulnerable) return { through: 0 }; const b = combat.tryBlock(dx, dz, pw); if (b) audio.block(pw); return b; }, debuff, ear: camera,
       killed: A => { const first = !knownBeast(character, A.id); learnKill(character, A.id, { level: A.level ?? null, hp: A.maxHp }); if (first) toast(`New bestiary entry: ${A.M.name}`); },
       struck: (A, type) => learnHit(character, A.id, type),

@@ -271,6 +271,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null 
   function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) for (const h of instancedParts) instances.update(h); }
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
+    setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
     // quaternion.identity() fires the Euler sync on every bone, and that was a sixth of a monster's frame

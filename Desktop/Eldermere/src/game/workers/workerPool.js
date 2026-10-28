@@ -3,11 +3,11 @@
 export function recommendedWorkerCount() {
   const cores = Number(globalThis.navigator?.hardwareConcurrency) || 2;
   // Leave a logical processor available for the browser/game loop, and cap memory/scheduling overhead.
-  return Math.max(1, Math.min(8, cores - 1));
+  return Math.max(1, Math.min(12, cores - 1));
 }
 
 export function createWorkerPool(size = recommendedWorkerCount()) {
-  const count = Math.max(1, Math.min(8, Math.floor(Number(size) || 1)));
+  const count = Math.max(1, Math.min(12, Math.floor(Number(size) || 1)));
   let nextId = 1, closed = false;
   const workers = [], queue = [], pending = new Map();
   let readyCount = 0, resolveReady, rejectReady;

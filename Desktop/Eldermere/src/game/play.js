@@ -1240,7 +1240,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     fx.probe.bloomOff = probe.bloomOff; fx.probe.blurOff = probe.blurOff; fx.probe.toneMapOff = probe.toneMapOff; fx.probe.gradeOff = probe.gradeOff; fx.probe.vignetteOff = probe.vignetteOff;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
-  probeEl.addEventListener('change', e => { if ((e.target.dataset.p && e.target.dataset.p !== 'sync' && e.target.dataset.p !== 'scale') || e.target.dataset.fx !== undefined) resetGpuSamples(); });
+  probeEl.addEventListener('change', e => { if (e.target.dataset.p !== undefined || e.target.dataset.fx !== undefined) resetGpuSamples(); });
   probeEl.addEventListener('input', e => { if (e.target.dataset.hour !== undefined) sky.setHour(+e.target.value, true); });
   probeEl.addEventListener('change', e => { if (e.target.dataset.cycle !== undefined) sky.cycle = e.target.checked; });
   probeEl.addEventListener('change', e => { if ((e.target.dataset.wx !== undefined || e.target.dataset.wxs !== undefined) && weather) weather.set(probeEl.querySelector('[data-wx]').value, +probeEl.querySelector('[data-wxs]').value, 8); });
@@ -1350,7 +1350,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 }, res: [], sync: probe.sync }); probe.sync = true; resetGpuSamples(); benchEl().textContent = 'Measuring…'; });
   function benchStep(logic, submit) {
     const B = bench; B.n++; if (B.n > 40) { B.acc.l += logic; B.acc.s += submit; B.acc.k++; }
-    if (B.n < 130) return;
+    if (B.n < 130 || (tq && tqList.some(item => item.benchAcc === B.acc))) return;
     const a = B.acc, r = { l: a.l / a.k, s: a.s / a.k, g: a.gk ? a.g / a.gk + (a.grk ? a.gr / a.grk : 0) : NaN, gm: a.gk ? a.g / a.gk : NaN, gr: a.grk ? a.gr / a.grk : NaN };
     if (B.i === -1) B.base = r; else { BENCH[B.i].on(); if (B.i < BENCH.length) B.res.push({ name: BENCH[B.i].name, ...r }); }
     B.i++; B.n = 0; B.acc = { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 };

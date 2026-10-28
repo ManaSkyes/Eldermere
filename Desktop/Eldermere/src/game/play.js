@@ -1479,7 +1479,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const cpu0 = performance.now(); lapT = cpu0;
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
     lap('Lamps and torches');
     if (input.locked) {
       for (let i = 1; i <= 9; i++) if (input.pressed('hotbar' + i) && hotbar[i - 1]) { const id = hotbar[i - 1]; if (id.startsWith('spell:')) spells.request(id.slice(6), 'hotbar' + i); else drink(id); }
@@ -1627,7 +1627,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         resetGpuSamples();
         scenarioStatus().textContent = 'Measuring 180 frames after warm-up…';
       } else if (B.phase === 'measure') {
-        B.logic.push(cpu1 - cpu0); B.submit.push(cpu2 - cpu1); B.frameMs.push(dt * 1000);
+        B.logic.push(cpu1 - cpu0); B.submit.push(cpu2 - cpu1); B.frameMs.push(rawFrameMs);
         B.calls.push(probeAcc.calls); B.tris.push(probeAcc.tris);
         if (B.frame >= 180) {
           const preset = scenarioPresets[probeEl.querySelector('[data-scenario]').value] || scenarioPresets['clear-noon'];
@@ -1656,7 +1656,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
             `GPU timer samples: main ${probeInfo.gpuSamples.main.length}, reflections ${probeInfo.gpuSamples.reflection.length}`,
             '',
             'Notes: GPU values are asynchronous timer-query measurements when supported. CPU draw-submission time is not GPU time. FPS may be capped; compare timings with the same map, camera, resolution, and character/creature state.'
-          ].join('\\n');
+          ].join('\n');
           scenarioReportEl().textContent = B.report;
           scenarioCopyButton().disabled = false;
           scenarioStatus().textContent = 'Measurements collected. Restoring your original conditions…';

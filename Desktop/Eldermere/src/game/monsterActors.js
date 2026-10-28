@@ -479,7 +479,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const frustum = new THREE.Frustum(), pmat = new THREE.Matrix4(), sph = new THREE.Sphere(new THREE.Vector3(), 3); let frameN = 0;
   const nearTargets = [], barCand = [], barShown = new Set();
   const VIS = 55, WAKE = 70;   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
-  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); }
+  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
   function update(dt, player, hooks = {}) {
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
     // shadow bullets in flight

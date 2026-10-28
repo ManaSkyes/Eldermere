@@ -678,7 +678,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   addEventListener('resize', resize); resize();
 
   // ---- pause and controls ----
-  const probe = { on: false, open: false, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, buildings: true, ground: true, water: true, glow: true, scale: 1 };
+  const probe = { on: false, open: false, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, umbraParts: true, buildings: true, ground: true, water: true, glow: true, scale: 1 };
   const showPause = on => { pause.hidden = !on; root.querySelector('.play').classList.toggle('is-paused', on); };
   input.on('lock', () => { probe.open = false; showPause(false); audio.start(); });
   input.on('unlock', () => { if (invOpen || probe.open) return; showPause(true); showControls(false); });
@@ -1127,7 +1127,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => { r0(sc, cm); if (probe.on) { probeAcc.calls += renderer.info.render.calls; probeAcc.tris += renderer.info.render.triangles; } }; }
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
-  const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
+  const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
   probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><b>Performance (F8)</b><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync"> Measure GPU time (adds overhead)</label>` +
@@ -1178,6 +1178,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     });
     sun.castShadow = probe.shadows;
     monsters.setBatInstancing(probe.batinst);
+    monsters.setUmbrafiendPartInstancing(probe.umbraParts);
     const fl = dungeonLights?.foliage; if (fl) { fl.hideBig = !probe.trees; fl.hideSmall = !probe.small; fl.dirty = true; }
     fx.probeOff = !probe.glow;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);

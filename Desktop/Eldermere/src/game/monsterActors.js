@@ -23,6 +23,7 @@
 //   MA.nearTargets   the targets within 40 m (what the game hands weapons and spells); MA.groups   the groups
 import { buildCreature } from '../rpg/creature.js';
 import { createBatSwarmInstances } from './batInstancing.js';
+import { createCreaturePartInstancing } from '../rpg/creatureInstancing.js';
 import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
@@ -38,6 +39,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const blocked = (a, b) => lineBlocked(near(a, b), a, b);
   const actors = [], targets = [], shots = [];
   const batSwarm = createBatSwarmInstances(THREE, scene);
+  const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
   let batInstancing = true;
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
@@ -69,7 +71,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles }), mo = createMotion(C, M);
+    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null }), mo = createMotion(C, M);
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;

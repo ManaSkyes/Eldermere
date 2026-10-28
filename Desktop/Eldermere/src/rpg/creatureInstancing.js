@@ -24,7 +24,7 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
     for (const b of batches.values()) if (b.key === key && b.items.length < b.capacity) { batch = b; break; }
     if (!batch) batch = newBatch(source, key);
     handle.batch = batch; handle.slot = batch.items.length; batch.items.push(handle); batch.mesh.count = batch.items.length;
-    source.removeFromParent(); source.visible = false; update(handle);
+    if (source.parent) source.parent.remove(source); source.visible = false; update(handle);
   }
   function removeFromBatch(handle) {
     const batch = handle.batch; if (!batch) return;
@@ -45,7 +45,7 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
   }
   function unregister(handle) {
     if (!handle?.active) return;
-    removeFromBatch(handle); handle.source.removeFromParent(); handle.active = false; handles.delete(handle);
+    removeFromBatch(handle); if (handle.source.parent) handle.source.parent.remove(handle.source); handle.active = false; handles.delete(handle);
   }
   function setEnabled(on) {
     on = !!on; if (on === enabled) return; enabled = on;

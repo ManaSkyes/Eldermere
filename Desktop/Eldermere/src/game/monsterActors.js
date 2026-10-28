@@ -27,6 +27,7 @@ import { createCreaturePartInstancing } from '../rpg/creatureInstancing.js';
 import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
+import { STEALTH } from '../rpg/stealth.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
 const KIND_TYPE = { fire: 'fire', frost: 'frost', ice: 'frost', lunar: 'lunar', holy: 'light', light: 'light', dark: 'dark', shadow: 'dark', storm: 'storm', lightning: 'storm', earth: 'earth', arcane: 'arcane' };
@@ -227,7 +228,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const G = g || {};
     if (!G._ready) {
       Object.assign(G, { _ready: true, members: [], liveScratch: [], sepCells: new Map(), sepBucketPool: [], rankScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
-        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
+        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, canSee: false, awareness: 0, lastKnown: null, investigateT: 0, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
         pi: 0, pdir: 1, path: null, mode: 'loop', behaviour: 'stand', awake: false, thinkDt: 0, wander: null, wanderT: 0 });
       const o = G.place;   // a placed group: its route (map coords → world) and what it does when idle
       if (o) { G.behaviour = o.behaviour || 'stand'; G.mode = o.patrolMode || 'loop'; if (G.behaviour === 'patrol' && o.patrol?.length && G.origin) G.path = [{ x: o.x, z: o.z }, ...o.patrol].map(q => ({ x: G.origin.x + q.x, z: G.origin.z + q.z })); }
@@ -243,18 +244,55 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     let cx = 0, cy = 0, cz = 0; for (const m of live) { cx += m.pos.x; cy += m.pos.y; cz += m.pos.z; } G.center.x = cx / n; G.center.y = cy / n; G.center.z = cz / n;
     const A0 = live[0], S = A0.S, M = G.M, p = player.pos, dx = p.x - G.center.x, dz = p.z - G.center.z, dist = Math.hypot(dx, dz);
     G.dist = dist;
-    // sight: once for the whole group, a few times a second. A roosting swarm looks down and round it: it sees you
-    // under and around it, out to its range on the ground, not up above it
+    // Check line of sight for the whole group four times a second, not once per fiend.
+    // Packs use the player's stealth visibility and noise; swarms retain their existing detection for now.
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
       const ey = G.center.y + (M.hover || 0) + avgAlt(G) + 0.4, eye = { x: G.center.x, y: ey, z: G.center.z }, chest = { x: p.x, y: p.y + 1.2, z: p.z };
       const range = S.aggro * (G.state === 'fight' ? 1.6 : 1), below = ey - (p.y + 1.2);
       const inCone = M.flight ? below > -1.5 : true;   // (a flyer's eyes look down and around, not up)
-      G.seen = dist < range && inCone && !blocked(eye, chest);
+      G.open = !blocked(eye, chest);
+      G.canSee = dist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
+      if (G.kind === 'swarm') G.seen = dist < range && inCone && G.open; // preserve current bat/swarm behavior
     }
-    if (M.temper === 'passive') { if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle'; G.seen = false; }   // (an animal: it never hunts you; hit, it runs for a while)
-    else if (G.seen) { if (G.state !== 'fight') { G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; } G.lost = 0; }
-    else if (G.state === 'fight' && (G.lost += dt) > 6) { G.state = 'return'; }
+    if (M.temper === 'passive') {
+      if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle';
+      G.seen = false;
+    } else if (G.kind === 'swarm') {
+      if (G.seen) { if (G.state !== 'fight') { G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; } G.lost = 0; }
+      else if (G.state === 'fight' && (G.lost += dt) > 6) { G.state = 'return'; }
+    } else {
+      // One shared awareness meter per pack. Sight is slowed by the player's visibility; noise can
+      // reveal a last-known position through walls, but hearing alone starts an investigation, not combat.
+      const visibility = Math.max(0.2, Math.min(1, player.visibility ?? 1));
+      const sightRange = S.aggro * (G.state === 'fight' ? 1.6 : 1) * visibility;
+      const sightRate = G.canSee && dist < sightRange ? (1 - dist / sightRange) * 1.2 : 0;
+      const loudness = Math.max(0, player.loudness || 0), perception = A0.S.perception ?? 1;
+      let hearingRange = loudness * perception;
+      if (!G.open) hearingRange *= STEALTH.muffled;
+      const hearingRate = hearingRange > dist ? (1 - dist / Math.max(0.01, hearingRange)) * STEALTH.hearRate : 0;
+      const signal = sightRate > 0 || hearingRate > 0;
+      G.awareness = Math.max(0, Math.min(1, G.awareness + (signal ? (sightRate + hearingRate) * dt : -STEALTH.decay * dt)));
+      G.seen = G.canSee && G.awareness >= 1;
+      if (signal) {
+        G.lastKnown = { x: p.x, z: p.z };
+        G.investigateT = 0;
+      }
+      if (G.state === 'fight') {
+        if (G.seen) G.lost = 0;
+        else if ((G.lost += dt) > 6) { G.state = 'investigate'; G.investigateT = 0; if (G.lastKnown) { G.anchor.x = G.lastKnown.x; G.anchor.z = G.lastKnown.z; } }
+      } else if (G.seen) {
+        G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; G.lost = 0;
+      } else if (G.awareness >= STEALTH.suspicious && G.lastKnown) {
+        if (G.state !== 'investigate') G.investigateT = 0;
+        G.state = 'investigate'; G.anchor.x = G.lastKnown.x; G.anchor.z = G.lastKnown.z;
+      } else if (G.state === 'investigate') {
+        G.investigateT += dt;
+        if (G.investigateT > 5 || Math.hypot(G.center.x - G.anchor.x, G.center.z - G.anchor.z) < 2.5) {
+          G.state = 'idle'; G.awareness = Math.min(G.awareness, STEALTH.suspicious - 0.01);
+        }
+      }
+    }
     // erratic circling: the whole swarm swings round the other way every second or two
     if ((G.flipT -= dt) <= 0) { G.flipT = 0.8 + Math.random() * 2.2; if (Math.random() < 0.6) G.orbitDir *= -1; }
     // where the group is heading when not fighting: home, its route, or back to it
@@ -503,7 +541,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // the groups: who's awake, what each is doing, who joins whom
     for (const G of groups) {
       const d = Math.hypot(G.center.x - player.pos.x, G.center.z - player.pos.z);
-      G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee';
+      G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee' || G.state === 'investigate';
       G.thinkDt += dt;
       if (G.awake || G.thinkDt > 1) { groupThink(G, G.thinkDt, player); G.thinkDt = 0; }
     }

@@ -1128,7 +1128,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
-  probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><b>Performance (F8)</b><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
+  probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>Performance (F8)</b><span style="display:flex;gap:5px"><button type="button" data-copy-data style="cursor:pointer;white-space:nowrap">Copy data to clipboard</button><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></span></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync"> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
@@ -1148,6 +1148,37 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const full = probeEl.querySelector('.pp-full');
     full.hidden = !full.hidden;
     probeEl.querySelector('[data-full-toggle]').textContent = full.hidden ? 'Full Monitor ▾' : 'Compact Monitor ▴';
+  });
+  probeEl.querySelector('[data-copy-data]').addEventListener('click', async () => {
+    const button = probeEl.querySelector('[data-copy-data]');
+    const lines = ['Eldermere performance data', new Date().toLocaleString(), '', probeEl.querySelector('.pp-stats').innerText];
+    const full = probeEl.querySelector('.pp-full');
+    if (!full.hidden) lines.push('', 'Full performance monitor', full.querySelector('.pp-full-content').innerText);
+    const benchText = probeEl.querySelector('.pp-bench').innerText.trim();
+    if (benchText) lines.push('', 'Measure each part', benchText);
+    lines.push('', 'Feature switches');
+    for (const [key, label] of PROBE_ROWS) {
+      const input = probeEl.querySelector(`[data-p="${key}"]`);
+      lines.push(`${label}: ${input?.checked ? 'ON' : 'OFF'}`);
+    }
+    lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
+    const copyText = lines.join('\\n');
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(copyText);
+      else {
+        const area = document.createElement('textarea');
+        area.value = copyText; area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.appendChild(area); area.select();
+        const ok = document.execCommand('copy'); area.remove();
+        if (!ok) throw new Error('Clipboard copy was blocked');
+      }
+      button.textContent = 'Copied!';
+      setTimeout(() => { if (button.isConnected) button.textContent = 'Copy data to clipboard'; }, 1600);
+    } catch (err) {
+      button.textContent = 'Copy failed — select data manually';
+      setTimeout(() => { if (button.isConnected) button.textContent = 'Copy data to clipboard'; }, 2400);
+      console.warn('Could not copy performance data to clipboard', err);
+    }
   });
   const fullMonitorHtml = () => {
     const counts = { objects: 0, visible: 0, meshes: 0, instanced: 0, activeInstanced: 0, instances: 0, treeBatches: 0, treeInstances: 0, foliageBatches: 0, foliageInstances: 0, batBatches: 0, batInstances: 0, skinned: 0, shadowCasters: 0, lights: 0, point: 0, directional: 0, spot: 0, lampLights: 0, crystalLights: 0, buildings: 0, ground: 0, water: 0, sprites: 0, lines: 0 };

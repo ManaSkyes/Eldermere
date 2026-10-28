@@ -21,7 +21,7 @@ export function createPostFX(THREE, renderer) {
   const webgl2 = renderer.capabilities.isWebGL2;
   const opts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true };
   const msRT = webgl2 && THREE.WebGLMultisampleRenderTarget ? new THREE.WebGLMultisampleRenderTarget(1, 1, opts) : new THREE.WebGLRenderTarget(1, 1, opts);
-  if (msRT.samples !== undefined) msRT.samples = 4;
+  if (msRT.samples !== undefined) msRT.samples = 0; // Experimental: avoid a 4x multisampled HDR scene target; compare GPU time and edge quality against the glow-off path.
   // with a depth picture (screen-space reflections need it: src/gfx/reflections.js): no multisampling then
   let depthRT = null, sceneRT = msRT;
   const small = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };

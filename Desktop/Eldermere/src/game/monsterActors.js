@@ -40,7 +40,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const actors = [], targets = [], shots = [];
   const batSwarm = createBatSwarmInstances(THREE, scene);
   const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
-  let batInstancing = true;
+  let batInstancing = true, umbrafiendTwoInfluence = false;
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
   function bar() {
@@ -71,7 +71,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null }), mo = createMotion(C, M);
+    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
+    if (id === 'umbrafiend') C.setSkinnedVariant(umbrafiendTwoInfluence);
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;
@@ -579,6 +580,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     spawn, actors, targets, nearTargets, groups, update,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
+    setUmbrafiendSkinningVariant(on) { umbrafiendTwoInfluence = !!on; for (const A of actors) if (A.M?.name === 'Umbrafiend') A.C.setSkinnedVariant(umbrafiendTwoInfluence); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },

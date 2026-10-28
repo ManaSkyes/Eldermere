@@ -226,7 +226,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function makeGroup(A, g) {
     const G = g || {};
     if (!G._ready) {
-      Object.assign(G, { _ready: true, members: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
+      Object.assign(G, { _ready: true, members: [], liveScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
         home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
         pi: 0, pdir: 1, path: null, mode: 'loop', behaviour: 'stand', awake: false, thinkDt: 0, wander: null, wanderT: 0 });
       const o = G.place;   // a placed group: its route (map coords → world) and what it does when idle
@@ -286,7 +286,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   // a pack in a fight: who attacks next, keeping apart, and who gets full detail
   function packThink(G, dt, player) {
-    const live = G.members.filter(m => m.alive), n = live.length, p = player.pos;
+    const live = G.liveScratch || (G.liveScratch = []); live.length = 0; for (const m of G.members) if (m.alive) live.push(m); const n = live.length, p = player.pos;
     if (G.postBase == null) G.postBase = Math.random() * Math.PI * 2;
     // attack turns: one at a time for a small pack, up to three for a big one, the nearest free one goes
     let attackers = 0; for (const m of live) if (m.attacking || (m.mo.actName && m.mo.actName !== 'shadowBullet' && m.mo.actName !== 'stagger')) attackers++;

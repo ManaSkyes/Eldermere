@@ -85,6 +85,7 @@ export function startPlay(root, save, { onExit }) {
           <div class="pause-main">
             <button class="btn" data-act="resume">Click to play</button>
             <button class="btn ghost" data-act="controls">Controls</button>
+            <button class="btn ghost" data-act="performance">Advanced performance monitor (F8)</button>
             <button class="btn ghost" data-act="exit">Leave the test grounds</button>
           </div>
           <div class="pause-controls" hidden></div>
@@ -1152,6 +1153,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block">Surfaces <select data-sf><option value="auto">With the weather</option><option value="dry">Dry</option><option value="wet">Wet</option><option value="puddles">Puddles</option><option value="snow1">Snow (light)</option><option value="snow2">Snow (deep)</option><option value="ice">Ice</option><option value="dust">Dust</option></select> · <input type="checkbox" data-ta checked> Temp auto <input type="range" data-tv min="-20" max="40" step="1" value="15" style="width:70px;vertical-align:middle"> </label>` +
     `<label style="display:block;margin-top:6px">Resolution <select data-p="scale"><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option></select></label>`;
   root.querySelector('.play').appendChild(probeEl);
+  // Keep the advanced monitor discoverable from the pause menu as well as the F8 shortcut.
+  $('[data-act=performance]').onclick = () => {
+    probe.on = probe.open = true;
+    probeEl.hidden = false;
+    input.unlock();
+    showPause(false);
+  };
   const isCrystalLight = o => o.color && (o.color.getHexString() === '6fb6ff' || o.color.getHexString() === '8ac8ff');
   const applyProbe = () => {
     scene.traverse(o => {

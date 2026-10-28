@@ -41,6 +41,7 @@ import { createEnemies } from './enemies.js';
 import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../data/objects.js';
 import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
+import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -135,6 +136,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   applyFx();
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#9fc3e6'); const worldFog = new THREE.Fog('#b9d3ea', 40, 110); scene.fog = worldFog;
+  // Prototype settings stay off by default so existing players keep the current look until the haze is tested.
+  const atmosphereSettings = { ...ATMOSPHERE_DEFAULTS };
   const hemi = new THREE.HemisphereLight('#dbe9ff', '#5d6b4a', 0.55); scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff1d6', 1.25); sun.position.set(18, 30, 12); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 90 }); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;   // (normal bias: no dark acne patches on flat faces lit at a slant)
@@ -243,6 +246,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (wet) { worldFog.color.set('#1f5f7a'); worldFog.near = 0.5; worldFog.far = 14; }
     else if (fixed) { worldFog.color.set(FIXED.fog); worldFog.near = FIXED.near; worldFog.far = FIXED.far; }
     else { worldFog.color.copy(S.fog); worldFog.near = S.near; worldFog.far = S.far; }
+    // The prototype only extends ordinary outdoor visibility; water, interiors, and stronger local fog retain priority.
+    applyAtmosphericHaze(worldFog, atmosphereSettings, { fixed, wet, outdoor: OUTDOOR });
     // a screech's darkness on you: you see a tenth as far (the fog closes in, dark), less as it wears off
     if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; worldFog.far = worldFog.far * (1 - k + k * sight); worldFog.near = Math.min(worldFog.near, worldFog.far * 0.25); worldFog.color.lerp(blind.col, k * 0.85); }
     // Removing scene.fog disables the fog shader path entirely, unlike pushing its near/far distances out of view.
@@ -1141,6 +1146,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<details open style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Post-processing diagnostics (A/B)</summary>` +
     [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">World / area fog is a scene shader path, separate from postFX; disabling it removes scene.fog entirely. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
+    `<details style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Atmospheric haze prototype (A/B)</summary><div style="font-size:11px;opacity:.85;margin:3px 0 5px">Extends the existing outdoor fog range; preserves the sky, weather color, indoor fog, and strong local fog. This is a tuning prototype, not volumetric scattering.</div><label style="display:block;cursor:pointer"><input type="checkbox" data-atmosphere="enabled"> Enable far-distance haze</label><label style="display:block;margin-top:4px">Start distance <input type="range" data-atmosphere="start" min="80" max="280" step="5" value="140" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="start">140</span></label><label style="display:block">End distance <input type="range" data-atmosphere="end" min="180" max="450" step="10" value="360" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="end">360</span></label><label style="display:block">Strength <input type="range" data-atmosphere="strength" min="0" max="1" step="0.05" value="0.35" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="strength">0.35</span></label></details>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
@@ -1177,6 +1183,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
     lines.push('', 'Post-processing diagnostics');
     for (const [key, label] of [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
+    lines.push(`Atmospheric haze prototype: ${atmosphereSettings.enabled ? 'ON' : 'OFF'} · start ${atmosphereSettings.start} · end ${atmosphereSettings.end} · strength ${atmosphereSettings.strength}`);
     lines.push('', 'Post-processing pass timings (CPU submission; not GPU)');
     for (const [name, q] of Object.entries(fx.passStats || {})) lines.push(`${name}: ${q.avgMs.toFixed(3)} ms · ${q.calls} calls · ${q.triangles} triangles`);
     const copyText = lines.join('\n');
@@ -1207,7 +1214,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       ['Instanced Umbrafiend details', probe.umbraParts ? 'Enabled' : 'Disabled'], ['Umbrafiend skinning variant', probe.umbra2weight ? 'Two-influence shader' : 'Standard four-influence shader'],
       ['Buildings, props and rocks', !probe.buildings ? 'Disabled' : counts.buildings ? 'Enabled · ' + counts.buildings + ' tagged objects' : 'Enabled · no tagged objects'], ['Ground and roads', !probe.ground ? 'Disabled' : counts.ground ? 'Enabled · ' + counts.ground + ' tagged objects' : 'Enabled · no tagged objects'], ['Water', !probe.water ? 'Disabled' : counts.water ? 'Enabled · ' + counts.water + ' tagged objects' : 'Enabled · no tagged objects'],
       ['Glow / post-processing', probe.glow ? 'Enabled' : 'Disabled'], ['World / area fog', probe.fogOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Bloom extraction + blur', probe.bloomOff ? 'Disabled' : 'Enabled'], ['Bloom blur', probe.blurOff ? 'Disabled' : 'Enabled'], ['ACES tone mapping', probe.toneMapOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Color grade', probe.gradeOff ? 'Disabled' : 'Enabled'], ['Vignette', probe.vignetteOff ? 'Disabled' : 'Enabled'], ['Puddle reflections', reflections && reflections.mode !== 'off' ? reflections.mode : 'Off'],
-      ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Tone-mapping route', settings.postfx !== false && !fx.probeOff ? 'Custom ACES in postFX' : 'Three.js ACESFilmicToneMapping'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
+      ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Tone-mapping route', settings.postfx !== false && !fx.probeOff ? 'Custom ACES in postFX' : 'Three.js ACESFilmicToneMapping'], ['Atmospheric haze prototype', atmosphereSettings.enabled ? `Enabled · ${atmosphereSettings.start}–${atmosphereSettings.end} · strength ${atmosphereSettings.strength}` : 'Disabled'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
       ['GPU timing method', tq ? 'Separate asynchronous timer queries: main scene + postFX, and reflections; rolling median of up to 30 valid samples' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured'],
       ['GPU main + postFX', Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.main.length + ' samples' : 'Waiting for valid samples'],
       ['GPU reflections', Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.reflection.length + ' samples' : 'Waiting for valid samples']
@@ -1254,6 +1261,32 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (ds.ta !== undefined || ds.tv !== undefined) { if (ds.tv !== undefined) q('ta').checked = false; weather.temp = q('ta').checked ? null : +q('tv').value; }
     if (ds.au !== undefined) { weather.aurora = q('au').value === 'auto' ? null : q('au').value === 'on' ? 1 : 0; weather.retarget(4); } });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
+  const syncAtmosphereControls = () => {
+    const get = k => probeEl.querySelector(`[data-atmosphere="${k}"]`);
+    for (const k of ['start', 'end', 'strength']) {
+      const value = probeEl.querySelector(`[data-atmosphere-value="${k}"]`);
+      if (value) value.textContent = k === 'strength' ? atmosphereSettings[k].toFixed(2) : String(atmosphereSettings[k]);
+    }
+    const start = get('start'), end = get('end');
+    if (start && end) {
+      end.min = String(+start.value + 10);
+      if (+end.value < +end.min) { end.value = end.min; atmosphereSettings.end = +end.value; }
+    }
+    const enabled = get('enabled');
+    if (enabled) enabled.checked = atmosphereSettings.enabled;
+  };
+  const updateAtmosphereControl = e => {
+    const k = e.target.dataset.atmosphere;
+    if (!k) return;
+    if (k === 'enabled') atmosphereSettings.enabled = e.target.checked;
+    else if (k === 'start' || k === 'end' || k === 'strength') atmosphereSettings[k] = +e.target.value;
+    syncAtmosphereControls();
+    resetGpuSamples();
+  };
+  syncAtmosphereControls();
+  probeEl.addEventListener('input', updateAtmosphereControl);
+  probeEl.addEventListener('change', updateAtmosphereControl);
+
   probeEl.addEventListener('change', e => { const k = e.target.dataset.fx; if (!k) return; probe[k] = e.target.checked; applyProbe(); });
   const closeProbe = () => { if (scenarioBench?.on) restoreScenarioState(); probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
@@ -1318,7 +1351,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)
   const glc = renderer.getContext(), tq = glc.getExtension && glc.getExtension('EXT_disjoint_timer_query_webgl2'), tqList = [], px1 = new Uint8Array(4);
-  const gpuModeKey = () => [...PROBE_ROWS.map(([k]) => probe[k]), probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale].join(':');
+  const gpuModeKey = () => [...PROBE_ROWS.map(([k]) => probe[k]), probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale, atmosphereSettings.enabled, atmosphereSettings.start, atmosphereSettings.end, atmosphereSettings.strength].join(':');
   const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
   const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   const startGpuQuery = bucket => {

@@ -1,105 +1,417 @@
-// src/gfx/postfx.js — glow and colour grading, for the PS2-era look: fires, crystals and bright light bloom
-// softly, and the picture gets a gentle grade (warmth, saturation, a little contrast and a vignette).
+// src/gfx/postfx.js — small, explicit post-processing pipeline for Eldermere.
 //
+// Public API retained for existing callers:
 //   const fx = createPostFX(THREE, renderer)
-//   fx.render(scene, camera, { bloom, threshold, grade })   instead of renderer.render(scene, camera)
-//   fx.setSize()                                              after the canvas resizes
+//   fx.render(scene, camera, { bloom, threshold, grade, exposure })
+//   fx.renderInset(scene, camera, x, y, w, h, exposure)
+//   fx.setSize(); fx.useDepth(true | false); fx.afterScene(sceneRT, camera)
 //
-// The scene is drawn (in HDR, without tone mapping) into an off-screen picture; its brightest parts are blurred
-// at quarter size; then one pass adds the glow, tone-maps (ACES, as the renderer did), grades, and writes it to
-// the screen. While this is on, the renderer's own tone mapping is off (the last pass does it instead).
+// Effects can be independently switched with fx.setEffects({...}). Scene fog is deliberately
+// not implemented here: Three.js/world fog belongs to the scene materials and weather system.
+
 export const GRADES = {
-  neutral: { lift: [0, 0, 0], gain: [1, 1, 1], sat: 1.05, contrast: 1.03, vignette: 0.18 },
-  warm: { lift: [0.012, 0.006, 0.004], gain: [1.03, 1.0, 0.96], sat: 1.06, contrast: 1.06, vignette: 0.26 },
-  cool: { lift: [-0.004, 0.004, 0.024], gain: [0.92, 0.98, 1.08], sat: 1.06, contrast: 1.05, vignette: 0.28 },
-  dusk: { lift: [0.03, 0.0, 0.03], gain: [1.05, 0.92, 0.98], sat: 1.12, contrast: 1.08, vignette: 0.3 },
-  none: { lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0 },
+  neutral: { lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0 },
+  warm:    { lift: [0.006, 0.002, -0.004], gain: [1.025, 1.005, 0.975], sat: 1.035, contrast: 1.025, vignette: 0.12 },
+  cool:    { lift: [-0.003, 0.002, 0.008], gain: [0.975, 1.005, 1.035], sat: 1.025, contrast: 1.02, vignette: 0.12 },
+  dusk:    { lift: [0.012, 0.001, 0.012], gain: [1.025, 0.97, 1.015], sat: 1.06, contrast: 1.035, vignette: 0.16 },
+  none:    { lift: [0, 0, 0], gain: [1, 1, 1], sat: 1, contrast: 1, vignette: 0 },
 };
+
+const DEFAULT_EFFECTS = Object.freeze({
+  bloomExtraction: true,
+  bloomBlur: true,
+  toneMapping: true,
+  colorGrade: true,
+  vignette: true,
+});
 
 export function createPostFX(THREE, renderer) {
   const size = new THREE.Vector2();
-  const webgl2 = renderer.capabilities.isWebGL2;
-  const opts = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: true };
-  const msRT = webgl2 && THREE.WebGLMultisampleRenderTarget ? new THREE.WebGLMultisampleRenderTarget(1, 1, opts) : new THREE.WebGLRenderTarget(1, 1, opts);
-  if (msRT.samples !== undefined) msRT.samples = 4;
-  // with a depth picture (screen-space reflections need it: src/gfx/reflections.js): no multisampling then
-  let depthRT = null, sceneRT = msRT;
-  const small = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
-  const rtA = new THREE.WebGLRenderTarget(1, 1, small), rtB = new THREE.WebGLRenderTarget(1, 1, small);
+  const targetOptions = {
+    format: THREE.RGBAFormat,
+    type: THREE.HalfFloatType,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    depthBuffer: true,
+    stencilBuffer: false,
+  };
+  const smallOptions = {
+    format: THREE.RGBAFormat,
+    type: THREE.HalfFloatType,
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    depthBuffer: false,
+    stencilBuffer: false,
+  };
 
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadScene = new THREE.Scene();
-  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; quadScene.add(quad);
-  const vert = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
-  // the bright pass, at a quarter size: it averages the whole 4×4 block of screen pixels under each of its own (4
-  // bilinear taps), each weighted down by its brightness (a "Karis" average), so a single sparkling pixel — a lamp's
-  // glint on wet stone — can't blow up into a glowing disc that blinks as you move
-  const bright = new THREE.ShaderMaterial({ uniforms: { tex: { value: null }, threshold: { value: 0.9 }, px: { value: new THREE.Vector2(1, 1) } }, vertexShader: vert, depthTest: false, depthWrite: false,
-    fragmentShader: `uniform sampler2D tex; uniform float threshold; uniform vec2 px; varying vec2 vUv;
-      vec3 tap(vec2 o, inout float ws) { vec3 c = texture2D(tex, vUv + o * px).rgb; if (!(c.r == c.r && c.g == c.g && c.b == c.b)) c = vec3(0.0); c = clamp(c, 0.0, 64.0);   /* (a broken pixel — NaN — would black out a whole block) */ float w = 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); ws += w; return c * w; }
-      void main() { float ws = 0.0; vec3 c = tap(vec2(-1.0, -1.0), ws) + tap(vec2(1.0, -1.0), ws) + tap(vec2(-1.0, 1.0), ws) + tap(vec2(1.0, 1.0), ws); c /= ws;
-        float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); gl_FragColor = vec4(c * smoothstep(threshold, threshold + 0.6, l), 1.0); }` });
-  const blur = new THREE.ShaderMaterial({ uniforms: { tex: { value: null }, dir: { value: new THREE.Vector2() } }, vertexShader: vert, depthTest: false, depthWrite: false,
-    fragmentShader: `uniform sampler2D tex; uniform vec2 dir; varying vec2 vUv;
-      void main() { vec3 c = texture2D(tex, vUv).rgb * 0.227027;
-        c += texture2D(tex, vUv + dir * 1.384615).rgb * 0.316216; c += texture2D(tex, vUv - dir * 1.384615).rgb * 0.316216;
-        c += texture2D(tex, vUv + dir * 3.230769).rgb * 0.070270; c += texture2D(tex, vUv - dir * 3.230769).rgb * 0.070270;
-        gl_FragColor = vec4(c, 1.0); }` });
-  const final = new THREE.ShaderMaterial({
-    uniforms: { tScene: { value: null }, tBloom: { value: null }, bloom: { value: 0.7 }, exposure: { value: 0.85 }, lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) }, sat: { value: 1 }, contrast: { value: 1 }, vignette: { value: 0 } },
-    vertexShader: vert, depthTest: false, depthWrite: false,
-    fragmentShader: `uniform sampler2D tScene, tBloom; uniform float bloom, exposure, sat, contrast, vignette; uniform vec3 lift, gain; varying vec2 vUv;
-      vec3 RRTAndODTFit(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
-      vec3 aces(vec3 c) {
-        const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
-        const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
-        c *= exposure / 0.6; c = I * c; c = RRTAndODTFit(c); c = O * c; return clamp(c, 0.0, 1.0); }
-      vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
+  // The normal scene target may be multisampled. Screen-space reflections can request a
+  // depth-texture target instead; that path is intentionally non-multisampled for compatibility.
+  const canMultisample = renderer.capabilities.isWebGL2 && !!THREE.WebGLMultisampleRenderTarget;
+  const multisampleRT = canMultisample
+    ? new THREE.WebGLMultisampleRenderTarget(1, 1, targetOptions)
+    : new THREE.WebGLRenderTarget(1, 1, targetOptions);
+  if (multisampleRT.samples !== undefined) multisampleRT.samples = 4;
+  let depthRT = null;
+  let sceneRT = multisampleRT;
+
+  // Bloom is quarter-resolution. Linear filtering downsamples the HDR scene as it is sampled.
+  const bloomRT = new THREE.WebGLRenderTarget(1, 1, smallOptions);
+  const blurRT = new THREE.WebGLRenderTarget(1, 1, smallOptions);
+
+  const quadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const quadScene = new THREE.Scene();
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+  quad.frustumCulled = false;
+  quadScene.add(quad);
+
+  const vertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  const extractMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      tScene: { value: null },
+      threshold: { value: 0.9 },
+      texel: { value: new THREE.Vector2(1, 1) },
+    },
+    vertexShader,
+    depthTest: false,
+    depthWrite: false,
+    fragmentShader: `
+      uniform sampler2D tScene;
+      uniform float threshold;
+      uniform vec2 texel;
+      varying vec2 vUv;
+
+      vec3 safeColor(vec3 c) {
+        if (!(c.r == c.r && c.g == c.g && c.b == c.b)) return vec3(0.0);
+        return clamp(c, 0.0, 64.0);
+      }
+
       void main() {
-        vec3 c = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * bloom;
-        c = aces(c);
-        float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = mix(vec3(l), c, sat);
-        c = (c - 0.5) * contrast + 0.5; c = c * gain + lift * (1.0 - c);
-        vec2 q = vUv - 0.5; c *= 1.0 - vignette * smoothstep(0.25, 0.75, dot(q, q) * 2.2);
-        gl_FragColor = vec4(toSRGB(clamp(c, 0.0, 1.0)), 1.0); }` });
+        // Four bilinear taps provide a stable downsample and reduce isolated-pixel sparkle.
+        vec3 a = safeColor(texture2D(tScene, vUv + texel * vec2(-1.0, -1.0)).rgb);
+        vec3 b = safeColor(texture2D(tScene, vUv + texel * vec2( 1.0, -1.0)).rgb);
+        vec3 c = safeColor(texture2D(tScene, vUv + texel * vec2(-1.0,  1.0)).rgb);
+        vec3 d = safeColor(texture2D(tScene, vUv + texel * vec2( 1.0,  1.0)).rgb);
+        vec3 color = (a + b + c + d) * 0.25;
+        float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        float contribution = smoothstep(threshold, threshold + 0.6, luminance);
+        gl_FragColor = vec4(color * contribution, 1.0);
+      }
+    `,
+  });
+
+  const blurMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      tInput: { value: null },
+      direction: { value: new THREE.Vector2(1, 0) },
+      texel: { value: new THREE.Vector2(1, 1) },
+    },
+    vertexShader,
+    depthTest: false,
+    depthWrite: false,
+    fragmentShader: `
+      uniform sampler2D tInput;
+      uniform vec2 direction;
+      uniform vec2 texel;
+      varying vec2 vUv;
+      void main() {
+        vec2 stepUV = direction * texel;
+        vec3 color = texture2D(tInput, vUv).rgb * 0.227027;
+        color += texture2D(tInput, vUv + stepUV * 1.384615).rgb * 0.316216;
+        color += texture2D(tInput, vUv - stepUV * 1.384615).rgb * 0.316216;
+        color += texture2D(tInput, vUv + stepUV * 3.230769).rgb * 0.070270;
+        color += texture2D(tInput, vUv - stepUV * 3.230769).rgb * 0.070270;
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+  });
+
+  const finalMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      tScene: { value: null },
+      tBloom: { value: null },
+      bloomStrength: { value: 0.7 },
+      exposure: { value: 0.85 },
+      lift: { value: new THREE.Vector3(0, 0, 0) },
+      gain: { value: new THREE.Vector3(1, 1, 1) },
+      saturation: { value: 1 },
+      contrast: { value: 1 },
+      vignetteStrength: { value: 0 },
+      useToneMapping: { value: 1 },
+      useColorGrade: { value: 1 },
+      useVignette: { value: 1 },
+    },
+    vertexShader,
+    depthTest: false,
+    depthWrite: false,
+    fragmentShader: `
+      uniform sampler2D tScene;
+      uniform sampler2D tBloom;
+      uniform float bloomStrength;
+      uniform float exposure;
+      uniform vec3 lift;
+      uniform vec3 gain;
+      uniform float saturation;
+      uniform float contrast;
+      uniform float vignetteStrength;
+      uniform float useToneMapping;
+      uniform float useColorGrade;
+      uniform float useVignette;
+      varying vec2 vUv;
+
+      // ACES fitted curve. The scene texture is linear HDR; display encoding happens once,
+      // at the very end of this shader.
+      vec3 acesFit(vec3 x) {
+        return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+      }
+
+      vec3 linearToSRGB(vec3 c) {
+        c = max(c, vec3(0.0));
+        vec3 low = c * 12.92;
+        vec3 high = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+        return mix(low, high, step(vec3(0.0031308), c));
+      }
+
+      void main() {
+        vec3 color = texture2D(tScene, vUv).rgb;
+        color += texture2D(tBloom, vUv).rgb * bloomStrength;
+        color *= max(exposure, 0.0);
+
+        if (useToneMapping > 0.5) {
+          color = acesFit(max(color, vec3(0.0)));
+        } else {
+          color = clamp(color, 0.0, 1.0);
+        }
+
+        if (useColorGrade > 0.5) {
+          float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+          color = mix(vec3(luminance), color, saturation);
+          color = (color - 0.5) * contrast + 0.5;
+          color = color * gain + lift * (1.0 - color);
+        }
+
+        if (useVignette > 0.5) {
+          vec2 p = vUv - vec2(0.5);
+          float edge = smoothstep(0.22, 0.72, dot(p, p) * 2.0);
+          color *= 1.0 - clamp(vignetteStrength, 0.0, 1.0) * edge;
+        }
+
+        gl_FragColor = vec4(linearToSRGB(clamp(color, 0.0, 1.0)), 1.0);
+      }
+    `,
+  });
+
+  const blackTexture = new THREE.DataTexture(
+    new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat
+  );
+  blackTexture.needsUpdate = true;
+  blackTexture.minFilter = THREE.NearestFilter;
+  blackTexture.magFilter = THREE.NearestFilter;
+
+  let effects = { ...DEFAULT_EFFECTS };
 
   function setSize() {
     renderer.getDrawingBufferSize(size);
-    sceneRT.setSize(size.x, size.y);
-    const w = Math.max(1, Math.round(size.x / 4)), h = Math.max(1, Math.round(size.y / 4));
-    rtA.setSize(w, h); rtB.setSize(w, h);
+    const width = Math.max(1, size.x);
+    const height = Math.max(1, size.y);
+    sceneRT.setSize(width, height);
+    const bloomWidth = Math.max(1, Math.round(width / 4));
+    const bloomHeight = Math.max(1, Math.round(height / 4));
+    bloomRT.setSize(bloomWidth, bloomHeight);
+    blurRT.setSize(bloomWidth, bloomHeight);
   }
-  setSize();
-  const pass = (material, target) => { quad.material = material; renderer.setRenderTarget(target); renderer.render(quadScene, cam); };
 
-  function render(scene, camera, { bloom = 0.7, threshold = 0.9, grade = 'warm', exposure = 0.85 } = {}) {
-    const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
-    api.afterScene?.(sceneRT, camera);                                                         // (the reflections take their copy here)
-    if (bloom > 0) {
-      bright.uniforms.tex.value = sceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / sceneRT.width, 1 / sceneRT.height); pass(bright, rtA);
-      for (let i = 0; i < 2; i++) {
-        blur.uniforms.tex.value = rtA.texture; blur.uniforms.dir.value.set(1 / rtA.width, 0); pass(blur, rtB);
-        blur.uniforms.tex.value = rtB.texture; blur.uniforms.dir.value.set(0, 1 / rtA.height); pass(blur, rtA);
+  function drawQuad(material, target) {
+    quad.material = material;
+    renderer.setRenderTarget(target);
+    renderer.render(quadScene, quadCamera);
+  }
+
+  function setGrade(grade) {
+    if (grade && typeof grade === 'object') return grade;
+    return GRADES[grade] || GRADES.neutral;
+  }
+
+  function setEffects(next = {}) {
+    effects = { ...effects, ...next };
+    return { ...effects };
+  }
+
+  function getEffects() {
+    return { ...effects };
+  }
+
+  function render(scene, camera, params = {}) {
+    const {
+      bloom = 0.7,
+      threshold = 0.9,
+      grade = 'warm',
+      exposure = 0.85,
+    } = params;
+    const effectOverrides = params.effects || {};
+    const active = { ...effects, ...effectOverrides };
+    const previousTarget = renderer.getRenderTarget();
+    const previousViewport = new THREE.Vector4();
+    const previousScissor = new THREE.Vector4();
+    renderer.getViewport(previousViewport);
+    renderer.getScissor(previousScissor);
+    const previousScissorTest = renderer.getScissorTest();
+    const previousAutoClear = renderer.autoClear;
+    const previousXrEnabled = renderer.xr ? renderer.xr.enabled : undefined;
+
+    try {
+      if (renderer.xr) renderer.xr.enabled = false;
+      renderer.autoClear = false;
+
+      // Render the world once into a linear HDR target. Explicit clear prevents stale pixels
+      // when the target or camera viewport changes.
+      renderer.setRenderTarget(sceneRT);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+
+      // Screen-space reflections copy this linear scene/depth before post-processing.
+      if (typeof api.afterScene === 'function') api.afterScene(sceneRT, camera);
+
+      const amount = Math.max(0, Number(bloom) || 0);
+      let bloomTexture = blackTexture;
+      if (amount > 0 && active.bloomExtraction) {
+        extractMaterial.uniforms.tScene.value = sceneRT.texture;
+        extractMaterial.uniforms.threshold.value = Math.max(0, Number(threshold) || 0);
+        extractMaterial.uniforms.texel.value.set(1 / sceneRT.width, 1 / sceneRT.height);
+        drawQuad(extractMaterial, bloomRT);
+        bloomTexture = bloomRT.texture;
+
+        if (active.bloomBlur) {
+          blurMaterial.uniforms.texel.value.set(1 / bloomRT.width, 1 / bloomRT.height);
+          blurMaterial.uniforms.tInput.value = bloomRT.texture;
+          blurMaterial.uniforms.direction.value.set(1, 0);
+          drawQuad(blurMaterial, blurRT);
+
+          blurMaterial.uniforms.tInput.value = blurRT.texture;
+          blurMaterial.uniforms.direction.value.set(0, 1);
+          drawQuad(blurMaterial, bloomRT);
+          bloomTexture = bloomRT.texture;
+        }
       }
+
+      const G = setGrade(grade);
+      const U = finalMaterial.uniforms;
+      U.tScene.value = sceneRT.texture;
+      U.tBloom.value = bloomTexture;
+      U.bloomStrength.value = amount > 0 && active.bloomExtraction ? amount : 0;
+      U.exposure.value = Number.isFinite(Number(exposure)) ? Number(exposure) : 0.85;
+      U.lift.value.set(...(G.lift || [0, 0, 0]));
+      U.gain.value.set(...(G.gain || [1, 1, 1]));
+      U.saturation.value = active.colorGrade ? (G.sat ?? 1) : 1;
+      U.contrast.value = active.colorGrade ? (G.contrast ?? 1) : 1;
+      U.vignetteStrength.value = active.vignette ? (G.vignette ?? 0) : 0;
+      U.useToneMapping.value = active.toneMapping ? 1 : 0;
+      U.useColorGrade.value = active.colorGrade ? 1 : 0;
+      U.useVignette.value = active.vignette ? 1 : 0;
+
+      // Composite to the previously active target (normally the canvas).
+      renderer.setRenderTarget(previousTarget);
+      renderer.setViewport(previousViewport);
+      renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+      drawQuad(finalMaterial, previousTarget);
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      renderer.setViewport(previousViewport);
+      renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+      renderer.autoClear = previousAutoClear;
+      if (renderer.xr && previousXrEnabled !== undefined) renderer.xr.enabled = previousXrEnabled;
     }
-    const G = (typeof grade === 'object' && grade) || GRADES[grade] || GRADES.warm, U = final.uniforms;   // (a grade by name, or one eased between two: src/gfx/sky.js)
-    U.tScene.value = sceneRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = bloom; U.exposure.value = exposure;
-    U.lift.value.set(...G.lift); U.gain.value.set(...G.gain); U.sat.value = G.sat; U.contrast.value = G.contrast; U.vignette.value = G.vignette;
-    pass(final, prev);
   }
-  // a small view drawn into part of the screen (the character book's figure): drawn the same way as the scene (linear,
-  // not tone-mapped — so the scene's shaders are reused, not compiled a second time), then graded straight onto the screen
-  const insetRT = new THREE.WebGLRenderTarget(2, 2, opts);
-  function renderInset(scene, camera, x, y, w, h, exposure = 0.85) {
-    const pr = renderer.getPixelRatio(), W = Math.max(2, Math.round(w * pr)), H = Math.max(2, Math.round(h * pr)); if (insetRT.width !== W || insetRT.height !== H) insetRT.setSize(W, H);
-    const prev = renderer.getRenderTarget(); renderer.setRenderTarget(insetRT); renderer.clear(); renderer.render(scene, camera);
-    const G = GRADES.none, U = final.uniforms; U.tScene.value = insetRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = 0; U.exposure.value = exposure;
-    U.lift.value.set(...G.lift); U.gain.value.set(...G.gain); U.sat.value = 1; U.contrast.value = 1; U.vignette.value = 0;
-    quad.material = final; renderer.setRenderTarget(prev); renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
-    renderer.render(quadScene, cam); renderer.setScissorTest(false);
+
+  // Character-book/inset render: keep the same simple display transform but no bloom, grade or vignette.
+  const insetRT = new THREE.WebGLRenderTarget(2, 2, targetOptions);
+  function renderInset(scene, camera, x, y, width, height, exposure = 0.85) {
+    const pixelRatio = renderer.getPixelRatio();
+    const w = Math.max(2, Math.round(width * pixelRatio));
+    const h = Math.max(2, Math.round(height * pixelRatio));
+    if (insetRT.width !== w || insetRT.height !== h) insetRT.setSize(w, h);
+
+    const previousTarget = renderer.getRenderTarget();
+    const previousViewport = new THREE.Vector4();
+    const previousScissor = new THREE.Vector4();
+    renderer.getViewport(previousViewport);
+    renderer.getScissor(previousScissor);
+    const previousScissorTest = renderer.getScissorTest();
+    const previousAutoClear = renderer.autoClear;
+
+    try {
+      renderer.autoClear = false;
+      renderer.setRenderTarget(insetRT);
+      renderer.clear(true, true, true);
+      renderer.render(scene, camera);
+
+      const U = finalMaterial.uniforms;
+      U.tScene.value = insetRT.texture;
+      U.tBloom.value = blackTexture;
+      U.bloomStrength.value = 0;
+      U.exposure.value = exposure;
+      U.lift.value.set(0, 0, 0);
+      U.gain.value.set(1, 1, 1);
+      U.saturation.value = 1;
+      U.contrast.value = 1;
+      U.vignetteStrength.value = 0;
+      U.useToneMapping.value = 1;
+      U.useColorGrade.value = 0;
+      U.useVignette.value = 0;
+
+      renderer.setRenderTarget(previousTarget);
+      renderer.setViewport(x, y, width, height);
+      renderer.setScissor(x, y, width, height);
+      renderer.setScissorTest(true);
+      drawQuad(finalMaterial, previousTarget);
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+      renderer.setViewport(previousViewport);
+      renderer.setScissor(previousScissor);
+      renderer.setScissorTest(previousScissorTest);
+      renderer.autoClear = previousAutoClear;
+    }
   }
-  const api = { render, renderInset, setSize, afterScene: null, get sceneRT() { return sceneRT; },
-    useDepth(on) { if (on && !depthRT) { depthRT = new THREE.WebGLRenderTarget(1, 1, opts); depthRT.depthTexture = new THREE.DepthTexture(); depthRT.depthTexture.type = THREE.UnsignedIntType; }
-      sceneRT = on ? depthRT : msRT; setSize(); } };
+
+  const api = {
+    render,
+    renderInset,
+    setSize,
+    setEffects,
+    getEffects,
+    afterScene: null,
+    get sceneRT() { return sceneRT; },
+    useDepth(enabled) {
+      if (enabled && !depthRT) {
+        depthRT = new THREE.WebGLRenderTarget(1, 1, targetOptions);
+        depthRT.depthTexture = new THREE.DepthTexture();
+        depthRT.depthTexture.type = THREE.UnsignedIntType;
+      }
+      sceneRT = enabled ? depthRT : multisampleRT;
+      setSize();
+    },
+    dispose() {
+      multisampleRT.dispose();
+      depthRT?.dispose();
+      bloomRT.dispose();
+      blurRT.dispose();
+      insetRT.dispose();
+      extractMaterial.dispose();
+      blurMaterial.dispose();
+      finalMaterial.dispose();
+      quad.geometry.dispose();
+      blackTexture.dispose();
+    },
+  };
+
+  setSize();
   return api;
 }

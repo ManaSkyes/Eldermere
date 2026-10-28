@@ -275,7 +275,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       G.awareness = Math.max(0, Math.min(1, G.awareness + (signal ? (sightRate + hearingRate) * dt : -STEALTH.decay * dt)));
       G.seen = G.canSee && G.awareness >= 1;
       if (signal) {
-        G.lastKnown = { x: p.x, z: p.z };
+        if (!G.lastKnown) G.lastKnown = { x: p.x, z: p.z };
+        else { G.lastKnown.x = p.x; G.lastKnown.z = p.z; }
         G.investigateT = 0;
       }
       if (G.state === 'fight') {

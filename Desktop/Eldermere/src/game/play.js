@@ -1236,6 +1236,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
   const closeProbe = () => { probe.on = probe.open = false; probe.sync = false; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = r[0] !== 'umbra2weight'; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => i.checked = i.dataset.p !== 'sync' && i.dataset.p !== 'umbra2weight'); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
+    // Capture immediately with '=' while the monitor is active, without needing to click the panel.
+    // Use the physical Equal key so the shortcut works regardless of Shift / keyboard layout.
+    if (e.code === 'Equal' && probe.on && !probeEl.hidden) {
+      const target = e.target;
+      if (target?.matches?.('input, textarea, select, [contenteditable="true"]')) return;
+      e.preventDefault();
+      probeEl.querySelector('[data-copy-data]')?.click();
+      return;
+    }
     if (e.code === 'Escape' && probe.on && !input.locked) { e.preventDefault(); closeProbe(); return; }
     if (e.code !== 'F8') return; e.preventDefault();
     if (!probe.on) { probe.on = probe.open = true; probeEl.hidden = false; input.unlock(); showPause(false); }

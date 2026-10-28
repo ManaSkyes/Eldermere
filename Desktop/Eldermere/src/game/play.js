@@ -1266,11 +1266,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         ...rows,
         '',
         workerStressReport.note,
-      ].join('\\n');
+      ].join('\n');
       status.textContent = workerStressReport.results.every(r => r.valid) ? 'Complete · checksums passed' : 'Warning · validation failed';
     } catch (error) {
       workerStressReport = { error: error?.message || String(error) };
-      output.textContent = `Worker test failed: ${workerStressReport.error}\\nCheck the browser console and whether this page is served in a context that permits module workers.`;
+      output.textContent = `Worker test failed: ${workerStressReport.error}\nCheck the browser console and whether this page is served in a context that permits module workers.`;
       status.textContent = 'Failed';
     } finally { button.disabled = false; }
   });

@@ -239,21 +239,44 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     return G;
   }
   const alive = G => G.members.filter(m => m.alive);
+  // Diminishing returns for group detection: interpolate linearly in log(group size)
+  // between the requested calibration points. Solo/duo detection remains the baseline.
+  function groupDetectionScale(n) {
+    const points = [[2, 1], [4, 1], [10, 1.7], [30, 2.55], [90, 2.805]];
+    if (n <= 2) return 1;
+    for (let i = 1; i < points.length; i++) {
+      const [n1, v1] = points[i - 1], [n2, v2] = points[i];
+      if (n <= n2) return v1 + (v2 - v1) * (Math.log(n / n1) / Math.log(n2 / n1));
+    }
+    return points[points.length - 1][1] * (1 + 0.1 * Math.log(n / 90) / Math.log(3));
+  }
   function groupThink(G, dt, player) {
     const live = G.members, n = live.length; if (!n) return;
     let cx = 0, cy = 0, cz = 0; for (const m of live) { cx += m.pos.x; cy += m.pos.y; cz += m.pos.z; } G.center.x = cx / n; G.center.y = cy / n; G.center.z = cz / n;
     const A0 = live[0], S = A0.S, M = G.M, p = player.pos, dx = p.x - G.center.x, dz = p.z - G.center.z, dist = Math.hypot(dx, dz);
     G.dist = dist;
-    // Check line of sight for the whole group four times a second, not once per fiend.
-    // Packs use the player's stealth visibility and noise; swarms retain their existing detection for now.
+    // Detection originates from the nearest living member, not the pack center. This prevents
+    // large packs from being effectively blind until the player reaches their middle.
+    // One shared scan every 0.25 s keeps the cost bounded even for very large groups.
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
-      const ey = G.center.y + (M.hover || 0) + avgAlt(G) + 0.4, eye = { x: G.center.x, y: ey, z: G.center.z }, chest = { x: p.x, y: p.y + 1.2, z: p.z };
-      const range = S.aggro * (G.state === 'fight' ? 1.6 : 1), below = ey - (p.y + 1.2);
-      const inCone = M.flight ? below > -1.5 : true;   // (a flyer's eyes look down and around, not up)
+      let nearest = null, nearestD2 = Infinity;
+      for (const member of live) {
+        if (!member.alive) continue;
+        const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
+        if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+      }
+      const detectDist = nearest ? Math.sqrt(nearestD2) : dist;
+      const detectSize = groupDetectionScale(live.reduce((count, member) => count + (member.alive ? 1 : 0), 0));
+      const ey = nearest ? nearest.pos.y + (nearest.M.hover || 0) + (nearest.alt || 0) + 1.1 : G.center.y + (M.hover || 0) + avgAlt(G) + 0.4;
+      const eye = nearest ? { x: nearest.pos.x, y: ey, z: nearest.pos.z } : { x: G.center.x, y: ey, z: G.center.z };
+      const chest = { x: p.x, y: p.y + 1.2, z: p.z };
+      const range = S.aggro * detectSize * (G.state === 'fight' ? 1.6 : 1), below = ey - (p.y + 1.2);
+      const inCone = M.flight ? below > -1.5 : true;
+      G.detectDist = detectDist; G.detectSize = detectSize;
       G.open = !blocked(eye, chest);
-      G.canSee = dist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
-      if (G.kind === 'swarm') G.seen = dist < range && inCone && G.open; // preserve current bat/swarm behavior
+      G.canSee = detectDist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
+      if (G.kind === 'swarm') G.seen = detectDist < range && inCone && G.open;
     }
     if (M.temper === 'passive') {
       if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle';
@@ -265,12 +288,13 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       // One shared awareness meter per pack. Sight is slowed by the player's visibility; noise can
       // reveal a last-known position through walls, but hearing alone starts an investigation, not combat.
       const visibility = Math.max(0.2, Math.min(1, player.visibility ?? 1));
-      const sightRange = S.aggro * (G.state === 'fight' ? 1.6 : 1) * visibility;
-      const sightRate = G.canSee && dist < sightRange ? (1 - dist / sightRange) * 1.2 : 0;
+      const sightRange = S.aggro * (G.state === 'fight' ? 1.6 : 1) * visibility * (G.detectSize || groupDetectionScale(live.length));
+      const detectDist = G.detectDist ?? dist;
+      const sightRate = G.canSee && detectDist < sightRange ? (1 - detectDist / sightRange) * 1.2 : 0;
       const loudness = Math.max(0, player.loudness || 0), perception = A0.S.perception ?? 1;
-      let hearingRange = loudness * perception;
+      let hearingRange = loudness * perception * (G.detectSize || groupDetectionScale(live.length));
       if (!G.open) hearingRange *= STEALTH.muffled;
-      const hearingRate = hearingRange > dist ? (1 - dist / Math.max(0.01, hearingRange)) * STEALTH.hearRate : 0;
+      const hearingRate = hearingRange > detectDist ? (1 - detectDist / Math.max(0.01, hearingRange)) * STEALTH.hearRate : 0;
       const signal = sightRate > 0 || hearingRate > 0;
       G.awareness = Math.max(0, Math.min(1, G.awareness + (signal ? (sightRate + hearingRate) * dt : -STEALTH.decay * dt)));
       G.seen = G.canSee && G.awareness >= 1;

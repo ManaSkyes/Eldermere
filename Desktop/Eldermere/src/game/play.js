@@ -1126,7 +1126,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // F8: the performance panel, for finding what costs frames on your machine. Switch anything off on its own and watch
   // the fps, frame time, draw calls and triangles (a frame's, shadows included). F8 opens it and frees the mouse;
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
-  const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0 }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
+  const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
@@ -1205,7 +1205,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       ['Buildings, props and rocks', !probe.buildings ? 'Disabled' : counts.buildings ? 'Enabled · ' + counts.buildings + ' tagged objects' : 'Enabled · no tagged objects'], ['Ground and roads', !probe.ground ? 'Disabled' : counts.ground ? 'Enabled · ' + counts.ground + ' tagged objects' : 'Enabled · no tagged objects'], ['Water', !probe.water ? 'Disabled' : counts.water ? 'Enabled · ' + counts.water + ' tagged objects' : 'Enabled · no tagged objects'],
       ['Glow / post-processing', probe.glow ? 'Enabled' : 'Disabled'], ['World / area fog', probe.fogOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Bloom extraction + blur', probe.bloomOff ? 'Disabled' : 'Enabled'], ['Bloom blur', probe.blurOff ? 'Disabled' : 'Enabled'], ['ACES tone mapping', probe.toneMapOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Color grade', probe.gradeOff ? 'Disabled' : 'Enabled'], ['Vignette', probe.vignetteOff ? 'Disabled' : 'Enabled'], ['Puddle reflections', reflections && reflections.mode !== 'off' ? reflections.mode : 'Off'],
       ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Tone-mapping route', settings.postfx !== false && !fx.probeOff ? 'Custom ACES in postFX' : 'Three.js ACESFilmicToneMapping'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
-      ['GPU timing method', tq ? 'Asynchronous GPU timer query' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured']
+      ['GPU timing method', tq ? 'Separate asynchronous timer queries: main scene + postFX, and reflections; rolling median of up to 30 valid samples' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured'],
+      ['GPU main + postFX', Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.main.length + ' samples' : 'Waiting for valid samples'],
+      ['GPU reflections', Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.reflection.length + ' samples' : 'Waiting for valid samples']
     ];
     const timings = Object.entries(probeLaps).sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<tr><td>'+k+'</td><td style="text-align:right;font-variant-numeric:tabular-nums">'+v.toFixed(2)+' ms</td></tr>').join('');
     const fxTimings = Object.entries(fx.passStats || {}).map(([k,v])=>'<tr><td>'+k+'</td><td style="text-align:right;font-variant-numeric:tabular-nums">'+v.avgMs.toFixed(3)+' ms</td><td style="text-align:right">'+v.calls+' calls</td><td style="text-align:right">'+v.triangles+' tris</td></tr>').join('');
@@ -1214,6 +1216,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:5px;margin-bottom:8px">'+tiles.map(([k,v])=>'<div style="background:rgba(90,84,144,.18);padding:5px 7px;border-radius:4px"><span style="opacity:.8">'+k+'</span><br><b>'+v+'</b></div>').join('')+'</div>'+
       '<b>Feature switches</b><table style="width:100%;border-collapse:collapse;margin:3px 0 9px">'+stateRows+'</table>'+
       '<b>CPU time by game subsystem</b><div style="opacity:.8">Smoothed time between measured checkpoints. These rows are partial timings, not a sum of all CPU work.</div><table style="width:100%;border-collapse:collapse;margin:3px 0 9px">'+(timings||'<tr><td>Collecting samples…</td></tr>')+'</table>'+
+      '<b>GPU timing interpretation</b><div style="opacity:.8">GPU timings are separate asynchronous timer-query medians over up to 30 valid samples. Main scene + postFX excludes the puddle-reflection update; reflections are shown separately. Samples from a previous diagnostic toggle are discarded. Per-pass postFX values below remain CPU submission timings, not GPU timings.</div>' +
       '<b>Post-processing pass CPU submission timings</b><div style="opacity:.8">These are CPU wall-time around renderer calls, not GPU execution time; use the A/B benchmark below to estimate GPU savings.</div><table style="width:100%;border-collapse:collapse;margin:3px 0 9px"><tr><th align="left">Pass</th><th>CPU ms</th><th>Calls</th><th>Triangles</th></tr>'+(fxTimings||'<tr><td>Collecting samples…</td></tr>')+'</table>'+ 
       '<b>Reading the numbers</b><div style="opacity:.8">Draw calls and triangles accumulate across intercepted render calls. Main-scene passes include repeated renders of the game scene (for example, glow/post-processing); other scenes are insets/previews. These are pass totals, not unique objects or a single-pass count. CPU game time is update work before rendering; sending draws is CPU time in the render path. GPU time is only a true GPU measurement when a valid timer-query result is available. “Measure each part” switches features off one at a time to estimate their impact.</div>';
   };
@@ -1235,6 +1238,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     fx.probe.bloomOff = probe.bloomOff; fx.probe.blurOff = probe.blurOff; fx.probe.toneMapOff = probe.toneMapOff; fx.probe.gradeOff = probe.gradeOff; fx.probe.vignetteOff = probe.vignetteOff;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
+  probeEl.addEventListener('change', e => { if ((e.target.dataset.p && e.target.dataset.p !== 'sync' && e.target.dataset.p !== 'scale') || e.target.dataset.fx !== undefined) resetGpuSamples(); });
   probeEl.addEventListener('input', e => { if (e.target.dataset.hour !== undefined) sky.setHour(+e.target.value, true); });
   probeEl.addEventListener('change', e => { if (e.target.dataset.cycle !== undefined) sky.cycle = e.target.checked; });
   probeEl.addEventListener('change', e => { if ((e.target.dataset.wx !== undefined || e.target.dataset.wxs !== undefined) && weather) weather.set(probeEl.querySelector('[data-wx]').value, +probeEl.querySelector('[data-wxs]').value, 8); });
@@ -1310,6 +1314,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)
   const glc = renderer.getContext(), tq = glc.getExtension && glc.getExtension('EXT_disjoint_timer_query_webgl2'), tqList = [], px1 = new Uint8Array(4);
+  const gpuModeKey = () => [probe.glow, probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale].join(':');
+  const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
+  const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const startGpuQuery = bucket => {
+    if (!probe.on || !probe.sync || !tq || tqList.length >= 8) return null;
+    const q = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, q);
+    return { q, bucket, mode: gpuModeKey(), benchAcc: bench.on && bench.n > 40 ? bench.acc : null };
+  };
+  const endGpuQuery = item => { if (item) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(item); } };
   // "Measure each part": each part of the scene switched off in turn for a moment, the GPU's and the CPU's time
   // measured with and without it — what each one costs, in one table
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
@@ -1332,16 +1345,16 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   probeEl.addEventListener('click', e => { const id = e.target.dataset?.spawn; if (!id) return; const st = player.state, fx = -Math.sin(st.yaw), fz = -Math.cos(st.yaw);
     monsters.spawn(id, { x: st.pos.x + fx * 8, y: st.pos.y, z: st.pos.z + fz * 8, yaw: Math.atan2(-fx, -fz) }); });
   probeEl.addEventListener('click', e => { if (e.target.dataset.bench === undefined || bench.on) return;
-    Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, k: 0, gk: 0 }, res: [], sync: probe.sync }); probe.sync = true; benchEl().textContent = 'Measuring…'; });
+    Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 }, res: [], sync: probe.sync }); probe.sync = true; resetGpuSamples(); benchEl().textContent = 'Measuring…'; });
   function benchStep(logic, submit) {
     const B = bench; B.n++; if (B.n > 40) { B.acc.l += logic; B.acc.s += submit; B.acc.k++; }
     if (B.n < 130) return;
-    const a = B.acc, r = { l: a.l / a.k, s: a.s / a.k, g: a.gk ? a.g / a.gk : NaN };
+    const a = B.acc, r = { l: a.l / a.k, s: a.s / a.k, g: a.gk ? a.g / a.gk + (a.grk ? a.gr / a.grk : 0) : NaN, gm: a.gk ? a.g / a.gk : NaN, gr: a.grk ? a.gr / a.grk : NaN };
     if (B.i === -1) B.base = r; else { BENCH[B.i].on(); if (B.i < BENCH.length) B.res.push({ name: BENCH[B.i].name, ...r }); }
-    B.i++; B.n = 0; B.acc = { l: 0, s: 0, g: 0, k: 0, gk: 0 };
+    B.i++; B.n = 0; B.acc = { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 };
     if (B.i >= BENCH.length) { B.on = false; probe.sync = B.sync; const b = B.base, f = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2);
-      benchEl().textContent = `With everything: GPU ${b.g.toFixed(2)} ms · CPU ${(b.l + b.s).toFixed(2)} ms (game ${b.l.toFixed(2)}, sending ${b.s.toFixed(2)})\nWhat switching each off saves:\n` +
-        B.res.map(q => ({ ...q, dg: b.g - q.g, dc: b.l + b.s - q.l - q.s })).sort((p, q) => (q.dg + q.dc) - (p.dg + p.dc)).map(q => `${q.name}: GPU ${f(q.dg)} · CPU ${f(q.dc)}`).join('\n');
+      benchEl().textContent = `Baseline: GPU main+postFX ${b.gm.toFixed(2)} ms · reflections ${b.gr.toFixed(2)} ms · combined ${b.g.toFixed(2)} ms\nCPU ${(b.l + b.s).toFixed(2)} ms (game ${b.l.toFixed(2)}, sending ${b.s.toFixed(2)})\nWhat switching each off saves (positive = faster):\n` +
+        B.res.map(q => ({ ...q, dg: b.g - q.g, dgm: b.gm - q.gm, dgr: b.gr - q.gr, dc: b.l + b.s - q.l - q.s })).sort((p, q) => (q.dg + q.dc) - (p.dg + p.dc)).map(q => `${q.name}: GPU ${f(q.dg)} ms (main ${f(q.dgm)}, reflections ${f(q.dgr)}) · CPU ${f(q.dc)} ms`).join('\n');
       return; }
     BENCH[B.i].off(); benchEl().textContent = `Measuring… ${B.i + 1} / ${BENCH.length}: ${BENCH[B.i].name}`;
   }
@@ -1465,16 +1478,30 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
-    let gq = null; if (probe.on && probe.sync && tq && tqList.length < 4) { gq = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, gq); }   // (the GPU's time for the scene and the glow)
+    const reflectionQuery = startGpuQuery('reflection');
     if (reflections) { const st = player.state, gs = st.groundShape;                       // the puddles' mirror: the street / ground level you're on — standing on a crate, a step or a wall doesn't move it
       if (st.onGround && (reflY == null || gs?.terrain || gs?.path || Math.abs(st.pos.y - reflY) > 2.5)) reflY = st.pos.y;
       reflections.update(camera, reflY ?? st.pos.y); }
+    endGpuQuery(reflectionQuery);
     { const t0 = performance.now(); particles.update(dt, camera); if (probe.on) probeLaps['Particles'] = (probeLaps['Particles'] || 0) * 0.9 + (performance.now() - t0) * 0.1; }
+    const mainQuery = startGpuQuery('main');
     if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' }); else renderer.render(scene, camera);
+    endGpuQuery(mainQuery);
     body?.showHead(true);                              // ...but everything else (hair physics, mirrors) does
     const cpu2 = performance.now();
-    if (gq) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(gq); }
-    while (tqList.length && glc.getQueryParameter(tqList[0], glc.QUERY_RESULT_AVAILABLE)) { const q = tqList.shift(); if (!glc.getParameter(tq.GPU_DISJOINT_EXT)) { const gv = glc.getQueryParameter(q, glc.QUERY_RESULT) / 1e6; probeInfo.gpu = (probeInfo.gpu || 0) * 0.9 + gv * 0.1; if (bench.on && bench.n > 40) { bench.acc.g += gv; bench.acc.gk++; } } glc.deleteQuery(q); }
+    while (tqList.length && glc.getQueryParameter(tqList[0].q, glc.QUERY_RESULT_AVAILABLE)) {
+      const item = tqList.shift();
+      if (!glc.getParameter(tq.GPU_DISJOINT_EXT)) {
+        const gv = glc.getQueryParameter(item.q, glc.QUERY_RESULT) / 1e6;
+        if (item.mode === gpuModeKey()) {
+          const samples = probeInfo.gpuSamples[item.bucket]; samples.push(gv); if (samples.length > 30) samples.shift();
+          probeInfo.gpuMain = median(probeInfo.gpuSamples.main); probeInfo.gpuReflection = median(probeInfo.gpuSamples.reflection);
+          probeInfo.gpu = (Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0) + (Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0);
+        }
+        if (item.benchAcc) { if (item.bucket === 'main') { item.benchAcc.g += gv; item.benchAcc.gk++; } else { item.benchAcc.gr += gv; item.benchAcc.grk++; } }
+      }
+      glc.deleteQuery(item.q);
+    }
     if (probe.on) { probeInfo.logic = (probeInfo.logic || 0) * 0.9 + (cpu1 - cpu0) * 0.1; probeInfo.submit = (probeInfo.submit || 0) * 0.9 + (cpu2 - cpu1) * 0.1; if (probe.sync) { if (!tq) glc.readPixels(0, 0, 1, 1, glc.RGBA, glc.UNSIGNED_BYTE, px1); } probeInfo.gpuWait = (probeInfo.gpuWait || 0) * 0.9 + (performance.now() - cpu2) * 0.1; }
     if (bench.on) benchStep(cpu1 - cpu0, cpu2 - cpu1);
     if (book.isOpen && body) renderFigure();
@@ -1485,7 +1512,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
-        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(probeInfo.gpu || 0).toFixed(1)} ms (measured)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
+        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(Number.isFinite(probeInfo.gpu) ? probeInfo.gpu : 0).toFixed(2)} ms total (median: main/postFX ${(Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0).toFixed(2)} + reflections ${(Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0).toFixed(2)}; ${probeInfo.gpuSamples.main.length}/${probeInfo.gpuSamples.reflection.length} samples)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
     dbg.textContent = `${fps} fps · ${Math.hypot(st.vel.x, st.vel.z).toFixed(1)} m/s${st.sprinting ? ' · sprint' : ''}${st.crouching ? ' · crouch' : ''}${st.sitting ? ' · sitting' : ''}${st.onGround ? '' : ' · air'}${loadFactor < 1 ? ' · overloaded' : ''}`;
   }
   requestAnimationFrame(frame);

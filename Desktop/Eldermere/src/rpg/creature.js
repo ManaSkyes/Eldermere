@@ -19,7 +19,7 @@
 //
 //   const C = buildCreature(THREE, spec)  → { root, mesh, bones: { 'chain:joint' → Bone }, chain(name) → [Bone],
 //                                             skeleton, update(t), dispose() }
-export function buildCreature(THREE, spec, { particles = null, instances = null } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
+export function buildCreature(THREE, spec, { particles = null, instances = null, twoInfluenceVariant = false } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const root = new THREE.Group(); root.name = 'creature';
   // ---- chains (mirrored copies made here) ----
@@ -177,6 +177,9 @@ export function buildCreature(THREE, spec, { particles = null, instances = null 
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
   const meshes = [];
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
+  // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
+  // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
+  const bodyMatTwoInfluence = look.shade && twoInfluenceVariant ? shadeBodyMaterial(THREE, uniforms, look, true) : null;
   const mesh = new THREE.SkinnedMesh(geo, bodyMat); mesh.name = 'creature-body'; mesh.castShadow = !look.shade; mesh.receiveShadow = true; mesh.frustumCulled = false;
   root.add(mesh); mesh.bind(skeleton); meshes.push(mesh);
   // fur (look.fur: { length m, density strands/m, shells, tip colour }): shells of the same skin pushed out along its
@@ -272,6 +275,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null 
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
+    setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
     // quaternion.identity() fires the Euler sync on every bone, and that was a sixth of a monster's frame
@@ -279,7 +283,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null 
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
     update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = uniforms.uSmoke.value / (look.smoke ?? 0.6); },
-    dispose() { puffs?.remove(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
+    dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }
 const fract = x => x - Math.floor(x);
@@ -353,10 +357,33 @@ function noiseTexture(THREE) {
   noiseTex = new THREE.DataTexture(d, N, N, THREE.RGBAFormat); noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping; noiseTex.magFilter = THREE.LinearFilter; noiseTex.minFilter = THREE.LinearFilter; noiseTex.needsUpdate = true;
   return noiseTex;
 }
-function shadeBodyMaterial(THREE, U, look) {
+function shadeBodyMaterial(THREE, U, look, twoInfluence = false) {
   const m = new THREE.MeshStandardMaterial({ color: look.body || '#07040c', roughness: 1, metalness: 0, skinning: true, emissive: new THREE.Color(look.rim || '#2a1050') });   // (solid, so it writes depth and is cheap: where it thins to smoke it's cut away, not blended)
   m.onBeforeCompile = sh => {
     sh.uniforms.uTime = U.uTime; sh.uniforms.uNz = U.uNz;
+    if (twoInfluence) {
+      // Umbrafiend body vertices are authored with one or two non-zero influences. Keep the same
+      // skeleton and pose, but avoid fetching and blending the unused Z/W bone matrices.
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <skinbase_vertex>', `#ifdef USE_SKINNING
+          mat4 boneMatX = getBoneMatrix( skinIndex.x );
+          mat4 boneMatY = getBoneMatrix( skinIndex.y );
+        #endif`)
+        .replace('#include <skinnormal_vertex>', `#ifdef USE_SKINNING
+          mat4 skinMatrix = mat4( 0.0 );
+          skinMatrix += skinWeight.x * boneMatX;
+          skinMatrix += skinWeight.y * boneMatY;
+          skinMatrix = bindMatrixInverse * skinMatrix * bindMatrix;
+          objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;
+        #endif`)
+        .replace('#include <skinning_vertex>', `#ifdef USE_SKINNING
+          vec4 skinVertex = bindMatrix * vec4( transformed, 1.0 );
+          vec4 skinned = vec4( 0.0 );
+          skinned += boneMatX * skinVertex * skinWeight.x;
+          skinned += boneMatY * skinVertex * skinWeight.y;
+          transformed = ( bindMatrixInverse * skinned ).xyz;
+        #endif`);
+    }
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vWP; attribute float aSolid; varying float vSolid;').replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz; vSolid = aSolid;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uTime; varying vec3 vWP; varying float vSolid;' + NOISE)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
@@ -366,6 +393,7 @@ function shadeBodyMaterial(THREE, U, look) {
           float d = vSolid + (fbm(vWP * 6.0 + vec3(0.0, -uTime * 1.1, 0.0)) - 0.5) * 0.7;   // where it thins to smoke the edge frays and moves
           if (d < 0.3) discard; }`);
   };
+  m.customProgramCacheKey = () => twoInfluence ? 'umbrafiend-two-influence-skinning-v1' : 'umbrafiend-four-influence-skinning-v1';
   return m;
 }
 function smokeMaterial(THREE, U, inflate, alpha, look) {

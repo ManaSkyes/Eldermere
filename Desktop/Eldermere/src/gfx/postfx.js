@@ -45,9 +45,9 @@ export function createPostFX(THREE, renderer) {
         c += texture2D(tex, vUv + dir * 3.230769).rgb * 0.070270; c += texture2D(tex, vUv - dir * 3.230769).rgb * 0.070270;
         gl_FragColor = vec4(c, 1.0); }` });
   const final = new THREE.ShaderMaterial({
-    uniforms: { tScene: { value: null }, tBloom: { value: null }, bloom: { value: 0.7 }, exposure: { value: 0.85 }, lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) }, sat: { value: 1 }, contrast: { value: 1 }, vignette: { value: 0 } },
+    uniforms: { tScene: { value: null }, tBloom: { value: null }, bloom: { value: 0.7 }, exposure: { value: 0.85 }, lift: { value: new THREE.Vector3() }, gain: { value: new THREE.Vector3(1, 1, 1) }, sat: { value: 1 }, contrast: { value: 1 }, vignette: { value: 0 }, toneMapEnabled: { value: 1 }, gradeEnabled: { value: 1 }, vignetteEnabled: { value: 1 } },
     vertexShader: vert, depthTest: false, depthWrite: false,
-    fragmentShader: `uniform sampler2D tScene, tBloom; uniform float bloom, exposure, sat, contrast, vignette; uniform vec3 lift, gain; varying vec2 vUv;
+    fragmentShader: `uniform sampler2D tScene, tBloom; uniform float bloom, exposure, sat, contrast, vignette, toneMapEnabled, gradeEnabled, vignetteEnabled; uniform vec3 lift, gain; varying vec2 vUv;
       vec3 RRTAndODTFit(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
       vec3 aces(vec3 c) {
         const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -56,10 +56,11 @@ export function createPostFX(THREE, renderer) {
       vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
       void main() {
         vec3 c = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * bloom;
-        c = aces(c);
-        float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = mix(vec3(l), c, sat);
-        c = (c - 0.5) * contrast + 0.5; c = c * gain + lift * (1.0 - c);
-        vec2 q = vUv - 0.5; c *= 1.0 - vignette * smoothstep(0.25, 0.75, dot(q, q) * 2.2);
+        c *= exposure / 0.6;
+        if (toneMapEnabled > 0.5) c = aces(c); else c = clamp(c, 0.0, 1.0);
+        if (gradeEnabled > 0.5) { float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = mix(vec3(l), c, sat);
+          c = (c - 0.5) * contrast + 0.5; c = c * gain + lift * (1.0 - c); }
+        vec2 q = vUv - 0.5; if (vignetteEnabled > 0.5) c *= 1.0 - vignette * smoothstep(0.25, 0.75, dot(q, q) * 2.2);
         gl_FragColor = vec4(toSRGB(clamp(c, 0.0, 1.0)), 1.0); }` });
 
   function setSize() {
@@ -69,23 +70,36 @@ export function createPostFX(THREE, renderer) {
     rtA.setSize(w, h); rtB.setSize(w, h);
   }
   setSize();
-  const pass = (material, target) => { quad.material = material; renderer.setRenderTarget(target); renderer.render(quadScene, cam); };
+  const passStats = Object.create(null);
+  const timedPass = (name, fn) => {
+    const t0 = performance.now(); fn(); const elapsed = performance.now() - t0;
+    const old = passStats[name] || { avgMs: elapsed };
+    passStats[name] = { ms: elapsed, avgMs: old.avgMs * 0.9 + elapsed * 0.1,
+      calls: renderer.info.render.calls || 0, triangles: renderer.info.render.triangles || 0 };
+  };
+  const pass = (material, target, name) => timedPass(name, () => {
+    quad.material = material; renderer.setRenderTarget(target); renderer.render(quadScene, cam);
+  });
+  const probe = { bloomOff: false, blurOff: false, toneMapOff: false, gradeOff: false, vignetteOff: false };
 
   function render(scene, camera, { bloom = 0.7, threshold = 0.9, grade = 'warm', exposure = 0.85 } = {}) {
     const prev = renderer.getRenderTarget();
-    renderer.setRenderTarget(sceneRT); renderer.render(scene, camera);
-    api.afterScene?.(sceneRT, camera);                                                         // (the reflections take their copy here)
-    if (bloom > 0) {
-      bright.uniforms.tex.value = sceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / sceneRT.width, 1 / sceneRT.height); pass(bright, rtA);
-      for (let i = 0; i < 1; i++) { // one separable blur iteration: two quarter-resolution passes instead of four
-        blur.uniforms.tex.value = rtA.texture; blur.uniforms.dir.value.set(1 / rtA.width, 0); pass(blur, rtB);
-        blur.uniforms.tex.value = rtB.texture; blur.uniforms.dir.value.set(0, 1 / rtA.height); pass(blur, rtA);
+    timedPass('Scene → HDR target', () => { renderer.setRenderTarget(sceneRT); renderer.render(scene, camera); });
+    api.afterScene?.(sceneRT, camera);
+    const bloomOn = bloom > 0 && !probe.bloomOff;
+    if (bloomOn) {
+      bright.uniforms.tex.value = sceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / sceneRT.width, 1 / sceneRT.height);
+      pass(bright, rtA, 'Bright-pass extraction');
+      if (!probe.blurOff) {
+        blur.uniforms.tex.value = rtA.texture; blur.uniforms.dir.value.set(1 / rtA.width, 0); pass(blur, rtB, 'Bloom blur horizontal');
+        blur.uniforms.tex.value = rtB.texture; blur.uniforms.dir.value.set(0, 1 / rtA.height); pass(blur, rtA, 'Bloom blur vertical');
       }
     }
-    const G = (typeof grade === 'object' && grade) || GRADES[grade] || GRADES.warm, U = final.uniforms;   // (a grade by name, or one eased between two: src/gfx/sky.js)
-    U.tScene.value = sceneRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = bloom; U.exposure.value = exposure;
+    const G = (typeof grade === 'object' && grade) || GRADES[grade] || GRADES.warm, U = final.uniforms;
+    U.tScene.value = sceneRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = bloomOn ? bloom : 0; U.exposure.value = exposure;
     U.lift.value.set(...G.lift); U.gain.value.set(...G.gain); U.sat.value = G.sat; U.contrast.value = G.contrast; U.vignette.value = G.vignette;
-    pass(final, prev);
+    U.toneMapEnabled.value = probe.toneMapOff ? 0 : 1; U.gradeEnabled.value = probe.gradeOff ? 0 : 1; U.vignetteEnabled.value = probe.vignetteOff ? 0 : 1;
+    pass(final, prev, 'Final composite + tone map + grade');
   }
   // a small view drawn into part of the screen (the character book's figure): drawn the same way as the scene (linear,
   // not tone-mapped — so the scene's shaders are reused, not compiled a second time), then graded straight onto the screen
@@ -98,7 +112,7 @@ export function createPostFX(THREE, renderer) {
     quad.material = final; renderer.setRenderTarget(prev); renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
     renderer.render(quadScene, cam); renderer.setScissorTest(false);
   }
-  const api = { render, renderInset, setSize, afterScene: null, get sceneRT() { return sceneRT; },
+  const api = { render, renderInset, setSize, afterScene: null, probe, passStats, get sceneRT() { return sceneRT; },
     useDepth(on) { if (on && !depthRT) { depthRT = new THREE.WebGLRenderTarget(1, 1, opts); depthRT.depthTexture = new THREE.DepthTexture(); depthRT.depthTexture.type = THREE.UnsignedIntType; }
       sceneRT = on ? depthRT : msRT; setSize(); } };
   return api;

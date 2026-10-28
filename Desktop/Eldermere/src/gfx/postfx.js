@@ -215,6 +215,16 @@ export function createPostFX(THREE, renderer) {
   blackTexture.magFilter = THREE.NearestFilter;
 
   let effects = { ...DEFAULT_EFFECTS };
+  const passStats = Object.create(null);
+  function timePass(name, fn) {
+    const t0 = performance.now();
+    try { return fn(); }
+    finally {
+      const elapsed = performance.now() - t0;
+      passStats[name] = (passStats[name] || 0) * 0.9 + elapsed * 0.1;
+    }
+  }
+  function getStats() { return { ...passStats }; }
 
   function setSize() {
     renderer.getDrawingBufferSize(size);
@@ -273,7 +283,7 @@ export function createPostFX(THREE, renderer) {
       // when the target or camera viewport changes.
       renderer.setRenderTarget(sceneRT);
       renderer.clear(true, true, true);
-      renderer.render(scene, camera);
+      timePass('Scene target', () => renderer.render(scene, camera));
 
       // Screen-space reflections copy this linear scene/depth before post-processing.
       if (typeof api.afterScene === 'function') api.afterScene(sceneRT, camera);
@@ -284,18 +294,18 @@ export function createPostFX(THREE, renderer) {
         extractMaterial.uniforms.tScene.value = sceneRT.texture;
         extractMaterial.uniforms.threshold.value = Math.max(0, Number(threshold) || 0);
         extractMaterial.uniforms.texel.value.set(1 / sceneRT.width, 1 / sceneRT.height);
-        drawQuad(extractMaterial, bloomRT);
+        timePass('Bloom extraction', () => drawQuad(extractMaterial, bloomRT));
         bloomTexture = bloomRT.texture;
 
         if (active.bloomBlur) {
           blurMaterial.uniforms.texel.value.set(1 / bloomRT.width, 1 / bloomRT.height);
           blurMaterial.uniforms.tInput.value = bloomRT.texture;
           blurMaterial.uniforms.direction.value.set(1, 0);
-          drawQuad(blurMaterial, blurRT);
+          timePass('Bloom blur horizontal', () => drawQuad(blurMaterial, blurRT));
 
           blurMaterial.uniforms.tInput.value = blurRT.texture;
           blurMaterial.uniforms.direction.value.set(0, 1);
-          drawQuad(blurMaterial, bloomRT);
+          timePass('Bloom blur vertical', () => drawQuad(blurMaterial, bloomRT));
           bloomTexture = bloomRT.texture;
         }
       }
@@ -320,7 +330,7 @@ export function createPostFX(THREE, renderer) {
       renderer.setViewport(previousViewport);
       renderer.setScissor(previousScissor);
       renderer.setScissorTest(previousScissorTest);
-      drawQuad(finalMaterial, previousTarget);
+      timePass('Final composite', () => drawQuad(finalMaterial, previousTarget));
     } finally {
       renderer.setRenderTarget(previousTarget);
       renderer.setViewport(previousViewport);
@@ -387,6 +397,7 @@ export function createPostFX(THREE, renderer) {
     setSize,
     setEffects,
     getEffects,
+    getStats,
     afterScene: null,
     get sceneRT() { return sceneRT; },
     useDepth(enabled) {

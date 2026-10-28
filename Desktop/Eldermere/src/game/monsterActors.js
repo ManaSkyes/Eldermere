@@ -22,6 +22,7 @@
 // Behaviour: group brains (see GROUP BRAINS below) — swarms circle and swoop, packs spread and close; groups join.
 //   MA.nearTargets   the targets within 40 m (what the game hands weapons and spells); MA.groups   the groups
 import { buildCreature } from '../rpg/creature.js';
+import { createBatSwarmInstances } from './batInstancing.js';
 import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
@@ -36,6 +37,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const near = (a, b) => shapesInF ? shapesInF(Math.min(a.x, b.x) - 1, Math.min(a.z, b.z) - 1, Math.max(a.x, b.x) + 1, Math.max(a.z, b.z) + 1) : shapes;
   const blocked = (a, b) => lineBlocked(near(a, b), a, b);
   const actors = [], targets = [], shots = [];
+  const batSwarm = createBatSwarmInstances(THREE, scene);
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
   function bar() {
@@ -483,7 +485,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (G.awake || G.thinkDt > 1) { groupThink(G, G.thinkDt, player); G.thinkDt = 0; }
     }
     if ((joinT -= dt) <= 0) { joinT = 0.5; joinGroups(); }
-    nearTargets.length = 0; barCand.length = 0;
+    nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
     for (let i = actors.length - 1; i >= 0; i--) {
       const A = actors[i]; A.player = player; A.hooks = hooks;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
@@ -524,7 +526,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       else if (A.M.flight && A.layer) A.pos.y = A.group.center.y;
       if (A.pitch !== A.pitchGoal) A.pitch = (A.pitch || 0) + ((A.pitchGoal || 0) - (A.pitch || 0)) * Math.min(1, dt * 6);
       const vis = tier < 3;
-      attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it was when it went out of sight)
+      attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
+      // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
+      // their actor, target, flight path and group brain remain individual and unchanged.
+      if (A.id === 'nocturianBat' && G.kind === 'swarm' && A.layer > 0 && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
         A.C.puffs.lod = tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15; }
@@ -538,6 +543,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
     }
+    batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
     barCand.sort((a, b) => a.barD - b.barD);
     const want = new Set(barCand.slice(0, 5));
@@ -549,6 +555,6 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

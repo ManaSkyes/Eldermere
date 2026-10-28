@@ -1704,7 +1704,7 @@ export function startViewer(THREE, human, ui) {
     if (!perfSec.open || !renderer) return;
     const st = Object.entries(perf.stages).map(([k, v]) => `  ${k.padEnd(9)} ${v.toFixed(1)} ms`).join('\n');
     const info = renderer.info;
-    perfOut.textContent = `FPS ${perf.fps.toFixed(0)} (frame ${perf.frameMs.toFixed(1)} ms)\n  render   ${(perf.renderMs || 0).toFixed(1)} ms   draw calls ${info.render.calls}, triangles ${(info.render.triangles / 1000).toFixed(0)}k\n  cloth/tail ${(perf.clothMs || 0).toFixed(1)} ms   hair physics ${(perf.hairSimMs || 0).toFixed(1)} ms   tail/cape ${(perf.tailCapeMs || 0).toFixed(1)} ms\nLast rebuild (any slider or transformation):\n${st}`;
+    perfOut.textContent = `FPS ${perf.fps.toFixed(0)} (frame ${perf.frameMs.toFixed(1)} ms)\n  render   ${(perf.renderMs || 0).toFixed(1)} ms   draw calls ${info.render.calls}, triangles ${(info.render.triangles / 1000).toFixed(0)}k\n  cloth ${(perf.clothMs || 0).toFixed(1)} ms   hair physics ${(perf.hairSimMs || 0).toFixed(1)} ms   tail/cape ${(perf.tailCapeMs || 0).toFixed(1)} ms\nLast rebuild (any slider or transformation):\n${st}`;
   }, 500);
   const lashSec = section('Lashes', false);
   for (const [k, lab] of [['upper', 'Upper length'], ['lower', 'Lower length'], ['density', 'Density'], ['thickness', 'Thickness'], ['curl', 'Curl']]) {
@@ -1955,7 +1955,7 @@ export function startViewer(THREE, human, ui) {
       const fh = performance.now();
       if (!perf.off.cloth) stepTailCape(Math.min(dt, 1 / 30), clock.elapsedTime);
       const ft = performance.now();
-      perf.clothMs = (fc - fs) + (ft - fh); perf.hairSimMs = fh - fc; perf.tailCapeMs = ft - fh;
+      perf.clothMs = fc - fs; perf.hairSimMs = fh - fc; perf.tailCapeMs = ft - fh;
     } catch (err) { report(err.message || String(err)); }
     if (game) return;
     // camera: buttons and tabs set the view; the wheel zooms anywhere between

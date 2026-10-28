@@ -532,7 +532,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
         const every = tier === 0 ? 1 : tier === 1 ? 2 : 6;
-        if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)) }); A.lodDt = 0; placeBody(A); }
+        if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)), simpleFlight: G.kind === 'swarm' && A.layer > 0 && !A.mo.actName }); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { A.mo.update(A.lodDt, { speed: 0, ik: false }); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);

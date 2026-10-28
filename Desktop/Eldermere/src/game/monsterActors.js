@@ -297,10 +297,24 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if ((G.sepT = (G.sepT ?? 0) - dt) <= 0) {
       G.sepT = 0.2;
       for (const m of live) { m.sepX = 0; m.sepZ = 0; }
-      for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
-        const A = live[a], B = live[b], dx = A.pos.x - B.pos.x, dz = A.pos.z - B.pos.z, d2 = dx * dx + dz * dz;
-        if (d2 > 3.24 || d2 < 1e-6) continue; const d = Math.sqrt(d2), k = (1.8 - d) / d * 1.5;
-        A.sepX += dx * k; A.sepZ += dz * k; B.sepX -= dx * k; B.sepZ -= dz * k;
+      // Spatial buckets avoid comparing every pair in a large pack. At 90 fiends this checks nearby
+      // neighbors only instead of all 4,005 possible pairs, while preserving the same 1.8 m separation rule.
+      const cellSize = 2, cells = new Map(), cellKey = (x, z) => `${x},${z}`;
+      for (let i = 0; i < n; i++) {
+        const m = live[i], cx = Math.floor(m.pos.x / cellSize), cz = Math.floor(m.pos.z / cellSize), key = cellKey(cx, cz);
+        let bucket = cells.get(key); if (!bucket) cells.set(key, bucket = []); bucket.push(m);
+      }
+      for (const [key, bucket] of cells) {
+        const comma = key.indexOf(','), cx = Number(key.slice(0, comma)), cz = Number(key.slice(comma + 1));
+        for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) {
+          const other = cells.get(cellKey(cx + ox, cz + oz)); if (!other) continue;
+          for (const A of bucket) for (const B of other) {
+            if (A === B || A.slot >= B.slot) continue;
+            const dx = A.pos.x - B.pos.x, dz = A.pos.z - B.pos.z, d2 = dx * dx + dz * dz;
+            if (d2 > 3.24 || d2 < 1e-6) continue; const d = Math.sqrt(d2), k = (1.8 - d) / d * 1.5;
+            A.sepX += dx * k; A.sepZ += dz * k; B.sepX -= dx * k; B.sepZ -= dz * k;
+          }
+        }
       }
       const byD = live.map(m => [m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z)]).sort((x, y) => x[1] - y[1]);
       byD.forEach(([m], r) => { m.rank = r; });
@@ -522,7 +536,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
       if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
       if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
+      const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
+      // Umbrafiends keep their full bodies and actors at every distance, but the soft shadow details
+      // and pose refreshes are reduced for distant tiers to make large packs affordable.
+      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
       const speed = memberThink(A, dt, player);
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
       // the ground under it, when it has moved: a walker every 0.35 m; a flyer only every 1.5 m (it isn't standing on it), and
@@ -537,11 +555,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
-        A.C.puffs.lod = tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15; }
+        A.C.puffs.lod = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15); }
       if (fighting && d < 30 && vis) { barCand.push(A); A.barD = d; }
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
-        const every = tier === 0 ? 1 : tier === 1 ? 2 : 6;
+        const every = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 3 : 10) : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
         if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)) }); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { A.mo.update(A.lodDt, { speed: 0, ik: false }); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);

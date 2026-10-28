@@ -187,7 +187,9 @@ export function createMotion(C, M) {
       }
       rb.position.y = 0.06 * Math.sin(f - 1.6) * flap * (1 - 0.6 * cruise);
       // erratic flight, like a real bat: it darts to a new spot every half second or so and banks into each dart
-      if (F.erratic) {
+      // Decorative swarm flyers already get their variation from the group orbit. Skip each one's
+      // independent spring simulation; attackers and ordinary flyers keep the full erratic flight.
+      if (F.erratic && !opts.simpleFlight) {
         const D = st.dart ??= { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, to: { x: 0, y: 0, z: 0 }, t: 0 };
         if ((D.t -= dt) <= 0) { D.t = 0.35 + Math.random() * 0.75; D.to = { x: (Math.random() - 0.5) * 2 * F.erratic[0], y: (Math.random() - 0.5) * 2 * F.erratic[1], z: (Math.random() - 0.5) * 2 * F.erratic[2] }; }
         // (in small steps: a monster animated every few frames gets a big dt, and this stiff spring blew up with it —

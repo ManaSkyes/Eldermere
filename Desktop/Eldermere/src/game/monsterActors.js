@@ -226,7 +226,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function makeGroup(A, g) {
     const G = g || {};
     if (!G._ready) {
-      Object.assign(G, { _ready: true, members: [], liveScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
+      Object.assign(G, { _ready: true, members: [], liveScratch: [], sepCells: new Map(), sepBucketPool: [], rankScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
         home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
         pi: 0, pdir: 1, path: null, mode: 'loop', behaviour: 'stand', awake: false, thinkDt: 0, wander: null, wanderT: 0 });
       const o = G.place;   // a placed group: its route (map coords → world) and what it does when idle
@@ -302,10 +302,13 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       for (const m of live) { m.sepX = 0; m.sepZ = 0; }
       // Spatial buckets avoid comparing every pair in a large pack. At 90 fiends this checks nearby
       // neighbors only instead of all 4,005 possible pairs, while preserving the same 1.8 m separation rule.
-      const cellSize = 2, cells = new Map(), cellKey = (x, z) => `${x},${z}`;
+      const cellSize = 2, cells = G.sepCells || (G.sepCells = new Map()), pool = G.sepBucketPool || (G.sepBucketPool = []), cellKey = (x, z) => `${x},${z}`;
+      cells.clear(); for (const bucket of pool) bucket.length = 0; let usedBuckets = 0;
       for (let i = 0; i < n; i++) {
         const m = live[i], cx = Math.floor(m.pos.x / cellSize), cz = Math.floor(m.pos.z / cellSize), key = cellKey(cx, cz);
-        let bucket = cells.get(key); if (!bucket) cells.set(key, bucket = []); bucket.push(m);
+        let bucket = cells.get(key);
+        if (!bucket) { bucket = pool[usedBuckets] || (pool[usedBuckets] = []); usedBuckets++; cells.set(key, bucket); }
+        bucket.push(m);
       }
       for (const [key, bucket] of cells) {
         const comma = key.indexOf(','), cx = Number(key.slice(0, comma)), cz = Number(key.slice(comma + 1));
@@ -319,8 +322,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
           }
         }
       }
-      const byD = live.map(m => [m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z)]).sort((x, y) => x[1] - y[1]);
-      byD.forEach(([m], r) => { m.rank = r; });
+      const byD = G.rankScratch || (G.rankScratch = []); byD.length = 0;
+      for (const m of live) { m._rankDist2 = (m.pos.x - p.x) ** 2 + (m.pos.z - p.z) ** 2; byD.push(m); }
+      byD.sort((a, b) => a._rankDist2 - b._rankDist2);
+      byD.forEach((m, r) => { m.rank = r; });
     }
   }
   const avgAlt = G => { let a = 0; for (const m of G.members) a += m.alt || 0; return a / Math.max(1, G.members.length); };

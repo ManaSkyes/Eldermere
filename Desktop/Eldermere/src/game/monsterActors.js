@@ -451,8 +451,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function settle(A, x, z) {
     if (!A.nearSh || (A.nearT = (A.nearT || 0) - 1) <= 0 || Math.abs(x - A.nearX) + Math.abs(z - A.nearZ) > 1.5) {
       A.nearT = 15; A.nearX = x; A.nearZ = z; const y0 = A.pos.y + 0.3, y1 = A.pos.y + 1.2;
-      A.groundSh = near({ x: x - 2.5, z: z - 2.5 }, { x: x + 2.5, z: z + 2.5 }).filter(s => s.min && s.max[0] > x - 2.5 && s.min[0] < x + 2.5 && s.max[2] > z - 2.5 && s.min[2] < z + 2.5);   // (what's round it: the ground under it too)
-      A.nearSh = A.groundSh.filter(s => s.max[1] > y0 && s.min[1] < y1);
+      const found = near({ x: x - 2.5, z: z - 2.5 }, { x: x + 2.5, z: z + 2.5 });
+      const ground = A.groundSh || (A.groundSh = []); ground.length = 0;
+      for (const s of found) if (s.min && s.max[0] > x - 2.5 && s.min[0] < x + 2.5 && s.max[2] > z - 2.5 && s.max[2] < z + 2.5) ground.push(s);   // nearby shapes, including ground
+      const nearSh = A.nearSh || (A.nearSh = []); nearSh.length = 0;
+      for (const s of ground) if (s.max[1] > y0 && s.min[1] < y1) nearSh.push(s);
     }
     return resolveWalls(A.nearSh, x, z, A.pos.y, 1.2, Math.min(0.5, A.S.radius || 0.45));
   }

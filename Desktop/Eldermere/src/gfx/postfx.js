@@ -52,12 +52,11 @@ export function createPostFX(THREE, renderer) {
       vec3 aces(vec3 c) {
         const mat3 I = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
         const mat3 O = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
-        c = I * c; c = RRTAndODTFit(c); c = O * c; return clamp(c, 0.0, 1.0); }
+        c *= exposure / 0.6; c = I * c; c = RRTAndODTFit(c); c = O * c; return clamp(c, 0.0, 1.0); }
       vec3 toSRGB(vec3 c) { return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
       void main() {
         vec3 c = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * bloom;
-        c *= exposure / 0.6;
-        if (toneMapEnabled > 0.5) c = aces(c); else c = clamp(c, 0.0, 1.0);
+        if (toneMapEnabled > 0.5) c = aces(c); else c = clamp(c * exposure / 0.6, 0.0, 1.0);
         if (gradeEnabled > 0.5) { float l = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = mix(vec3(l), c, sat);
           c = (c - 0.5) * contrast + 0.5; c = c * gain + lift * (1.0 - c); }
         vec2 q = vUv - 0.5; if (vignetteEnabled > 0.5) c *= 1.0 - vignette * smoothstep(0.25, 0.75, dot(q, q) * 2.2);
@@ -109,6 +108,7 @@ export function createPostFX(THREE, renderer) {
     const prev = renderer.getRenderTarget(); renderer.setRenderTarget(insetRT); renderer.clear(); renderer.render(scene, camera);
     const G = GRADES.none, U = final.uniforms; U.tScene.value = insetRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = 0; U.exposure.value = exposure;
     U.lift.value.set(...G.lift); U.gain.value.set(...G.gain); U.sat.value = 1; U.contrast.value = 1; U.vignette.value = 0;
+    U.toneMapEnabled.value = 1; U.gradeEnabled.value = 1; U.vignetteEnabled.value = 1;
     quad.material = final; renderer.setRenderTarget(prev); renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
     renderer.render(quadScene, cam); renderer.setScissorTest(false);
   }

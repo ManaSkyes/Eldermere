@@ -33,8 +33,13 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     return mesh;
   }
   function makeBucket(key, gx, gz, max = capacity) {
-    return { key, gx, gz, actors: [], body: makeMesh(bodyGeo, bodyMat, key + ' bodies', max),
-      head: makeMesh(headGeo, bodyMat, key + ' heads', max), wings: makeMesh(wingGeo, wingMat, key + ' wings', max * 2),
+    // Three.js r128 frustum-culls InstancedMesh using its geometry bounds, not a per-instance world bound.
+    // Give each cell private geometry so its bounding sphere cannot be overwritten by another cell.
+    const bodyCellGeo = bodyGeo.clone(), headCellGeo = headGeo.clone(), wingCellGeo = wingGeo.clone();
+    return { key, gx, gz, actors: [], bodyGeo: bodyCellGeo, headGeo: headCellGeo, wingGeo: wingCellGeo,
+      body: makeMesh(bodyCellGeo, bodyMat, key + ' bodies', max),
+      head: makeMesh(headCellGeo, bodyMat, key + ' heads', max),
+      wings: makeMesh(wingCellGeo, wingMat, key + ' wings', max * 2),
       minY: Infinity, maxY: -Infinity };
   }
   function ensureCapacity(bucket, needed) {
@@ -42,9 +47,9 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     let next = bucket.body.instanceMatrix.count;
     while (next < needed) next *= 2;
     const old = [bucket.body, bucket.head, bucket.wings];
-    bucket.body = makeMesh(bodyGeo, bodyMat, bucket.key + ' bodies', next);
-    bucket.head = makeMesh(headGeo, bodyMat, bucket.key + ' heads', next);
-    bucket.wings = makeMesh(wingGeo, wingMat, bucket.key + ' wings', next * 2);
+    bucket.body = makeMesh(bucket.bodyGeo, bodyMat, bucket.key + ' bodies', next);
+    bucket.head = makeMesh(bucket.headGeo, bodyMat, bucket.key + ' heads', next);
+    bucket.wings = makeMesh(bucket.wingGeo, wingMat, bucket.key + ' wings', next * 2);
     for (const mesh of old) scene.remove(mesh);
   }
   function beginFrame() { current.length = 0; }
@@ -77,6 +82,7 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
       const n = bucket.actors.length;
       if (!n) {
         scene.remove(bucket.body, bucket.head, bucket.wings);
+        bucket.bodyGeo.dispose(); bucket.headGeo.dispose(); bucket.wingGeo.dispose();
         buckets.delete(bucket.key);
         continue;
       }
@@ -86,9 +92,12 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
       const cx = (bucket.gx + 0.5) * CELL, cz = (bucket.gz + 0.5) * CELL;
       const cy = (bucket.minY + bucket.maxY) * 0.5;
       const radius = Math.hypot(CELL * 0.7072, (bucket.maxY - bucket.minY) * 0.5) + 2;
-      for (const mesh of [bucket.body, bucket.head, bucket.wings]) {
-        mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), radius);
-      }
+      const cellBounds = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), radius);
+      // r128's renderer checks geometry.boundingSphere for frustum culling. These per-cell
+      // geometries make that sphere independent per batch, with world-space instance matrices.
+      bucket.bodyGeo.boundingSphere = cellBounds.clone();
+      bucket.headGeo.boundingSphere = cellBounds.clone();
+      bucket.wingGeo.boundingSphere = cellBounds.clone();
       for (let i = 0; i < n; i++) {
         const A = bucket.actors[i], p = A.pos;
         root.position.set(p.x, p.y + (A.M.hover || 0) + (A.alt || 0), p.z);
@@ -110,7 +119,10 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     for (const actor of previous) if (actor._batProxyHidden) {
       actor.C.root.visible = actor._batProxyWasVisible !== false; actor._batProxyHidden = false;
     }
-    for (const bucket of buckets.values()) scene.remove(bucket.body, bucket.head, bucket.wings);
+    for (const bucket of buckets.values()) {
+      scene.remove(bucket.body, bucket.head, bucket.wings);
+      bucket.bodyGeo.dispose(); bucket.headGeo.dispose(); bucket.wingGeo.dispose();
+    }
     buckets.clear();
     bodyGeo.dispose(); headGeo.dispose(); wingGeo.dispose(); bodyMat.dispose(); wingMat.dispose();
   }

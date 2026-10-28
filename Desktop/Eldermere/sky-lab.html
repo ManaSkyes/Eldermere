@@ -1,0 +1,105 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Sky and weather lab</title>
+<style>
+body{margin:0;background:#111;font:13px system-ui,sans-serif;color:#eee;overflow:hidden}
+#ui{position:absolute;top:8px;left:8px;background:rgba(14,16,40,.9);padding:10px 14px;border-radius:8px;width:300px}
+#ui b{font-size:14px} label{display:block;margin:4px 0} .row{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+button{background:#2c2a55;color:#eee;border:1px solid #5a5490;border-radius:5px;padding:3px 7px;cursor:pointer;font:12px system-ui}
+button.on{background:#6a5ac8} input[type=range]{width:170px;vertical-align:middle} #clock{font-size:20px;font-weight:600}
+</style></head><body>
+<div id="ui"><b>Sky and weather lab</b> <small>(drag to look, wheel to zoom)</small>
+  <div id="clock"></div>
+  <label>Time <input id="hour" type="range" min="0" max="24" step="0.05"></label>
+  <div class="row" id="phases"></div>
+  <label><input id="run" type="checkbox" checked> Time passes · a day lasts <input id="day" type="number" min="0.5" max="600" step="0.5" value="4" style="width:52px"> min</label>
+  <label>Change between looks <input id="blend" type="range" min="0" max="60" step="1" value="6"> <span id="blendv"></span> s</label>
+  <div id="weather"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="module">
+// The sky system (src/gfx/sky.js) on a little test scene: grass, trees, houses and a street lamp, with the clock
+// under your hand. Weather joins it here as it's built.
+const { createSky, PHASES } = await import('./src/gfx/sky.js');
+const { createFoliage } = await import('./src/gfx/foliage.js');
+const { createPostFX } = await import('./src/gfx/postfx.js');
+const { createWeather, WEATHER, CLOUDS } = await import('./src/gfx/weather.js');
+const { createAudio } = await import('./src/game/audio.js');
+const { createWeathering } = await import('./src/gfx/weathering.js');
+const R = new THREE.WebGLRenderer({ antialias: true }); R.setPixelRatio(Math.min(devicePixelRatio, 1.5)); R.setSize(innerWidth, innerHeight); document.body.appendChild(R.domElement);
+R.outputEncoding = THREE.sRGBEncoding; R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap;
+const fx = createPostFX(THREE, R); fx.setSize?.();
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#9fc3e6'); scene.fog = new THREE.Fog('#b9d3ea', 40, 200);
+const hemi = new THREE.HemisphereLight('#dbe9ff', '#5d6b4a', 0.55); scene.add(hemi);
+const sun = new THREE.DirectionalLight('#fff1d6', 1.25); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 120 }); sun.shadow.normalBias = 0.04; scene.add(sun, sun.target);
+const cam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.05, 400);
+// the scene
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: '#6f8a4c', roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(6, 400), new THREE.MeshStandardMaterial({ color: '#a89a86', roughness: 0.95 })); road.rotation.x = -Math.PI / 2; road.position.set(0, 0.02, 0); road.receiveShadow = true; scene.add(road);
+const house = (x, z, w, d, h, col) => { const g = new THREE.Group(); const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: col, roughness: 0.9 })); b.position.y = h / 2; b.castShadow = b.receiveShadow = true; g.add(b);
+  const r = new THREE.Mesh(new THREE.ConeGeometry(Math.hypot(w, d) / 1.6, 2.6, 4), new THREE.MeshStandardMaterial({ color: '#9a4a36', roughness: 0.8 })); r.position.y = h + 1.3; r.rotation.y = Math.PI / 4; r.castShadow = true; g.add(r);
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.2), new THREE.MeshStandardMaterial({ color: '#30302a', emissive: '#ffb860', emissiveIntensity: 0 })); win.position.set(0, h * 0.55, d / 2 + 0.01); g.add(win); wins.push(win.material);
+  g.position.set(x, 0, z); scene.add(g); };
+const wins = [];
+house(-9, -6, 7, 6, 5, '#d8c8a8'); house(-9, 6, 6, 7, 6, '#c8b090'); house(10, 0, 8, 6, 5.5, '#e0d4bc'); house(10, 14, 6, 6, 4.5, '#cdb89a');
+const lampPost = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 3.6, 8), new THREE.MeshStandardMaterial({ color: '#2f2b28' })); lampPost.position.set(3.6, 1.8, 2); lampPost.castShadow = true; scene.add(lampPost);
+const lampHead = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), new THREE.MeshStandardMaterial({ color: '#222', emissive: '#ffd8a0', emissiveIntensity: 0 })); lampHead.position.set(3.6, 3.7, 2); scene.add(lampHead);
+const lamp = new THREE.PointLight('#ffcf90', 0, 14, 1.7); lamp.position.set(3.6, 3.5, 2); scene.add(lamp);
+// plants: grass all over, trees and bushes round the edges
+const plants = [], rnd = (s => () => (s = (s * 16807) % 2147483647) / 2147483647)(7);
+for (let i = 0; i < 9000; i++) { const x = (rnd() - 0.5) * 120, z = (rnd() - 0.5) * 120; if (Math.abs(x) < 4.5 || (Math.abs(x - 10) < 6 && Math.abs(z - 7) < 12) || (Math.abs(x + 9) < 5 && Math.abs(z) < 11)) continue; plants.push({ k: rnd() < 0.15 ? 'tallgrass' : 'grass', x, y: 0, z, s: 0.9 + rnd() * 0.3, r: rnd() * 6.28, v: (rnd() * 3) | 0 }); }
+for (let i = 0; i < 60; i++) { const a = rnd() * 6.28, d = 22 + rnd() * 40; plants.push({ k: rnd() < 0.25 ? 'pine' : 'tree', x: Math.cos(a) * d, y: 0, z: Math.sin(a) * d, s: 0.9 + rnd() * 0.4, r: rnd() * 6.28, v: (rnd() * 3) | 0 }); }
+for (let i = 0; i < 40; i++) plants.push({ k: 'bush', x: (rnd() - 0.5) * 70, y: 0, z: (rnd() - 0.5) * 70, s: 1, r: rnd() * 6.28, v: (rnd() * 3) | 0 });
+for (let i = 0; i < 120; i++) plants.push({ k: 'flower', x: (rnd() - 0.5) * 40, y: 0, z: (rnd() - 0.5) * 40, s: 1, r: rnd() * 6.28, v: (rnd() * 6) | 0 });
+const flora = createFoliage(THREE, scene, plants); flora.bake(R);
+const $ = id => document.getElementById(id), ph = $('phases');
+const sky = createSky(THREE, scene, { hour: 7.5, cycle: true, dayMinutes: 4, blend: 6, view: 400 });
+const audio = createAudio(); addEventListener('pointerdown', () => audio.start(), { once: true });
+const wx = createWeather(THREE, scene, { sky, foliage: flora, audio });
+const wt = createWeathering(THREE, R, scene); wt.weatherizeScene(scene); wx.useCover(wt);   // wet ground, puddles, snow lying; no rain under the roofs and trees
+{ const box = $('weather'); box.innerHTML = `<b style="font-size:13px">Weather</b><div class="row" id="wxb"></div>
+    <label>Strength <input id="wxs" type="range" min="0.1" max="1.5" step="0.05" value="1"> <span id="wxv">100</span>%</label>
+    <label>Change over <input id="wxt" type="range" min="0" max="60" step="1" value="6"> <span id="wxtv">6</span> s</label>
+    <label>Clouds <select id="cl"><option value="auto">With the weather</option>${Object.entries(CLOUDS).map(([k, c]) => `<option value="${k}">${c.name}</option>`).join('')}</select> <input id="clc" type="range" min="0" max="1" step="0.02" value="0.5" style="width:80px"></label>
+    <label><input id="wa" type="checkbox" checked> Wind with the weather <input id="wsl" type="range" min="0" max="2" step="0.05" value="0.5" style="width:80px"></label>
+    <label>Fog <select id="fl"><option value="auto">With the weather</option><option value="thin">Thin</option><option value="normal">Normal</option><option value="thick">Thick</option></select> · Aurora <select id="au"><option value="auto">With the weather</option><option value="off">Never</option><option value="on">On</option></select></label>
+    <div class="row">Magic: <button id="mg1">Low</button><button id="mg2">Medium</button><button id="mg3">High</button><button id="cast">Cast a spell</button></div>
+    <label>Surfaces <select id="sf"><option value="auto">With the weather (builds up over minutes)</option><option value="dry">Dry</option><option value="wet">Wet</option><option value="puddles">Puddles</option><option value="snow1">Snow (light)</option><option value="snow2">Snow (deep)</option><option value="ice">Ice</option><option value="dust">Dust</option></select></label>
+    <small>Click the page once for sound.</small>`;
+  const SF = { auto: null, dry: { wet: 0, puddle: 0, snow: 0 }, wet: { wet: 1, puddle: 0, snow: 0 }, puddles: { wet: 1, puddle: 1, gutter: 1, snow: 0 }, snow1: { wet: 0.2, puddle: 0, snow: 0.45 }, snow2: { wet: 0.3, puddle: 0, snow: 1 }, ice: { wet: 1, puddle: 0.8, gutter: 0.6, snow: 0, ice: 1 }, dust: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 1 } };
+  $('sf').onchange = () => wt.force = SF[$('sf').value]; if (new URLSearchParams(location.search).get('sf')) { $('sf').value = new URLSearchParams(location.search).get('sf'); wt.force = SF[$('sf').value]; }
+  const set = k => { cur = k; wx.set(k, +$('wxs').value, +$('wxt').value); [...$('wxb').children].forEach(b => b.classList.toggle('on', b.dataset.k === k)); };
+  let cur = 'clear'; for (const [k, w] of Object.entries(WEATHER)) { const b = document.createElement('button'); b.textContent = w.name; b.dataset.k = k; b.onclick = () => set(k); $('wxb').appendChild(b); }
+  $('wxs').oninput = e => { $('wxv').textContent = Math.round(e.target.value * 100); set(cur); }; $('wxt').oninput = e => $('wxtv').textContent = e.target.value;
+  const layers = () => { wx.clouds = $('cl').value === 'auto' ? null : { type: $('cl').value, cover: +$('clc').value }; wx.wind = $('wa').checked ? null : { strength: +$('wsl').value }; wx.fog = $('fl').value === 'auto' ? null : $('fl').value; wx.aurora = $('au').value === 'auto' ? null : $('au').value === 'on' ? 1 : 0; wx.retarget(+$('wxt').value || 0.5); };
+  $('cl').onchange = layers; $('clc').oninput = () => { if ($('cl').value === 'auto') $('cl').value = 'cumulus'; layers(); };
+  $('wa').onchange = layers; $('wsl').oninput = () => { $('wa').checked = false; layers(); }; $('fl').onchange = layers; $('au').onchange = layers;
+  [[1, 0.5], [2, 1], [3, 1.5]].forEach(([i, v]) => $('mg' + i).onclick = () => { $('wxs').value = v; $('wxv').textContent = v * 100; set('magic'); });
+  $('cast').onclick = () => { if (!wx.crystallize({ x: (Math.random() - 0.5) * 6, y: 0, z: 6 + Math.random() * 4 })) { $('cast').textContent = 'Needs High (wait for it)'; setTimeout(() => $('cast').textContent = 'Cast a spell', 2000); } };
+  const q = new URLSearchParams(location.search); if (q.get('wx')) { $('wxs').value = q.get('ws') || 1; $('wxt').value = 0; set(q.get('wx')); } else set('clear'); if (q.get('h')) sky.setHour(+q.get('h'), true);
+  if (q.get('cl')) { $('cl').value = q.get('cl'); layers(); } }
+// the controls
+PHASES.forEach((P, i) => { const b = document.createElement('button'); b.textContent = P.name; b.onclick = () => sky.setHour(P.at + 0.01, false); ph.appendChild(b); });
+$('hour').oninput = e => sky.setHour(+e.target.value, false);
+$('run').onchange = e => sky.cycle = e.target.checked; $('day').onchange = e => sky.dayMinutes = +e.target.value; $('blend').oninput = e => { sky.blend = +e.target.value; $('blendv').textContent = e.target.value; }; $('blendv').textContent = 6;
+let yaw = 0.6, pitch = 0.05, dist = 26, drag = null; const skyView = new URLSearchParams(location.search).has('sky');
+addEventListener('mousedown', e => { if (e.target.tagName === 'CANVAS') drag = [e.clientX, e.clientY]; }); addEventListener('mouseup', () => drag = null);
+addEventListener('mousemove', e => { if (!drag) return; yaw -= (e.clientX - drag[0]) * 0.005; pitch = Math.max(-0.3, Math.min(1.2, pitch + (e.clientY - drag[1]) * 0.005)); drag = [e.clientX, e.clientY]; });
+addEventListener('wheel', e => { dist = Math.max(3, Math.min(120, dist * (e.deltaY > 0 ? 1.1 : 0.9))); });
+addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); fx.setSize?.(); });
+let last = performance.now(), frames = 0;
+(function loop(now) {
+  const dt = Math.max(0, Math.min(0.1, (now - last) / 1000 || 0)); last = now;
+  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, 2 + Math.sin(pitch) * dist + 1.5, Math.cos(yaw) * Math.cos(pitch) * dist); cam.lookAt(0, 2.5, 0); if (skyView) cam.lookAt(cam.position.x - Math.sin(yaw) * 100, 45, cam.position.z - Math.cos(yaw) * 100);   // (?sky: look up at the sky)
+  wx.update(dt, cam, now / 1000); wt.update(dt, cam, { ...wx.falling, skyColor: sky.state.fog, t: now / 1000, temp: wx.temperature, sun: sky.state.sun, wind: wx.windNow, windDir: sky.weather.windDir, cover: sky.weather.cover, sunDir: sky.state.sunDir }); sky.update(dt, cam, now / 1000); const S = sky.state;
+  scene.background.copy(S.horizon); hemi.color.copy(S.hemiSky); hemi.groundColor.copy(S.hemiGround); hemi.intensity = S.hemi[2]; sun.intensity = S.sun; sun.color.copy(S.sunColor);
+  scene.fog.color.copy(S.fog); scene.fog.near = S.near; scene.fog.far = S.far;
+  const sd = S.sunDir; sun.position.set(sd.x * 40, sd.y * 40, sd.z * 40); sun.target.position.set(0, 0, 0);
+  const lit = S.lamps ? 1 : 0; lamp.intensity += (lit * 1.4 - lamp.intensity) * Math.min(1, dt * 2); lampHead.material.emissiveIntensity = lamp.intensity * 2; for (const w of wins) w.emissiveIntensity = lamp.intensity * 0.8;
+  flora.update(now / 1000, cam.position); flora.cull(cam);
+  fx.render(scene, cam, { bloom: S.bloom, grade: S.grade });
+  const h = sky.hour; if (document.activeElement !== $('hour')) $('hour').value = h;
+  $('clock').textContent = `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor(h % 1 * 60)).padStart(2, '0')} · ${S.phase.name}`;
+  [...ph.children].forEach((b, i) => b.classList.toggle('on', PHASES[i] === S.phase));
+  if (++frames === 4) window.done = true;
+  requestAnimationFrame(loop);
+})(performance.now());
+</script></body></html>

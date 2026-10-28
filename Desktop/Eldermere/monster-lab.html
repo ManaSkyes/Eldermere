@@ -1,0 +1,118 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Monster lab</title>
+<style>
+  body { margin: 0; background: #111; font: 13px system-ui, sans-serif; color: #e8e8f0; overflow: hidden; }
+  #ui { position: absolute; top: 10px; left: 10px; width: 300px; max-height: calc(100vh - 20px); overflow: auto; background: rgba(14, 16, 32, .92); padding: 12px 14px; border-radius: 10px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 6px; } h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #a9a9c8; margin: 12px 0 4px; }
+  select, button { font: inherit; background: #23264a; color: #e8e8f0; border: 1px solid #3a3e70; border-radius: 6px; padding: 4px 8px; }
+  select { width: 100%; } label { display: flex; align-items: center; gap: 6px; margin: 3px 0; cursor: pointer; }
+  .row { display: grid; grid-template-columns: 82px 1fr 38px; align-items: center; gap: 6px; margin: 3px 0; } .row input { width: 100%; } .row b { font-weight: 500; text-align: right; color: #c8c8e0; }
+  #wsR { position: absolute; top: 10px; right: 10px; width: 320px; max-height: calc(100vh - 20px); overflow: auto; background: rgba(14, 16, 32, .92); padding: 12px 14px; border-radius: 10px; box-sizing: border-box; } #wsR h1 { font-size: 15px; margin: 0 0 6px; } #ws h1 { font-size: 14px; margin: 4px 0; }
+  #ws .row2, #wsR .row2 { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; } #wsR input[data-k=name] { flex: 1; font: inherit; background: #23264a; color: #e8e8f0; border: 1px solid #3a3e70; border-radius: 6px; padding: 3px 6px; } #wsR .ed-btns { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; } #wsR h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #a9a9c8; margin: 12px 0 4px; } #wsR select { width: auto; max-width: 100%; } #wsR select, #wsR button, #wsR input[type=number] { font: inherit; background: #23264a; color: #e8e8f0; border: 1px solid #3a3e70; border-radius: 6px; padding: 3px 6px; }
+  #ws .row2 { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; } #ws input[data-k=name] { flex: 1; font: inherit; background: #23264a; color: #e8e8f0; border: 1px solid #3a3e70; border-radius: 6px; padding: 3px 6px; }
+  #ws .ed-btns { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; } .ws-flash { color: #ffd88a; font-size: 12px; min-height: 14px; } .ws-help { color: #b8b8d0; font-size: 12px; } .ws-imp { display: inline-block; background: #23264a; border: 1px solid #3a3e70; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+  .card { background: #1a1d3a; border-radius: 8px; padding: 8px 10px; line-height: 1.45; } .card .k { color: #9a9ac0; } .lore { color: #c8c0d8; font-style: italic; margin-top: 6px; }
+  .res { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; } .res span { background: #262a52; border-radius: 4px; padding: 1px 6px; font-size: 12px; } .res .weak { background: #2e5a2e; } .res .strong { background: #5a2e2e; } .res .immune { background: #3a3a3a; text-decoration: line-through; }
+  #hint { position: absolute; bottom: 10px; right: 14px; color: #8a8aa8; }
+</style></head>
+<body><div id="ui">
+  <h1>Monster lab</h1>
+  <select id="mon"></select>
+  <div class="card" id="info"></div>
+  <h2>Body</h2><div id="sliders"></div>
+  <h2>Motion</h2>
+  <div class="row"><span>Speed</span><input type="range" id="speed" min="0" max="8" step="0.1" value="0"><b id="speedV">0</b></div>
+  <div id="moves" style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0"></div>
+  <label><input type="checkbox" id="loopMv"> Loop the move</label>
+  <label><input type="checkbox" id="rootMv" checked> Show root motion (it moves away)</label>
+  <h2>Workshop — make your own</h2><div id="ws"></div>
+  <h2>View</h2>
+  <label><input type="checkbox" id="idle" checked> Animate</label>
+  <label><input type="checkbox" id="bones"> Show bones</label>
+  <label><input type="checkbox" id="night" checked> Night (they're Lunar)</label>
+  <label><input type="checkbox" id="turn"> Turntable</label>
+  <button id="home">Back to the middle</button>
+  <button id="reset">Reset sliders</button>
+</div><div id="wsR" style="display:none"></div><div id="hint">Drag to orbit · wheel to zoom</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script type="module">
+// The Monster lab (docs/MONSTERS.md): build a creature from its preset (src/data/monsters.js) with the builder
+// (src/rpg/creature.js), change its sliders, watch its idle, see what the guild knows of it.
+const { buildCreature } = await import('./src/rpg/creature.js');
+const { MONSTERS, monsterSpec, PHYSICAL } = await import('./src/data/monsters.js');
+const { createMotion } = await import('./src/rpg/creatureMotion.js');
+const { createParticles } = await import('./src/gfx/particles.js');
+const { createWorkshop } = await import('./src/editor/creatureWorkshop.js');
+const { loadCustom, saveCustom, makeMonster } = await import('./src/data/monsters.js');
+const { GENERA, ROLES } = await import('./src/data/genera.js');
+const $ = id => document.getElementById(id);
+const R = new THREE.WebGLRenderer({ antialias: true }); R.setPixelRatio(Math.min(2, devicePixelRatio)); R.setSize(innerWidth, innerHeight); R.outputEncoding = THREE.sRGBEncoding; R.shadowMap.enabled = true; R.shadowMap.type = THREE.PCFSoftShadowMap; document.body.appendChild(R.domElement);
+const sc = new THREE.Scene(), cam = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.02, 200);
+const P = createParticles(THREE, sc);   // (the shade's smoke: the same particle system as the game)
+const hemi = new THREE.HemisphereLight('#dbe9ff', '#3a3a30', 0.6); sc.add(hemi);
+const key = new THREE.DirectionalLight('#fff1d6', 1.2); key.position.set(4, 8, 5); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4 }); sc.add(key);
+const fill = new THREE.DirectionalLight('#9ab0ff', 0.35); fill.position.set(-5, 3, -4); sc.add(fill);
+const ground = new THREE.Mesh(new THREE.CircleGeometry(12, 48), new THREE.MeshStandardMaterial({ color: '#4a4a44', roughness: 0.95 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; sc.add(ground);
+const grid = new THREE.GridHelper(4, 8, '#666', '#444'); grid.position.y = 0.002; sc.add(grid);   // (half-metre squares, for size)
+for (const [id, M] of Object.entries(MONSTERS)) $('mon').insertAdjacentHTML('beforeend', `<option value="${id}">${M.name}${M.custom ? ' ★' : ''}</option>`);
+const q = new URLSearchParams(location.search); if (q.get('m') && MONSTERS[q.get('m')]) $('mon').value = q.get('m');
+let C = null, helper = null, vals = {}, mo = null, editSpec = null, editM = null; const labPos = new THREE.Vector3(), camAt = new THREE.Vector3();
+function info(M) {
+  const res = Object.entries(M.resist || {}), word = v => v === 0 ? 'immune' : v < 0.2 ? '−' + Math.round((1 - v) * 100) + '%' : v < 1 ? '×' + v : '×' + v;
+  return `<div><span class="k">Classification</span> ${M.classification[1]} <span class="k">(${M.classification[0]})</span></div>
+    <div><span class="k">Hazard</span> ${M.hazard} · <span class="k">rank</span> ${M.rank[0]}${M.rank[1] !== M.rank[0] ? '–' + M.rank[1] : ''}</div>
+    <div><span class="k">Activity</span> ${M.activity} · <span class="k">body plan</span> ${M.plan}</div>
+    <div class="res">${res.length ? res.map(([k, v]) => `<span class="${v === 0 ? 'immune' : v < 1 ? 'strong' : 'weak'}">${k} ${word(v)}</span>`).join('') : '<span>no known resistances</span>'}</div>
+    <div class="lore">${M.lore || ''}</div>`;
+}
+function sliders(M) {
+  $('sliders').innerHTML = Object.entries(M.params).map(([k, [lo, hi, d, label]]) => `<div class="row"><span>${label}</span><input type="range" data-k="${k}" min="${lo}" max="${hi}" step="0.01" value="${vals[k] ?? d}"><b>${(+(vals[k] ?? d)).toFixed(2)}</b></div>`).join('');
+  $('sliders').querySelectorAll('input').forEach(inp => inp.oninput = () => { vals[inp.dataset.k] = +inp.value; inp.nextElementSibling.textContent = (+inp.value).toFixed(2); build(); });
+}
+function build() {
+  const id = $('mon').value, M = editM || MONSTERS[id];
+  if (C) { sc.remove(C.root); C.dispose(); } if (helper) { sc.remove(helper); helper = null; }
+  const spec = editSpec || monsterSpec(id, vals).spec;
+  C = buildCreature(THREE, spec, { particles: P }); C.root.position.y = M.hover || 0; sc.add(C.root);
+  mo = createMotion(C, M); labPos.set(0, 0, 0);
+  mo.onCommit = (dx, dz) => { labPos.x += dx; labPos.z += dz; };   // (a pounce lands where it lands: the creature stays there)
+  $('speed').max = M.maxSpeed || 6;
+  $('moves').innerHTML = Object.keys(M.moves || {}).map(n => `<button data-mv="${n}">${n}</button>`).join('');
+  $('moves').querySelectorAll('button').forEach(bt => bt.onclick = () => mo.play(bt.dataset.mv, { loop: $('loopMv').checked }));
+  if ($('bones').checked) { helper = new THREE.SkeletonHelper(C.root); sc.add(helper); }
+  $('info').innerHTML = info(M);
+}
+function choose() { vals = {}; editSpec = null; editM = null; const M = MONSTERS[$('mon').value]; if (M.custom) $('sliders').innerHTML = '<small>(a workshop creature: change it in the Workshop below)</small>'; else sliders(M); build(); W?.onSelect(); }
+$('mon').onchange = choose; $('reset').onclick = choose; $('bones').onchange = build;
+function lighting() {
+  const n = $('night').checked;
+  sc.background = new THREE.Color(n ? '#0c1020' : '#9fb8d0'); sc.fog = new THREE.Fog(sc.background, 12, 40);
+  hemi.intensity = n ? 0.25 : 0.6; hemi.color.set(n ? '#6a7ab0' : '#dbe9ff');
+  ground.material.color.set(n ? '#2a2c30' : '#4a4a44');
+  key.color.set(n ? '#b8c8ff' : '#fff1d6'); key.intensity = n ? 0.55 : 1.2; fill.intensity = n ? 0.15 : 0.35;
+}
+$('home').onclick = () => labPos.set(0, 0, 0);
+let W = null;
+$('night').onchange = lighting; lighting(); choose();
+W = createWorkshop({ THREE, GENERA, ROLES, makeMonster, el: $('ws'), elR: $('wsR'), scene: sc, camera: cam, canvas: R.domElement, MONSTERS, monsterSpec, loadCustom, saveCustom, lab: { get id() { return $('mon').value; }, get vals() { return vals; }, get C() { return C; }, setSpec(s, m = null) { editSpec = s; editM = m; build(); } } });
+let yaw = 0.7, pitch = 0.18, dist = 4.2, drag = null;
+addEventListener('mousedown', e => { if (e.target.tagName === 'CANVAS') drag = [e.clientX, e.clientY]; }); addEventListener('mouseup', () => drag = null);
+addEventListener('mousemove', e => { if (!drag) return; yaw -= (e.clientX - drag[0]) * 0.008; pitch = Math.max(-0.3, Math.min(1.4, pitch + (e.clientY - drag[1]) * 0.008)); drag = [e.clientX, e.clientY]; });
+addEventListener('wheel', e => { if (e.target.tagName !== 'CANVAS') return;   // (scrolling a panel scrolls the panel, not the view)
+  dist = Math.max(0.8, Math.min(20, dist * (e.deltaY > 0 ? 1.1 : 0.9))); });
+addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); });
+$('speed').oninput = () => $('speedV').textContent = (+$('speed').value).toFixed(1);
+window.lab = { P, get C() { return C; }, get mo() { return mo; }, step(n, dt = 1 / 60) { for (let i = 0; i < n; i++) mo.update(dt, { speed: +$('speed').value }); }, speed(v) { $('speed').value = v; }, set(m, v) { $('mon').value = m; vals = v || {}; sliders(MONSTERS[m]); build(); }, view(y, p, d) { yaw = y; pitch = p; dist = d; }, freeze: false, t: null };
+let last = performance.now(), scroll = 0;
+(function loop() {
+  const M = editM || MONSTERS[$('mon').value];
+  if ($('turn').checked && !drag) yaw += 0.004;
+  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (C && mo && $('idle').checked && !window.lab.manual) mo.update(dt, { speed: +$('speed').value });
+  // walking or flying in place: the ground slides under it; root motion shown by moving the body itself
+  scroll = (scroll + (mo?.speed || 0) * dt) % 0.5; grid.position.set(Math.round(labPos.x / 0.5) * 0.5, 0.002, Math.round(labPos.z / 0.5) * 0.5 - scroll); ground.position.set(labPos.x, 0, labPos.z);
+  if (C && mo) { const r = mo.root; C.root.position.set(labPos.x, (M.hover || 0), labPos.z); if (!$('rootMv').checked) { C.bones.root.position.x -= r.x; C.bones.root.position.z -= r.z; } }
+  const cy = M.focus ?? (M.hover || 0) + 0.6;
+  camAt.lerp(labPos, Math.min(1, dt * 3));                                                        // (the camera follows it to where it went)
+  cam.position.set(camAt.x + Math.sin(yaw) * Math.cos(pitch) * dist, cy + Math.sin(pitch) * dist, camAt.z + Math.cos(yaw) * Math.cos(pitch) * dist); cam.lookAt(camAt.x, cy - 0.1, camAt.z);
+  C?.sync(); if (W?.editing && window.labFrames % 6 === 0) W.markers(); P.update(dt, cam); R.render(sc, cam); window.labFrames = (window.labFrames || 0) + 1; requestAnimationFrame(loop);
+})();
+</script></body></html>

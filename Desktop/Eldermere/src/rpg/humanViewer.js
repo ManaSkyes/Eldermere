@@ -434,7 +434,7 @@ export function startViewer(THREE, human, ui) {
   // Hair physics: the head's skinning matrix this frame (rest -> now, in the character's space)
   const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
   function simulateHair(dt) {
-    if (!hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible && !game) return;   // (stopping is safe: the physics starts again from the style when it resumes)
+    if (!hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible) return;   // hidden hair is paused and resets safely when shown again
     root.updateMatrixWorld(true);
     const bone = rig.skeleton.bones[headBone];
     meshInv.copy(cardsMesh.matrixWorld).invert();

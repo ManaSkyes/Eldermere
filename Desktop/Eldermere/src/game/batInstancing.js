@@ -75,7 +75,11 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
     }
     for (const bucket of buckets.values()) {
       const n = bucket.actors.length;
-      if (!n) { bucket.body.count = bucket.head.count = bucket.wings.count = 0; continue; }
+      if (!n) {
+        scene.remove(bucket.body, bucket.head, bucket.wings);
+        buckets.delete(bucket.key);
+        continue;
+      }
       ensureCapacity(bucket, n);
       bucket.body.count = bucket.head.count = n; bucket.wings.count = n * 2;
       // Keep each cell's conservative world-space bounds tight enough for useful frustum culling.

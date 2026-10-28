@@ -433,8 +433,9 @@ export function startViewer(THREE, human, ui) {
   }
   // Hair physics: the head's skinning matrix this frame (rest -> now, in the character's space)
   const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
+  let hairSimulationEnabled = true; // game camera can pause simulation independently of temporary render visibility
   function simulateHair(dt) {
-    if (!hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible) return;   // hidden hair is paused and resets safely when shown again
+    if (!hairSimulationEnabled || !hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible) return;   // hidden hair is paused and resets safely when shown again
     root.updateMatrixWorld(true);
     const bone = rig.skeleton.bones[headBone];
     meshInv.copy(cardsMesh.matrixWorld).invert();
@@ -2035,7 +2036,7 @@ export function startViewer(THREE, human, ui) {
     setTurn(a) { rotY = a; },
     act(name, opts = {}) { return startAction('move', { move: name, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
-    hairLOD(d) { hairR.lod(d); }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
+    hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {
       const h = rig.byName.head; if (!h) return;
       h.scale.setScalar(on ? 1 : 0.001); h.updateMatrixWorld(true);

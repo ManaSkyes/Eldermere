@@ -228,7 +228,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const G = g || {};
     if (!G._ready) {
       Object.assign(G, { _ready: true, members: [], liveScratch: [], sepCells: new Map(), sepBucketPool: [], rankScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
-        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, canSee: false, awareness: 0, lastKnown: null, investigateT: 0, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
+        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, canSee: false, open: true, awareness: 0, lastKnown: null, investigateT: 0, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
         pi: 0, pdir: 1, path: null, mode: 'loop', behaviour: 'stand', awake: false, thinkDt: 0, wander: null, wanderT: 0 });
       const o = G.place;   // a placed group: its route (map coords → world) and what it does when idle
       if (o) { G.behaviour = o.behaviour || 'stand'; G.mode = o.patrolMode || 'loop'; if (G.behaviour === 'patrol' && o.patrol?.length && G.origin) G.path = [{ x: o.x, z: o.z }, ...o.patrol].map(q => ({ x: G.origin.x + q.x, z: G.origin.z + q.z })); }

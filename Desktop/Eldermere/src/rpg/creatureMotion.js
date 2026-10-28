@@ -38,6 +38,7 @@ export function createMotion(C, M) {
   const MOVES = { ...REACTIONS, ...(M.moves || {}) };
   const THREE = window.THREE;
   const b = C.bones, st = { t: 0, cycle: 0, speed: 0, action: null, root: { x: 0, y: 0, z: 0 } };
+  const idleOpts = { moving: 0 };   // reused per creature; idle callbacks consume this synchronously
   const smooth = u => u * u * (3 - 2 * u);
   // ---- moves ----
   function sample(mv, u) {
@@ -155,7 +156,7 @@ export function createMotion(C, M) {
     C.rest();
     const rb = b.root; rb.position.set(0, 0, 0); rb.rotation.set(0, 0, 0);
     // idle life first (breathing, looking round; less of it while moving) — the layers below add to it
-    if (M.idle) M.idle(C, t, { moving: moveK });
+    if (M.idle) { idleOpts.moving = moveK; M.idle(C, t, idleOpts); }
     if (M.gait) {   // ---- four legs ----
       const G = M.gait, trot = Math.min(1, Math.max(0, (v - G.trotAt * 0.6) / (G.trotAt * 0.8)));
       const stride = G.stride * (0.6 + 0.4 * Math.min(2, v / G.trotAt)), duty = 0.62 - 0.22 * trot;

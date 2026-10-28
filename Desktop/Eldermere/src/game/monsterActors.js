@@ -22,9 +22,12 @@
 // Behaviour: group brains (see GROUP BRAINS below) — swarms circle and swoop, packs spread and close; groups join.
 //   MA.nearTargets   the targets within 40 m (what the game hands weapons and spells); MA.groups   the groups
 import { buildCreature } from '../rpg/creature.js';
+import { createBatSwarmInstances } from './batInstancing.js';
+import { createCreaturePartInstancing } from '../rpg/creatureInstancing.js';
 import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
+import { STEALTH } from '../rpg/stealth.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
 const KIND_TYPE = { fire: 'fire', frost: 'frost', ice: 'frost', lunar: 'lunar', holy: 'light', light: 'light', dark: 'dark', shadow: 'dark', storm: 'storm', lightning: 'storm', earth: 'earth', arcane: 'arcane' };
@@ -36,7 +39,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const near = (a, b) => shapesInF ? shapesInF(Math.min(a.x, b.x) - 1, Math.min(a.z, b.z) - 1, Math.max(a.x, b.x) + 1, Math.max(a.z, b.z) + 1) : shapes;
   const blocked = (a, b) => lineBlocked(near(a, b), a, b);
   const actors = [], targets = [], shots = [];
+  const batSwarm = createBatSwarmInstances(THREE, scene);
+  const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
+  let batInstancing = true, umbrafiendTwoInfluence = false;
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
+  const motionOpts = { speed: 0, ik: false };   // reused for each actor's synchronous pose update
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
   function bar() {
     const cv = document.createElement('canvas'); cv.width = 64; cv.height = 8;
@@ -66,7 +73,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles }), mo = createMotion(C, M);
+    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
+    if (id === 'umbrafiend') C.setSkinnedVariant(umbrafiendTwoInfluence);
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;
@@ -220,8 +228,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function makeGroup(A, g) {
     const G = g || {};
     if (!G._ready) {
-      Object.assign(G, { _ready: true, members: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
-        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
+      Object.assign(G, { _ready: true, members: [], liveScratch: [], sepCells: new Map(), sepBucketPool: [], rankScratch: [], M: A.M, kind: A.M.group || 'solo', state: 'idle', center: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, anchor: { x: A.pos.x, z: A.pos.z },
+        home: { x: A.pos.x, y: A.pos.y, z: A.pos.z }, seeT: Math.random() * 0.25, seen: false, canSee: false, open: true, awareness: 0, lastKnown: null, investigateT: 0, lost: 0, orbitDir: Math.random() < 0.5 ? 1 : -1, flipT: 1 + Math.random() * 2, attackT: 1, screechT: 4,
         pi: 0, pdir: 1, path: null, mode: 'loop', behaviour: 'stand', awake: false, thinkDt: 0, wander: null, wanderT: 0 });
       const o = G.place;   // a placed group: its route (map coords → world) and what it does when idle
       if (o) { G.behaviour = o.behaviour || 'stand'; G.mode = o.patrolMode || 'loop'; if (G.behaviour === 'patrol' && o.patrol?.length && G.origin) G.path = [{ x: o.x, z: o.z }, ...o.patrol].map(q => ({ x: G.origin.x + q.x, z: G.origin.z + q.z })); }
@@ -232,23 +240,86 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     return G;
   }
   const alive = G => G.members.filter(m => m.alive);
+  // Diminishing returns for group detection: interpolate linearly in log(group size)
+  // between the requested calibration points. Solo/duo detection remains the baseline.
+  function groupDetectionScale(n) {
+    const points = [[2, 1], [4, 1], [10, 1.7], [30, 2.55], [90, 2.805]];
+    if (n <= 2) return 1;
+    for (let i = 1; i < points.length; i++) {
+      const [n1, v1] = points[i - 1], [n2, v2] = points[i];
+      if (n <= n2) return v1 + (v2 - v1) * (Math.log(n / n1) / Math.log(n2 / n1));
+    }
+    return points[points.length - 1][1] * (1 + 0.1 * Math.log(n / 90) / Math.log(3));
+  }
   function groupThink(G, dt, player) {
     const live = G.members, n = live.length; if (!n) return;
     let cx = 0, cy = 0, cz = 0; for (const m of live) { cx += m.pos.x; cy += m.pos.y; cz += m.pos.z; } G.center.x = cx / n; G.center.y = cy / n; G.center.z = cz / n;
     const A0 = live[0], S = A0.S, M = G.M, p = player.pos, dx = p.x - G.center.x, dz = p.z - G.center.z, dist = Math.hypot(dx, dz);
     G.dist = dist;
-    // sight: once for the whole group, a few times a second. A roosting swarm looks down and round it: it sees you
-    // under and around it, out to its range on the ground, not up above it
+    // Detection originates from the nearest living member, not the pack center. This prevents
+    // large packs from being effectively blind until the player reaches their middle.
+    // One shared scan every 0.25 s keeps the cost bounded even for very large groups.
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
-      const ey = G.center.y + (M.hover || 0) + avgAlt(G) + 0.4, eye = { x: G.center.x, y: ey, z: G.center.z }, chest = { x: p.x, y: p.y + 1.2, z: p.z };
-      const range = S.aggro * (G.state === 'fight' ? 1.6 : 1), below = ey - (p.y + 1.2);
-      const inCone = M.flight ? below > -1.5 : true;   // (a flyer's eyes look down and around, not up)
-      G.seen = dist < range && inCone && !blocked(eye, chest);
+      let nearest = null, nearestD2 = Infinity, aliveCount = 0;
+      for (const member of live) {
+        if (!member.alive) continue;
+        aliveCount++;
+        const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
+        if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+      }
+      const detectDist = nearest ? Math.sqrt(nearestD2) : dist;
+      const detectSize = groupDetectionScale(aliveCount);
+      const ey = nearest ? nearest.pos.y + (nearest.M.hover || 0) + (nearest.alt || 0) + 1.1 : G.center.y + (M.hover || 0) + avgAlt(G) + 0.4;
+      const eye = nearest ? { x: nearest.pos.x, y: ey, z: nearest.pos.z } : { x: G.center.x, y: ey, z: G.center.z };
+      const chest = { x: p.x, y: p.y + 1.2, z: p.z };
+      const range = S.aggro * detectSize * (G.state === 'fight' ? 1.6 : 1), below = ey - (p.y + 1.2);
+      const inCone = M.flight ? below > -1.5 : true;
+      G.detectDist = detectDist; G.detectSize = detectSize;
+      G.open = !blocked(eye, chest);
+      G.canSee = detectDist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
+      if (G.kind === 'swarm') G.seen = detectDist < range && inCone && G.open;
     }
-    if (M.temper === 'passive') { if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle'; G.seen = false; }   // (an animal: it never hunts you; hit, it runs for a while)
-    else if (G.seen) { if (G.state !== 'fight') { G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; } G.lost = 0; }
-    else if (G.state === 'fight' && (G.lost += dt) > 6) { G.state = 'return'; }
+    if (M.temper === 'passive') {
+      if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle';
+      G.seen = false;
+    } else if (G.kind === 'swarm') {
+      if (G.seen) { if (G.state !== 'fight') { G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; } G.lost = 0; }
+      else if (G.state === 'fight' && (G.lost += dt) > 6) { G.state = 'return'; }
+    } else {
+      // One shared awareness meter per pack. Sight is slowed by the player's visibility; noise can
+      // reveal a last-known position through walls, but hearing alone starts an investigation, not combat.
+      const visibility = Math.max(0.2, Math.min(1, player.visibility ?? 1));
+      const sightRange = S.aggro * (G.state === 'fight' ? 1.6 : 1) * visibility * (G.detectSize || groupDetectionScale(live.length));
+      const detectDist = G.detectDist ?? dist;
+      const sightRate = G.canSee && detectDist < sightRange ? (1 - detectDist / sightRange) * 1.2 : 0;
+      const loudness = Math.max(0, player.loudness || 0), perception = A0.S.perception ?? 1;
+      let hearingRange = loudness * perception * (G.detectSize || groupDetectionScale(live.length));
+      if (!G.open) hearingRange *= STEALTH.muffled;
+      const hearingRate = hearingRange > detectDist ? (1 - detectDist / Math.max(0.01, hearingRange)) * STEALTH.hearRate : 0;
+      const signal = sightRate > 0 || hearingRate > 0;
+      G.awareness = Math.max(0, Math.min(1, G.awareness + (signal ? (sightRate + hearingRate) * dt : -STEALTH.decay * dt)));
+      G.seen = G.canSee && G.awareness >= 1;
+      if (signal) {
+        if (!G.lastKnown) G.lastKnown = { x: p.x, z: p.z };
+        else { G.lastKnown.x = p.x; G.lastKnown.z = p.z; }
+        G.investigateT = 0;
+      }
+      if (G.state === 'fight') {
+        if (G.seen) G.lost = 0;
+        else if ((G.lost += dt) > 6) { G.state = 'investigate'; G.investigateT = 0; if (G.lastKnown) { G.anchor.x = G.lastKnown.x; G.anchor.z = G.lastKnown.z; } }
+      } else if (G.seen) {
+        G.state = 'fight'; G.attackT = 0.6 + Math.random() * 0.6; G.lost = 0;
+      } else if (G.awareness >= STEALTH.suspicious && G.lastKnown) {
+        if (G.state !== 'investigate') G.investigateT = 0;
+        G.state = 'investigate'; G.anchor.x = G.lastKnown.x; G.anchor.z = G.lastKnown.z;
+      } else if (G.state === 'investigate') {
+        G.investigateT += dt;
+        if (G.investigateT > 5 || Math.hypot(G.center.x - G.anchor.x, G.center.z - G.anchor.z) < 2.5) {
+          G.state = 'idle'; G.awareness = Math.min(G.awareness, STEALTH.suspicious - 0.01);
+        }
+      }
+    }
     // erratic circling: the whole swarm swings round the other way every second or two
     if ((G.flipT -= dt) <= 0) { G.flipT = 0.8 + Math.random() * 2.2; if (Math.random() < 0.6) G.orbitDir *= -1; }
     // where the group is heading when not fighting: home, its route, or back to it
@@ -280,7 +351,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   // a pack in a fight: who attacks next, keeping apart, and who gets full detail
   function packThink(G, dt, player) {
-    const live = G.members.filter(m => m.alive), n = live.length, p = player.pos;
+    const live = G.liveScratch || (G.liveScratch = []); live.length = 0; for (const m of G.members) if (m.alive) live.push(m); const n = live.length, p = player.pos;
     if (G.postBase == null) G.postBase = Math.random() * Math.PI * 2;
     // attack turns: one at a time for a small pack, up to three for a big one, the nearest free one goes
     let attackers = 0; for (const m of live) if (m.attacking || (m.mo.actName && m.mo.actName !== 'shadowBullet' && m.mo.actName !== 'stagger')) attackers++;
@@ -294,13 +365,32 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if ((G.sepT = (G.sepT ?? 0) - dt) <= 0) {
       G.sepT = 0.2;
       for (const m of live) { m.sepX = 0; m.sepZ = 0; }
-      for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
-        const A = live[a], B = live[b], dx = A.pos.x - B.pos.x, dz = A.pos.z - B.pos.z, d2 = dx * dx + dz * dz;
-        if (d2 > 3.24 || d2 < 1e-6) continue; const d = Math.sqrt(d2), k = (1.8 - d) / d * 1.5;
-        A.sepX += dx * k; A.sepZ += dz * k; B.sepX -= dx * k; B.sepZ -= dz * k;
+      // Spatial buckets avoid comparing every pair in a large pack. At 90 fiends this checks nearby
+      // neighbors only instead of all 4,005 possible pairs, while preserving the same 1.8 m separation rule.
+      const cellSize = 2, cells = G.sepCells || (G.sepCells = new Map()), pool = G.sepBucketPool || (G.sepBucketPool = []), cellKey = (x, z) => `${x},${z}`;
+      cells.clear(); for (const bucket of pool) bucket.length = 0; let usedBuckets = 0;
+      for (let i = 0; i < n; i++) {
+        const m = live[i], cx = Math.floor(m.pos.x / cellSize), cz = Math.floor(m.pos.z / cellSize), key = cellKey(cx, cz);
+        let bucket = cells.get(key);
+        if (!bucket) { bucket = pool[usedBuckets] || (pool[usedBuckets] = []); usedBuckets++; cells.set(key, bucket); }
+        bucket.push(m);
       }
-      const byD = live.map(m => [m, Math.hypot(m.pos.x - p.x, m.pos.z - p.z)]).sort((x, y) => x[1] - y[1]);
-      byD.forEach(([m], r) => { m.rank = r; });
+      for (const [key, bucket] of cells) {
+        const comma = key.indexOf(','), cx = Number(key.slice(0, comma)), cz = Number(key.slice(comma + 1));
+        for (let ox = -1; ox <= 1; ox++) for (let oz = -1; oz <= 1; oz++) {
+          const other = cells.get(cellKey(cx + ox, cz + oz)); if (!other) continue;
+          for (const A of bucket) for (const B of other) {
+            if (A === B || A.slot >= B.slot) continue;
+            const dx = A.pos.x - B.pos.x, dz = A.pos.z - B.pos.z, d2 = dx * dx + dz * dz;
+            if (d2 > 3.24 || d2 < 1e-6) continue; const d = Math.sqrt(d2), k = (1.8 - d) / d * 1.5;
+            A.sepX += dx * k; A.sepZ += dz * k; B.sepX -= dx * k; B.sepZ -= dz * k;
+          }
+        }
+      }
+      const byD = G.rankScratch || (G.rankScratch = []); byD.length = 0;
+      for (const m of live) { m._rankDist2 = (m.pos.x - p.x) ** 2 + (m.pos.z - p.z) ** 2; byD.push(m); }
+      byD.sort((a, b) => a._rankDist2 - b._rankDist2);
+      byD.forEach((m, r) => { m.rank = r; });
     }
   }
   const avgAlt = G => { let a = 0; for (const m of G.members) a += m.alt || 0; return a / Math.max(1, G.members.length); };
@@ -362,8 +452,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function settle(A, x, z) {
     if (!A.nearSh || (A.nearT = (A.nearT || 0) - 1) <= 0 || Math.abs(x - A.nearX) + Math.abs(z - A.nearZ) > 1.5) {
       A.nearT = 15; A.nearX = x; A.nearZ = z; const y0 = A.pos.y + 0.3, y1 = A.pos.y + 1.2;
-      A.groundSh = near({ x: x - 2.5, z: z - 2.5 }, { x: x + 2.5, z: z + 2.5 }).filter(s => s.min && s.max[0] > x - 2.5 && s.min[0] < x + 2.5 && s.max[2] > z - 2.5 && s.min[2] < z + 2.5);   // (what's round it: the ground under it too)
-      A.nearSh = A.groundSh.filter(s => s.max[1] > y0 && s.min[1] < y1);
+      const found = near({ x: x - 2.5, z: z - 2.5 }, { x: x + 2.5, z: z + 2.5 });
+      const ground = A.groundSh || (A.groundSh = []); ground.length = 0;
+      for (const s of found) if (s.min && s.max[0] > x - 2.5 && s.min[0] < x + 2.5 && s.max[2] > z - 2.5 && s.max[2] < z + 2.5) ground.push(s);   // nearby shapes, including ground
+      const nearSh = A.nearSh || (A.nearSh = []); nearSh.length = 0;
+      for (const s of ground) if (s.max[1] > y0 && s.min[1] < y1) nearSh.push(s);
     }
     return resolveWalls(A.nearSh, x, z, A.pos.y, 1.2, Math.min(0.5, A.S.radius || 0.45));
   }
@@ -459,8 +552,50 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   const frustum = new THREE.Frustum(), pmat = new THREE.Matrix4(), sph = new THREE.Sphere(new THREE.Vector3(), 3); let frameN = 0;
   const nearTargets = [], barCand = [], barShown = new Set();
-  const VIS = 55, WAKE = 70;   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
-  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); }
+  const VIS = 55, WAKE = 70;
+  // One shared, soft contact-shadow batch for every creature: no shadow maps and one draw call.
+  const shadowSize = 32, shadowPixels = new Uint8Array(shadowSize * shadowSize * 4);
+  const shadowWorld = new THREE.Vector3();
+  for (let y = 0; y < shadowSize; y++) for (let x = 0; x < shadowSize; x++) {
+    const dx = (x + 0.5) / shadowSize * 2 - 1, dz = (y + 0.5) / shadowSize * 2 - 1;
+    const r = Math.sqrt(dx * dx + dz * dz), a = Math.max(0, 1 - r);
+    const i = (y * shadowSize + x) * 4;
+    // Black texels make the shadow unambiguously dark in r128; only alpha carries the soft edge.
+    shadowPixels[i] = shadowPixels[i + 1] = shadowPixels[i + 2] = 0;
+    shadowPixels[i + 3] = Math.round(255 * a * a * (3 - 2 * a));
+  }
+  const shadowTexture = new THREE.DataTexture(shadowPixels, shadowSize, shadowSize, THREE.RGBAFormat);
+  shadowTexture.needsUpdate = true; shadowTexture.magFilter = THREE.LinearFilter; shadowTexture.minFilter = THREE.LinearFilter; shadowTexture.generateMipmaps = false;
+  const shadowGeometry = new THREE.PlaneGeometry(1, 1);
+  const shadowMaterial = new THREE.MeshBasicMaterial({ map: shadowTexture, color: 0x000000, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const shadowBatch = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, 4096);
+  shadowBatch.name = 'creature-contact-shadows'; shadowBatch.count = 0; shadowBatch.frustumCulled = false; shadowBatch.renderOrder = 1;
+  scene.add(shadowBatch);
+  const shadowDummy = new THREE.Object3D();
+  function updateCreatureShadows(player) {
+    let count = 0;
+    for (const A of actors) {
+      if (!A.alive || !A.attached || count >= shadowBatch.instanceMatrix.count) continue;
+      const dx = A.pos.x - player.pos.x, dz = A.pos.z - player.pos.z, d2 = dx * dx + dz * dz;
+      if (d2 > VIS * VIS) continue;
+      // Read the animated root bone, not A.pos: lunges/jumps translate the pose before
+      // actor root motion is committed back into A.pos at the end of the move.
+      A.C.bones.root.getWorldPosition(shadowWorld);
+      const groundY = A.pos.y + 0.025;
+      const lift = Math.max(0, shadowWorld.y - A.pos.y);
+      const radius = Math.max(0.32, Math.min(1.35, (A.M.stats.radius || 0.5) * 1.35));
+      const spread = 1 + Math.min(2.5, lift * 0.22);
+      shadowDummy.position.set(shadowWorld.x, groundY, shadowWorld.z);
+      shadowDummy.rotation.set(-Math.PI / 2, 0, 0);
+      shadowDummy.scale.set(radius * 2.4 * spread, radius * 1.65 * spread, 1);
+      shadowDummy.updateMatrix(); shadowBatch.setMatrixAt(count, shadowDummy.matrix);
+      count++;
+    }
+    shadowBatch.count = count;
+    shadowBatch.instanceMatrix.needsUpdate = true;
+    if (shadowBatch.instanceColor) shadowBatch.instanceColor.needsUpdate = true;
+  }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
+  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
   function update(dt, player, hooks = {}) {
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
     // shadow bullets in flight
@@ -478,12 +613,12 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // the groups: who's awake, what each is doing, who joins whom
     for (const G of groups) {
       const d = Math.hypot(G.center.x - player.pos.x, G.center.z - player.pos.z);
-      G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee';
+      G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee' || G.state === 'investigate';
       G.thinkDt += dt;
       if (G.awake || G.thinkDt > 1) { groupThink(G, G.thinkDt, player); G.thinkDt = 0; }
     }
     if ((joinT -= dt) <= 0) { joinT = 0.5; joinGroups(); }
-    nearTargets.length = 0; barCand.length = 0;
+    nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
     for (let i = actors.length - 1; i >= 0; i--) {
       const A = actors[i]; A.player = player; A.hooks = hooks;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
@@ -507,15 +642,23 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.poise = Math.min(A.maxPoise, A.poise + A.maxPoise * 0.12 * dt);
       // ---- detail tiers ----
       //   0 engaged and close (or mid-attack): everything, every frame
-      //   1 on screen within 35 m: animated every 2nd frame (feet only within 15 m)
-      //   2 on screen, 35–55 m: animated every 6th frame, a trickle of smoke
+      //   1 on screen within 35 m: other monsters animate every 2nd frame (feet only within 15 m)
+      //   2 on screen, 35–55 m: other monsters animate every 6th frame, a trickle of smoke
       //   3 off screen or past 55 m: taken out of the scene (no draw, no matrix walk, no smoke), not animated
       const d = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z), fighting = G.state === 'fight';
       sph.center.set(A.pos.x, A.pos.y + 1 + (A.alt || 0), A.pos.z); const on = !hooks.ear || frustum.intersectsSphere(sph);
       let tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
+      // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
+      // Keep only the first 30 bat visuals while that merged swarm is idle; the remaining actors still exist and
+      // participate in AI/combat, and the full combat tower/display rules take over when the group engages.
+      if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
       if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
       if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
+      const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
+      // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
+      // and distant glow sprites are reduced to make large packs affordable.
+      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
       const speed = memberThink(A, dt, player);
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
       // the ground under it, when it has moved: a walker every 0.35 m; a flyer only every 1.5 m (it isn't standing on it), and
@@ -524,20 +667,25 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       else if (A.M.flight && A.layer) A.pos.y = A.group.center.y;
       if (A.pitch !== A.pitchGoal) A.pitch = (A.pitch || 0) + ((A.pitchGoal || 0) - (A.pitch || 0)) * Math.min(1, dt * 6);
       const vis = tier < 3;
-      attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it was when it went out of sight)
+      attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
+      // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
+      // their actor, target, flight path and group brain remain individual and unchanged.
+      if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
-        A.C.puffs.lod = tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15; }
+        A.C.puffs.lod = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15); }
       if (fighting && d < 30 && vis) { barCand.push(A); A.barD = d; }
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
-        const every = tier === 0 ? 1 : tier === 1 ? 2 : 6;
-        if (shownNow || (frameN + i) % every === 0) { A.mo.update(Math.min(A.lodDt, 0.2), { speed, ik: (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)) }); A.lodDt = 0; placeBody(A); }
-      } else { if (A.mo.actName) { A.mo.update(A.lodDt, { speed: 0, ik: false }); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
+        const every = isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
+        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
+      } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
     }
+    updateCreatureShadows(player);
+    batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
     barCand.sort((a, b) => a.barD - b.barD);
     const want = new Set(barCand.slice(0, 5));
@@ -546,9 +694,12 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
+    setBatInstancing(on) { batInstancing = !!on; },
+    setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
+    setUmbrafiendSkinningVariant(on) { umbrafiendTwoInfluence = !!on; for (const A of actors) if (A.M?.name === 'Umbrafiend') A.C.setSkinnedVariant(umbrafiendTwoInfluence); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

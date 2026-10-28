@@ -42,6 +42,7 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
   anchorTex.magFilter = anchorTex.minFilter = THREE.NearestFilter; anchorTex.generateMipmaps = false; anchorTex.needsUpdate = true;
   const freeSlots = []; for (let i = SLOTS - 1; i >= 0; i--) freeSlots.push(i);
   const parked = [];   // slots of removed bodies, freed once their last puffs have died
+  let parkedHead = 0;   // expiry times are appended in order, so reclaim from the front without repeated array shifts
   for (let s = 0; s < SLOTS; s++) anchorData[s * 8 + 3] = -1;
 
   // ---- the soft puff atlas (2×2 cells, made once) ----
@@ -165,7 +166,12 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
     now += dt; mat.uniforms.uTime.value = now;
     // fog, from the scene (linear or exponential)
     const F = scene.fog; if (F) { mat.uniforms.uFogCol.value.copy(F.color); if (F.isFogExp2) mat.uniforms.uFog.value.set(0, 0, F.density); else mat.uniforms.uFog.value.set(F.near, F.far, 0); } else mat.uniforms.uFog.value.set(1e6, 1e6, 0);
-    for (let i = parked.length - 1; i >= 0; i--) if (parked[i][1] < now) { freeSlots.push(parked[i][0]); parked.splice(i, 1); }
+    // Removed-body slots expire in insertion order. A head cursor avoids repeated splice() calls
+    // when many creatures disappear together (each splice would shift the remaining queue).
+    while (parkedHead < parked.length && parked[parkedHead][1] < now) {
+      freeSlots.push(parked[parkedHead][0]); parkedHead++;
+    }
+    if (parkedHead > 256 && parkedHead * 2 > parked.length) { parked.splice(0, parkedHead); parkedHead = 0; }
     if (camera) { camera.getWorldPosition(camPos); pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); frustum.setFromProjectionMatrix(pm); }
     // anchors where the bones are now, then new puffs
     for (const h of bodies) {

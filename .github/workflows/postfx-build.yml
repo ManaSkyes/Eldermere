@@ -1,0 +1,59 @@
+name: Eldermere build and postfx checks
+
+on:
+  push:
+    branches:
+      - main
+      - feature/postfx-rewrite-2026-10-28
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          find Desktop/Eldermere/src -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
+            node --check "$file"
+          done
+
+      - name: Check preview builder syntax
+        run: python -m py_compile Desktop/Eldermere/tools/build_preview.py
+
+      - name: Build single-file preview
+        working-directory: Desktop/Eldermere
+        run: python tools/build_preview.py index.html ../../Eldermere-preview.html "Eldermere Chronicles — PostFX Rewrite"
+
+      - name: Package downloadable build
+        run: |
+          mkdir -p build-download
+          cp Eldermere-preview.html build-download/
+          cp Desktop/Eldermere/index.html build-download/source-index.html
+          cd build-download
+          zip -9 ../Eldermere-postfx-build-1.zip Eldermere-preview.html source-index.html
+
+      - name: Upload downloadable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eldermere-postfx-build-1
+          path: Eldermere-postfx-build-1.zip
+          if-no-files-found: error
+          retention-days: 30

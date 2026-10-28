@@ -134,7 +134,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const applyFx = () => { renderer.toneMapping = settings.postfx !== false ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping; };
   applyFx();
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#9fc3e6'); scene.fog = new THREE.Fog('#b9d3ea', 40, 110);
+  scene.background = new THREE.Color('#9fc3e6'); const worldFog = new THREE.Fog('#b9d3ea', 40, 110); scene.fog = worldFog;
   const hemi = new THREE.HemisphereLight('#dbe9ff', '#5d6b4a', 0.55); scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff1d6', 1.25); sun.position.set(18, 30, 12); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 90 }); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;   // (normal bias: no dark acne patches on flat faces lit at a slant)
@@ -240,12 +240,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const view = fixed ? FIXED.view : S.view; if (view !== viewNow) { viewNow = view; camera.far = view; camera.updateProjectionMatrix(); }
     const sh = (fixed ? FIXED.shadows : true) && settings.shadows !== false; if (sh !== shadowNow) { shadowNow = sh; sun.castShadow = sh; }
     MOVE.gravity = 22 * (G.gravity ?? 1);
-    if (wet) { scene.fog.color.set('#1f5f7a'); scene.fog.near = 0.5; scene.fog.far = 14; }
-    else if (fixed) { scene.fog.color.set(FIXED.fog); scene.fog.near = FIXED.near; scene.fog.far = FIXED.far; }
-    else { scene.fog.color.copy(S.fog); scene.fog.near = S.near; scene.fog.far = S.far; }
+    if (wet) { worldFog.color.set('#1f5f7a'); worldFog.near = 0.5; worldFog.far = 14; }
+    else if (fixed) { worldFog.color.set(FIXED.fog); worldFog.near = FIXED.near; worldFog.far = FIXED.far; }
+    else { worldFog.color.copy(S.fog); worldFog.near = S.near; worldFog.far = S.far; }
     // a screech's darkness on you: you see a tenth as far (the fog closes in, dark), less as it wears off
-    if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; scene.fog.far = scene.fog.far * (1 - k + k * sight); scene.fog.near = Math.min(scene.fog.near, scene.fog.far * 0.25); scene.fog.color.lerp(blind.col, k * 0.85); }
-    if (probe.fogOff) { scene.fog.near = 1e6; scene.fog.far = 1e6 + 1; } // diagnostic: isolate world/area fog from post-processing
+    if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; worldFog.far = worldFog.far * (1 - k + k * sight); worldFog.near = Math.min(worldFog.near, worldFog.far * 0.25); worldFog.color.lerp(blind.col, k * 0.85); }
+    // Removing scene.fog disables the fog shader path entirely, unlike pushing its near/far distances out of view.
+    scene.fog = probe.fogOff ? null : worldFog;
   }
   // ---- what monsters' auras lay on you: less sight, less hearing (src/game/monsterActors.js debuff) ----
   const blind = { k: 0, t: 0, sight: 1, hearing: 1, col: new THREE.Color('#05030a') };
@@ -1139,7 +1140,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>Performance (F8)</b><span style="display:flex;gap:5px"><button type="button" data-copy-data style="cursor:pointer;white-space:nowrap">Copy data to clipboard</button><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></span></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<details open style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Post-processing diagnostics (A/B)</summary>` +
-    [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">Fog is scene-level, separate from postFX. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
+    [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">World / area fog is a scene shader path, separate from postFX; disabling it removes scene.fog entirely. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +
@@ -1173,7 +1174,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
     lines.push('', 'Post-processing diagnostics');
-    for (const [key, label] of [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
+    for (const [key, label] of [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
     lines.push('', 'Post-processing pass timings (CPU submission; not GPU)');
     for (const [name, q] of Object.entries(fx.passStats || {})) lines.push(`${name}: ${q.avgMs.toFixed(3)} ms · ${q.calls} calls · ${q.triangles} triangles`);
     const copyText = lines.join('\n');
@@ -1233,6 +1234,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     monsters.setUmbrafiendSkinningVariant(probe.umbra2weight);
     const fl = dungeonLights?.foliage; if (fl) { fl.hideBig = !probe.trees; fl.hideSmall = !probe.small; fl.dirty = true; }
     fx.probeOff = !probe.glow;
+    scene.fog = probe.fogOff ? null : worldFog;
     // When the monitor bypasses the custom postFX path, restore Three.js ACES so the comparison doesn't silently remove tone mapping too.
     renderer.toneMapping = settings.postfx !== false && probe.glow ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     fx.probe.bloomOff = probe.bloomOff; fx.probe.blurOff = probe.blurOff; fx.probe.toneMapOff = probe.toneMapOff; fx.probe.gradeOff = probe.gradeOff; fx.probe.vignetteOff = probe.vignetteOff;

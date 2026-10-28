@@ -1136,7 +1136,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
-  probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><b>Performance (F8)</b><button type="button" data-expand-probe title="Expand advanced performance details" aria-expanded="false" style="cursor:pointer;color:#e8e4f4;background:#302b52;border:1px solid #7770b5;border-radius:4px;padding:2px 8px;font-size:16px;line-height:1.3">⤢</button></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div>` +
+  probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><b>Performance (F8)</b><button type="button" data-expand-probe title="Expand advanced performance details" aria-expanded="false" style="cursor:pointer;color:#e8e4f4;background:#302b52;border:1px solid #7770b5;border-radius:4px;padding:2px 8px;font-size:16px;line-height:1.3">⤢</button></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><pre class="pp-advanced" style="display:none;white-space:pre-wrap;font:12px/1.45 ui-monospace,monospace;border-top:1px solid #5a5490;padding-top:7px;margin:4px 0 8px"></pre>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<div style="border-top:1px solid #5a5490;margin-top:7px;padding-top:5px;font-weight:600">Post-processing (live switches)</div>` +
     POSTFX_PROBE.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" checked> ${t}</label>`).join('') +
@@ -1167,6 +1167,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const stats = probeEl.querySelector('.pp-stats');
     stats.style.maxHeight = probeExpanded ? 'none' : '155px';
     stats.style.overflow = probeExpanded ? 'visible' : 'hidden';
+    probeEl.querySelector('.pp-advanced').style.display = probeExpanded ? 'block' : 'none';
   };
   probeEl.querySelector('[data-expand-probe]').addEventListener('click', e => {
     e.stopPropagation();
@@ -1263,6 +1264,68 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the performance panel's breakdown of the game's own time (each part since the one before; smoothed)
   const probeLaps = {}; let lapT = 0;
   const lap = k => { if (!probe.on) return; const n = performance.now(); probeLaps[k] = (probeLaps[k] || 0) * 0.9 + (n - lapT) * 0.1; lapT = n; };
+  // Collect the expensive scene inventory only while the advanced monitor is expanded, and at
+  // the existing half-second UI cadence (not once per frame).
+  function advancedProbeText() {
+    const counts = { objects: 0, visible: 0, meshes: 0, visibleMeshes: 0, instanced: 0, skinned: 0, lod: 0,
+      castShadow: 0, receiveShadow: 0, points: 0, lines: 0, sprites: 0, lights: 0, pointLights: 0,
+      spotLights: 0, directionalLights: 0, hemiLights: 0, otherLights: 0 };
+    const geometries = new Set(), materials = new Set(), textures = new Set();
+    const addMaterial = m => {
+      if (!m) return;
+      for (const mat of (Array.isArray(m) ? m : [m])) {
+        if (!mat) continue; materials.add(mat);
+        for (const key of Object.keys(mat)) { const v = mat[key]; if (v?.isTexture) textures.add(v); }
+        for (const u of Object.values(mat.uniforms || {})) if (u?.value?.isTexture) textures.add(u.value);
+      }
+    };
+    scene.traverse(o => {
+      counts.objects++; if (o.visible) counts.visible++;
+      if (o.isMesh) { counts.meshes++; if (o.visible) counts.visibleMeshes++; if (o.isInstancedMesh) counts.instanced++; if (o.isSkinnedMesh) counts.skinned++; if (o.castShadow) counts.castShadow++; if (o.receiveShadow) counts.receiveShadow++; if (o.geometry) geometries.add(o.geometry); addMaterial(o.material); }
+      if (o.isLOD) counts.lod++;
+      if (o.isPoints) counts.points++; if (o.isLine || o.isLineSegments || o.isLineLoop) counts.lines++; if (o.isSprite) counts.sprites++;
+      if (o.isLight) { counts.lights++; if (o.isPointLight) counts.pointLights++; else if (o.isSpotLight) counts.spotLights++; else if (o.isDirectionalLight) counts.directionalLights++; else if (o.isHemisphereLight) counts.hemiLights++; else counts.otherLights++; }
+    });
+    const info = renderer.info, mem = info.memory || {}, draw = info.render || {};
+    const canvasW = renderer.domElement.width, canvasH = renderer.domElement.height;
+    const bytes = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KiB' : (n / 1048576).toFixed(1) + ' MiB';
+    const estimateTargets = Math.round(canvasW * canvasH * 8 * (1 + 1 / 16 + 1 / 16) * (fx.sceneRT?.samples || 1));
+    const heap = performance.memory?.usedJSHeapSize;
+    const weatherLine = weathering ? `Weather surfaces: wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : 'Weather surfaces: unavailable';
+    const hairLine = body?.hairDebug ? (() => { const h = body.hairDebug(); return `Hair: ${h.info ? `${h.info.cards} cards · ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'visible' : 'hidden'} · hair LOD ${h.lod} · body LOD ${body.bodyLevel ?? 0}`; })() : 'Hair diagnostics: unavailable';
+    const bp = body?.perf || {};
+    const post = fx.getStats ? fx.getStats() : {};
+    const postLine = Object.entries(post).map(([k,v]) => `${k} ${v.toFixed(2)} ms CPU submit`).join(' · ') || 'warming up';
+    const gameLine = Object.entries(probeLaps).sort((a,b) => b[1] - a[1]).map(([k,v]) => `${k} ${v.toFixed(2)} ms`).join(' · ') || 'warming up';
+    return [
+      'SCENE / GEOMETRY',
+      `Objects ${counts.objects} total · ${counts.visible} visible | meshes ${counts.meshes} total · ${counts.visibleMeshes} visible`,
+      `Instanced meshes ${counts.instanced} · skinned meshes ${counts.skinned} · LOD groups ${counts.lod}`,
+      `Cast shadows ${counts.castShadow} meshes · receive shadows ${counts.receiveShadow} meshes`,
+      `Points ${counts.points} · lines ${counts.lines} · sprites ${counts.sprites}`,
+      `Lights ${counts.lights} total: point ${counts.pointLights} · spot ${counts.spotLights} · directional ${counts.directionalLights} · hemisphere ${counts.hemiLights} · other ${counts.otherLights}`,
+      `Unique geometries ${geometries.size} · renderer geometries ${mem.geometries ?? 'n/a'} · unique materials ${materials.size} · textures referenced ${textures.size} / renderer textures ${mem.textures ?? 'n/a'}`,
+      '',
+      'RENDERER / MEMORY',
+      `Drawing buffer ${canvasW}×${canvasH} · pixel ratio ${renderer.getPixelRatio().toFixed(2)}`,
+      `Last renderer counters: ${draw.calls ?? probeInfo.calls} calls · ${((draw.triangles ?? probeInfo.tris) / 1e6).toFixed(2)}M triangles · ${draw.points ?? 0} points`,
+      `Shader programs ${info.programs?.length ?? 'n/a'} · geometry buffers ${mem.geometries ?? 'n/a'} · textures ${mem.textures ?? 'n/a'}`,
+      `Estimated postFX render-target storage: ${bytes(estimateTargets)} (rough estimate; excludes driver/MSAA overhead)`,
+      heap ? `JS heap: ${bytes(heap)} used / ${bytes(performance.memory.jsHeapSizeLimit)} limit (Chromium only)` : 'JS heap: browser does not expose this metric',
+      '',
+      'CPU TIMINGS (smoothed; milliseconds)',
+      gameLine,
+      `Body simulation: cloth ${(bp.clothMs || 0).toFixed(2)} · hair ${(bp.hairSimMs || 0).toFixed(2)} ms`,
+      `PostFX per-pass timings (CPU submission, not GPU execution): ${postLine}`,
+      `GPU frame: ${probeInfo.gpu != null ? probeInfo.gpu.toFixed(2) + ' ms (timer query when supported)' : 'not yet available'} · CPU waiting ${(probeInfo.gpuWait || 0).toFixed(2)} ms`,
+      '',
+      'WEATHER / CHARACTER',
+      weatherLine,
+      hairLine,
+      `Shader compile error: ${probeInfo.shaderErr || 'none recorded'}`,
+      'Note: renderer counters are last-render counters; the headline totals accumulate postFX renders too.'
+    ].join('\\n');
+  }
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)
   const glc = renderer.getContext(), tq = glc.getExtension && glc.getExtension('EXT_disjoint_timer_query_webgl2'), tqList = [], px1 = new Uint8Array(4);
@@ -1432,7 +1495,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
-        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(probeInfo.gpu || 0).toFixed(1)} ms (measured)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; } }
+        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(probeInfo.gpu || 0).toFixed(1)} ms (measured)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (probeExpanded) probeEl.querySelector('.pp-advanced').textContent = advancedProbeText(); } }
     dbg.textContent = `${fps} fps · ${Math.hypot(st.vel.x, st.vel.z).toFixed(1)} m/s${st.sprinting ? ' · sprint' : ''}${st.crouching ? ' · crouch' : ''}${st.sitting ? ' · sitting' : ''}${st.onGround ? '' : ' · air'}${loadFactor < 1 ? ' · overloaded' : ''}`;
   }
   requestAnimationFrame(frame);

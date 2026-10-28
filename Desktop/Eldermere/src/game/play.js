@@ -1316,7 +1316,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)
   const glc = renderer.getContext(), tq = glc.getExtension && glc.getExtension('EXT_disjoint_timer_query_webgl2'), tqList = [], px1 = new Uint8Array(4);
-  const gpuModeKey = () => [probe.glow, probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale].join(':');
+  const gpuModeKey = () => [...PROBE_ROWS.map(([k]) => probe[k]), probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale].join(':');
   const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
   const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   const startGpuQuery = bucket => {

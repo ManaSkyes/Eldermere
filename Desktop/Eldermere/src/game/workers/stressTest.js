@@ -22,6 +22,12 @@ export async function runWorkerStressTest({ totalIterations = 2_400_000, workerC
     try {
       await pool.ready();
       const initMs = now() - initStart;
+      // Warm each worker once so the measured pass is less dominated by first-use/JIT costs.
+      const warmStart = now();
+      await pool.runBatch(Array.from({ length: count }, (_, worker) => ({
+        type: 'cpu-stress', payload: { start: worker * 40_000, end: (worker + 1) * 40_000, seed: 71 },
+      })));
+      const warmupMs = now() - warmStart;
       const seed = 173;
       const chunks = Math.max(count * 4, 4);
       const tasks = [];
@@ -39,7 +45,7 @@ export async function runWorkerStressTest({ totalIterations = 2_400_000, workerC
       const valid = checksum === reference && parts.reduce((sum, p) => sum + (p.end - p.start), 0) === totalIterations;
       if (expectedChecksum == null) expectedChecksum = checksum;
       results.push({
-        workers: count, iterations: totalIterations, initMs, elapsedMs,
+        workers: count, iterations: totalIterations, initMs, warmupMs, elapsedMs,
         iterationsPerSecond: Math.round(totalIterations / Math.max(0.001, elapsedMs / 1000)),
         speedupVsFirst: null, checksum, valid: valid && checksum === expectedChecksum,
         signal: Number(signal.toFixed(4)),

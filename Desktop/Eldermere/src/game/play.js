@@ -1007,6 +1007,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   }
   let sneakXp = 0;
   function courseUpdate(dt) {
+    const courseT0 = performance.now(); let monsterMs = 0;
     { const st = player.state;
     const mT0 = performance.now();
     if (input.pressed?.('resetPose')) { body?.resetPose?.(); combat.reset?.(); toast?.('Pose reset.'); }   // (K: a body in a twist, back to standing)
@@ -1015,7 +1016,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       killed: A => { const first = !knownBeast(character, A.id); learnKill(character, A.id, { level: A.level ?? null, hp: A.maxHp }); if (first) toast(`New bestiary entry: ${A.M.name}`); },
       struck: (A, type) => learnHit(character, A.id, type),
       xp: (n, A) => { const up = awardCombatXp(character, n, 'kill'); dummies.floatText(`+${n} exp`, { x: A.target.pos.x, y: A.target.pos.y + A.target.height + 0.8, z: A.target.pos.z }, '#9ad8ff'); if (up) toast(`Level up! You're level ${character.level} — ${character.unspentPoints} point${character.unspentPoints === 1 ? '' : 's'} to spend.`); } });   // (killing a monster: combat exp for your character level)
-    if (probe.on) probeLaps['Monsters (AI + motion)'] = (probeLaps['Monsters (AI + motion)'] || 0) * 0.9 + (performance.now() - mT0) * 0.1;
+    monsterMs = performance.now() - mT0;
+    if (probe.on) probeLaps['Monsters (AI + motion)'] = (probeLaps['Monsters (AI + motion)'] || 0) * 0.9 + monsterMs * 0.1;
     // the darkness easing in and out; your ears muffled with it
     { blind.t = Math.max(0, blind.t - dt); const goal = blind.t > 0 ? 1 : 0; blind.k += (goal - blind.k) * Math.min(1, dt * (goal ? 3 : 0.8)); if (blind.k < 0.002 && !goal) { blind.sight = 1; blind.hearing = 1; }
       blindEl.style.opacity = (blind.k * 0.75).toFixed(3); audio.muffle?.(blind.k * (1 - blind.hearing) * 2); }
@@ -1069,6 +1071,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (sneakXp >= 1) { train(character, 'sneak', sneakXp * 0.6, { stats: ['dexterity'], approach: true }); sneakXp = 0; }
     }
     dungeonObjs?.update(dt, performance.now() / 1000, { pos: st.pos, height: player.height, invulnerable: st.invulnerable }, (pts, why) => hurt(Math.min(1, pts / Math.max(1, d.maxHp)), why), enemies?.units || []);
+    if (probe.on) {
+      const otherMs = Math.max(0, performance.now() - courseT0 - monsterMs);
+      probeLaps['World update overhead (excluding monsters)'] = (probeLaps['World update overhead (excluding monsters)'] || 0) * 0.9 + otherMs * 0.1;
+    }
   }
   // the combo timing ring round the reticle: a wave grows out from the middle and meets the target ring at the moment the
   // next press is perfect (src/game/combat.js timing); the target ring thickens across the window; a soft glow on a hit
@@ -1352,7 +1358,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (input.locked) stealth(dt);
     lap('Stealth');
     if (input.locked) courseUpdate(dt);
-    lap('Courses');
+    lap('World update total (incl. monsters)');
     { // sparkles on the routes you can use, near you (not the one you're on)
       const st = player.state, chest = { x: st.pos.x, y: st.pos.y + player.height * 0.6, z: st.pos.z }, pts = [];
       for (const r of routes) {

@@ -228,7 +228,7 @@ const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
   let workerMode = 'main', workerAllocationMode = 'auto', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerLimit = 12, workerGeneration = 0;
-  const TREE_WORKER_CHUNK_SIZE = 1024;
+  const TREE_WORKER_CHUNK_SIZE = 4096;
   const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, workerLimit, workerAllocationMode, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
   const ensureWorker = async (queuedTasks = 1) => {
     if (workerAllocationMode === 'auto') {

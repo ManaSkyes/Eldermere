@@ -1407,6 +1407,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
       rows.push({id:'npc-ai-queue',label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});
     }
+    for (const [prefix, state, label] of [['npc-presentation', monsters?.presentationSnapshot?.(), 'Creature presentation'], ['npc-simple-presentation', enemies?.presentationSnapshot?.(), 'Simple NPC presentation']]) {
+      if (!state) continue;
+      const queueId = prefix + '-queue';
+      rows.push({ id:queueId, label, status:state.lastError?'error':state.pending?'working':state.mode==='main'?'idle':'idle',
+        task:state.lastError ? 'Error · '+state.lastError : state.mode+' · '+state.actorCount+' actors · '+state.dispatchCount+' batches sent · '+(state.pending?'batch in flight':'no batch in flight')+' · '+state.workerMs.toFixed(2)+' ms worker time' });
+      if (state.pool) for (const w of state.pool.workers) rows.push({ id:prefix+'-worker-'+w.id, label:label+' '+w.id, status:w.busy?'working':'idle', task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for work') });
+    }
     const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
     if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;rows.push({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
     else if(treeState)rows.push({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});

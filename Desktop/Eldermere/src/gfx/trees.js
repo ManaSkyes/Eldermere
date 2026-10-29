@@ -24,6 +24,7 @@
 
 const VIEWS = 16, TILE_PX = 128, ATLAS_COLS = 16, ATLAS_ROWS = 16;          // impostor pictures: 16 angles × up to 16 species
 const NEAR_SHADOW = 45;
+const TREE_CELL_SIZE = 64;
 const LODS = { tree: [45, 130, 300], pine: [45, 130, 300], dead: [45, 120, 260], bush: [30, 80, 180] };
 
 const rng = seed => () => { seed = (seed * 16807 + 11) % 2147483647; return seed / 2147483647; };
@@ -280,6 +281,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   for (const p of plants) { const list = SPECIES[p.k]; if (!list) continue; const v = Math.abs(p.v || 0) % list.length, key = p.k + v; (byKey.get(key) || byKey.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p); }
   let row = 0;
   for (const { k, v, list } of byKey.values()) {
+    // Spatial order makes each 64 m cell a contiguous range in the source arrays.
+    list.sort((a, b) => Math.floor(a.x / TREE_CELL_SIZE) - Math.floor(b.x / TREE_CELL_SIZE) || Math.floor(a.z / TREE_CELL_SIZE) - Math.floor(b.z / TREE_CELL_SIZE));
     const sp = SPECIES[k][v], G = grow(k, sp, 1000 + v * 77 + k.length * 13), g0 = build(THREE, A, k, sp, G, 0, stages), g1 = build(THREE, A, k, sp, G, 1, stages);
     const bb = g0.boundingBox, hw = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) * 1.04, y0 = bb.min.y - 0.05, y1 = bb.max.y + 0.05;
     const gi = new THREE.BufferGeometry();                                                    // the impostor quad, as big as the tree from any side
@@ -287,19 +290,43 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     gi.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
     gi.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
     gi.setAttribute('color', new THREE.Float32BufferAttribute(new Array(18).fill(1), 3)); gi.setAttribute('aRow', new THREE.Float32BufferAttribute(new Array(6).fill(row), 1));
-    const n = list.length, X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), Sc = new Float32Array(n), Ro = new Float32Array(n), Co = new Float32Array(n * 3), Rn = new Float32Array(n);
-    list.forEach((p, i) => { X[i] = p.x; Y[i] = p.y; Z[i] = p.z; Sc[i] = p.s || 1; Ro[i] = p.r || 0; const c = p.c || [1, 1, 1]; Co.set(c, i * 3); const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; Rn[i] = h - Math.floor(h); });
+    const n = list.length, X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), Sc = new Float32Array(n), Ro = new Float32Array(n), Co = new Float32Array(n * 3), Rn = new Float32Array(n), cells = [];
+    let cell = null;
+    list.forEach((p, i) => {
+      const gx = Math.floor(p.x / TREE_CELL_SIZE), gz = Math.floor(p.z / TREE_CELL_SIZE), key = gx + ',' + gz;
+      if (!cell || cell.key !== key) {
+        cell = { key, gx, gz, start: i, end: i + 1, x0: gx * TREE_CELL_SIZE, x1: (gx + 1) * TREE_CELL_SIZE, z0: gz * TREE_CELL_SIZE, z1: (gz + 1) * TREE_CELL_SIZE, y0: p.y, y1: p.y, maxScale: p.s || 1 };
+        cells.push(cell);
+      } else { cell.end = i + 1; cell.y0 = Math.min(cell.y0, p.y); cell.y1 = Math.max(cell.y1, p.y); cell.maxScale = Math.max(cell.maxScale, p.s || 1); }
+      X[i] = p.x; Y[i] = p.y; Z[i] = p.z; Sc[i] = p.s || 1; Ro[i] = p.r || 0;
+      const c = p.c || [1, 1, 1]; Co.set(c, i * 3); const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; Rn[i] = h - Math.floor(h);
+    });
+    for (const c of cells) {
+      c.cx = (c.x0 + c.x1) * 0.5; c.cz = (c.z0 + c.z1) * 0.5; c.cy = (c.y0 + c.y1) * 0.5 + sp.H * 0.5;
+      c.radius = Math.hypot(TREE_CELL_SIZE * 0.7072, (c.y1 - c.y0) * 0.5 + Math.max(sp.H || 0, sp.R || 0) * c.maxScale + 2);
+    }
     const mesh = (geo, mat, cast) => {
       geo.setAttribute('aF', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('aR', new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
       const im = new THREE.InstancedMesh(geo, mat, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = cast; im.receiveShadow = true; if (cast) im.customDepthMaterial = depthMat; im.userData.canopy = true; scene.add(im); return im;   // (canopy: src/gfx/weathering.js lets a tenth of the snow through crowns)
     };
-    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
+    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
     row++;
   }
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
-  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
+  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
+  const visibleCells = (S, cx, cz, fr, far) => {
+    const out = [];
+    for (const cell of S.cells) {
+      const dx = Math.max(cell.x0 - cx, 0, cx - cell.x1), dz = Math.max(cell.z0 - cz, 0, cz - cell.z1);
+      if (Math.hypot(dx, dz) > far + TREE_CELL_SIZE * 0.71) continue;
+      cv.set(cell.cx, cell.cy, cell.cz); sph.set(cv, cell.radius);
+      if (Math.hypot(dx, dz) > NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
+      out.push(cell);
+    }
+    return out;
+  };
   return {
     hidden: false,
     sets,
@@ -364,16 +391,20 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         const planes = fr.planes.map(p => [p.normal.x, p.normal.y, p.normal.z, p.constant]);
         // Split species into bounded chunks so large species can keep workers busy.
         const tasks = [];
+        let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
         for (let si = 0; si < sets.length; si++) {
-          const S = sets[si];
-          for (let offset = 0; offset < S.n; offset += TREE_WORKER_CHUNK_SIZE) {
-            const end = Math.min(S.n, offset + TREE_WORKER_CHUNK_SIZE);
+          const S = sets[si], candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]);
+          cellsTested += S.cells.length; cellsVisited += candidates.length;
+          for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
+            const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
+            instancesTested += end - offset;
             tasks.push({ si, offset, type: 'tree-cull', payload: {
               X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
               cx, cy, cz, planes, radius: S.rad, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked, nearShadow: NEAR_SHADOW
             }});
           }
         }
+        if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
         ensureWorker().then(pool => {
           workerState.status = 'running';
           const batchStarted = performance.now();
@@ -411,10 +442,13 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         return;
       }
       const scanStarted = timed ? performance.now() : 0, bufferBefore = timed ? diag.bufferMs : 0;
-      let visibleInstances = 0;
+      let visibleInstances = 0, cellsTested = 0, cellsVisited = 0, instancesTested = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
-        if (!this.hidden) for (let i = 0; i < S.n; i++) {
+        const candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, far);
+        cellsTested += S.cells.length; cellsVisited += candidates.length;
+        for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
+          instancesTested++;
           const dx = S.X[i] - cx, dz = S.Z[i] - cz, d = Math.hypot(dx, S.Y[i] + S.mid * S.Sc[i] - cy, dz); if (d > far) continue;
           if (d > NEAR_SHADOW) { cv.set(S.X[i], S.Y[i] + S.mid * S.Sc[i], S.Z[i]); sph.set(cv, S.rad * S.Sc[i] + 1.5); if (!fr.intersectsSphere(sph)) continue; }
           // how far across each boundary this tree is (0 before it, 1 past it); the last is the fade out at the far edge
@@ -430,10 +464,21 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         }
         visibleInstances += cnt[0] + cnt[1] + cnt[2];
         const bufferStarted = timed ? performance.now() : 0;
-        for (let L = 0; L < 3; L++) { const m = M[L]; m.count = cnt[L]; if (cnt[L]) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aF.needsUpdate = true; m.geometry.attributes.aR.needsUpdate = true; } }
+        for (let L = 0; L < 3; L++) {
+          const m = M[L]; m.count = cnt[L];
+          if (cnt[L]) {
+            const attrs = [[m.instanceMatrix, cnt[L] * 16], [m.instanceColor, cnt[L] * 3], [m.geometry.attributes.aF, cnt[L] * 2], [m.geometry.attributes.aR, cnt[L]]];
+            for (const [attr, length] of attrs) {
+              if (attr.clearUpdateRanges) attr.clearUpdateRanges();
+              if (attr.addUpdateRange) attr.addUpdateRange(0, length);
+              attr.needsUpdate = true;
+            }
+          }
+        }
         if (timed) diag.bufferMs += performance.now() - bufferStarted;
       }
       if (timed) {
+        diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested;
         const elapsed = performance.now() - started;
         diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances;
         diag.scanMs += Math.max(0, performance.now() - scanStarted - (diag.bufferMs - bufferBefore));

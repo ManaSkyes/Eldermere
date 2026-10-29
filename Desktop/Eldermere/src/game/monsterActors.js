@@ -653,11 +653,14 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     presentationPending = true; presentationLastDispatch = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets' });
-    presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
-      if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
-      presentationWorkerMs = result.__timing?.workerMs || 0;
-      presentationPlans = new Map((result.plans || []).map(plan => [plan.id, plan]));
+    const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
+    const chunks = [];
+    for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
+    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets' });
+    Promise.all(chunks.map(actors => presentationPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
+      if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
+      presentationWorkerMs = Math.max(0, ...results.map(result => result.__timing?.workerMs || 0));
+      presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
       presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
     }).catch(error => {
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });

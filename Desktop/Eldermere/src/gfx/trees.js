@@ -498,7 +498,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             workerState.workerCount = workerCount;
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
-            return pool.runBatch(tasks).then(results => {
+            return pool.runBatch(tasks, 8).then(results => {
               const cameraStale = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 0.5 || Math.abs(camera.quaternion.dot(requestQuaternion)) < 0.9976;
               if (requestGeneration !== workerGeneration || cameraStale) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
               workerState.lastMs = performance.now() - batchStarted;
@@ -609,7 +609,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         ensureWorker().then(pool => {
           workerState.status = 'running';
           const batchStarted = performance.now();
-          return pool.runBatch(tasks).then(results => {
+          return pool.runBatch(tasks, 8).then(results => {
             // A newer camera/visibility request supersedes this batch. Never upload stale buffers.
             if (requestGeneration !== workerGeneration) { last.x = 1e9; return; }
             workerState.lastMs = performance.now() - batchStarted;

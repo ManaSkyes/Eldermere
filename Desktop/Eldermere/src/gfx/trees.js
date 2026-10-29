@@ -329,6 +329,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   // (near, mid, impostor) are refreshed independently; zone 4/5 remain available
   // for future vegetation tiers rather than being falsely mapped to nonexistent meshes.
   let lodZonePolicy = null, lodRenderFrame = 0, lodZoneNeedsInitialRefresh = true;
+  // Player-centred LOD scans are independent of camera rotation; track the last completed scan origin.
+  let lodZoneAppliedPosition = null;
   const lodZoneWasDisabled = [false, false, false];
   const visibleCells = (S, cx, cz, fr, far) => {
     const out = [], reach = far + TREE_CELL_SIZE * 0.71;
@@ -431,6 +433,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       workerGeneration++;
       lodZonePolicy = policy || null;
       lodZoneNeedsInitialRefresh = true;
+      lodZoneAppliedPosition = null;
       lodRenderFrame = 0;
       lodZoneWasDisabled.fill(false);
       last.x = 1e9;
@@ -453,11 +456,12 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         // the other, which turns the intended dither into a hard swap. Use one shared cadence
         // for all enabled levels (the slowest configured interval), and always refresh them
         // together. Movement during a worker batch still requests an immediate follow-up scan.
-        const enabledIntervals = zones
-          .filter(z => z && z.enabled !== false)
-          .map(z => Math.max(1, Math.floor(Number(z.interval) || 1)));
-        const sharedInterval = enabledIntervals.length ? Math.max(...enabledIntervals) : 1;
-        const sharedRefreshDue = lodZoneNeedsInitialRefresh || lodRenderFrame % sharedInterval === 0;
+        // No timer-based rescan: camera turns do not change player-centred distance LOD.
+        // Refresh only initially, after policy changes, or after meaningful player movement.
+        const movedSinceApplied = !lodZoneAppliedPosition || Math.hypot(
+          cx - lodZoneAppliedPosition.x, cy - lodZoneAppliedPosition.y, cz - lodZoneAppliedPosition.z
+        ) > 1.5;
+        const sharedRefreshDue = lodZoneNeedsInitialRefresh || movedSinceApplied;
         const due = zones.map((z, i) => !!z && (sharedRefreshDue || (z.enabled === false && !lodZoneWasDisabled[i])));
         if (!due.some(Boolean)) { if (timed) diag.skipped++; return; }
         const policyStarted = timed ? performance.now() : 0;
@@ -548,6 +552,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
                 }
               }
               workerState.applyMs = performance.now() - applyStarted;
+              lodZoneAppliedPosition = { x: requestPosition.x, y: requestPosition.y, z: requestPosition.z };
               lodZoneNeedsInitialRefresh = playerMoved;
               // Keep the request origin as the applied origin. If movement exceeded 1.5 m while
               // workers ran, the next render tick immediately schedules a corrected sphere scan.
@@ -592,6 +597,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             }
           }
         }
+        lodZoneAppliedPosition = { x: cx, y: cy, z: cz };
         lodZoneNeedsInitialRefresh = false;
         last.hid = hid; last.x = cx; last.y = cy; last.z = cz; last.q.copy(camera.quaternion); last.fov = camera.fov;
         if (timed) {

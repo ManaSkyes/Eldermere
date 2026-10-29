@@ -334,6 +334,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     get workerMode() { return workerMode; },
     setWorkerMode(mode) {
       workerMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+      last.x = 1e9; // force the selected route to take effect even if the camera is stationary
       if (workerMode !== 'main' && !workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
       else if (workerMode === 'main') workerState.status = 'main thread';
     },

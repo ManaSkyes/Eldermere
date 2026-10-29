@@ -233,6 +233,9 @@ export function createFoliage(THREE, scene, plants) {
   let last = null, acc = 0;
   return {
     wind, pushers, trees,
+    get workerMode() { return trees.workerMode || 'main'; },
+    get workerState() { return trees.workerState || { status: 'no tree instances', jobs: 0, lastMs: 0, queueMs: 0, error: '' }; },
+    setWorkerMode(mode) { trees.setWorkerMode?.(mode); },
     // Expose the tree system's optional traversal counters to the F8 report.
     get diagnostics() { return trees.diagnostics; },
     resetDiagnostics() { trees.resetDiagnostics?.(); },

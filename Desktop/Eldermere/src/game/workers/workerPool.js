@@ -24,8 +24,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
       const dispatchStarted = performance.now();
       worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload });
       pending.get(job.id).dispatchMs = performance.now() - dispatchStarted;
-    } }
-    catch (error) {
+    } catch (error) {
       pending.delete(job.id); worker.busy = false; worker.jobId = null;
       job.reject(error); dispatch(worker);
     }

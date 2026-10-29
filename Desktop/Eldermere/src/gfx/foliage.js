@@ -200,8 +200,8 @@ export function createFoliage(THREE, scene, plants) {
       const reach = Lv.hi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
         const c = S.chunkLookup.get(gx + ',' + gz); if (!c) continue;
-        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (Math.hypot(ex, ez) > Lv.hi + 1) continue;
-        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (Math.hypot(fx, fz) < Lv.from - 1) continue;
+        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (ex * ex + ez * ez > (Lv.hi + 1) * (Lv.hi + 1)) continue;
+        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (fx * fx + fz * fz < (Lv.from - 1) * (Lv.from - 1)) continue;
         if (!fr.intersectsBox(c.box)) continue;
         visibleChunks.push(c);
       }

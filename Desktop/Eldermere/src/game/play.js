@@ -1479,7 +1479,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     clearProcessesByPrefix('npc-render-');
     const rows=[];
     const seen=new Set();
-    const addRow = row => { if (!row?.id || seen.has(row.id)) return; seen.add(row.id); addRow(row); };
+    const addRow = row => { if (!row?.id || seen.has(row.id)) return; seen.add(row.id); rows.push(row); };
     addRow({id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'});
     const summaryIds = new Set(['creature-ai-queue','npc-presentation-queue','npc-simple-presentation-queue','npc-ai-queue','shared-pool-summary']);
     for(const process of processSnapshot()) { const id=process.id||process.label; if (summaryIds.has(id)) continue; addRow({...process,id}); }

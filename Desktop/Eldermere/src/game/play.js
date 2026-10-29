@@ -1136,6 +1136,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
   // Live traversal capture: bounded per-frame samples while the player explores normally.
   const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, frameId: 0, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
+  // Repeatable A/B: stationary camera sweep, first with normal foliage culling, then with foliage culling frozen.
+  const foliageBufferTest = { active: false, phase: 'idle', started: 0, startYaw: 0, durationMs: 18000, button: null, status: null };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
@@ -1194,7 +1196,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
-    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Live traversal capture</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Start capture, close or leave the monitor open, then sprint across the largest terrain you can. Stop to report frame-time spikes, CPU/render timings, draw load, and distance travelled. Captures up to 5 minutes.</p><button type="button" data-traverse-start style="cursor:pointer">Start live capture</button> <button type="button" data-traverse-stop style="cursor:pointer" disabled>Stop &amp; report</button> <button type="button" data-traverse-copy style="cursor:pointer" disabled>Copy report</button><div data-traverse-status style="font-size:11px;margin-top:4px">Ready</div><pre data-traverse-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No traversal captured yet.</pre></details>` +
+    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Foliage buffer A/B test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">One click runs a repeatable stationary camera sweep: 2 s warm-up, 8 s normal foliage culling, then 8 s with foliage culling frozen. The player stays still. The frozen phase retains the current foliage layout, so compare performance rather than visual correctness.</p><button type="button" data-foliage-test style="cursor:pointer">Run foliage buffer test</button> <span data-foliage-test-status style="font-size:11px">Ready · about 18 seconds</span></details><details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Live traversal capture</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Start capture, close or leave the monitor open, then sprint across the largest terrain you can. Stop to report frame-time spikes, CPU/render timings, draw load, and distance travelled. Captures up to 5 minutes.</p><button type="button" data-traverse-start style="cursor:pointer">Start live capture</button> <button type="button" data-traverse-stop style="cursor:pointer" disabled>Stop &amp; report</button> <button type="button" data-traverse-copy style="cursor:pointer" disabled>Copy report</button><div data-traverse-status style="font-size:11px;margin-top:4px">Ready</div><pre data-traverse-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No traversal captured yet.</pre></details>` +
     `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Worker pool stress test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Runs the same deterministic CPU workload across different worker counts. Keep the camera still; results measure worker throughput, not full game speedup.</p><button type="button" data-worker-stress style="cursor:pointer">Run worker stress test</button> <span data-worker-stress-status style="font-size:11px">Ready</span><pre data-worker-stress-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No test run yet.</pre></details>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
     `<label style="display:block;cursor:pointer"><input type="checkbox" data-cycle checked> Time passes</label>` +
@@ -1397,12 +1399,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
       `GPU timer-query median: main + postFX ${probeInfo.gpuSamples.main.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.main)) : 'no valid samples'} (${probeInfo.gpuSamples.main.length} samples) · reflections ${probeInfo.gpuSamples.reflection.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.reflection)) : 'no valid samples'} (${probeInfo.gpuSamples.reflection.length} samples)`,
-      mem, '', 'Worst frames ≥25 ms (stage timings are CPU wall time, not isolated GPU time):', ...(hitchLines.length ? hitchLines : ['  No frames ≥25 ms']), '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
+      mem, '', 'Foliage A/B phase comparison (same stationary camera sweep; frozen phase skips foliage.cull and retains the prior foliage layout):', ...['warmup','baseline-spin','frozen-spin'].map(phase => { const q = a.filter(v => v.testPhase === phase); if (!q.length) return `  ${phase}: no samples`; const fm = q.map(v=>v.frameMs), sm = q.map(v=>v.submitMs), bu = q.map(v=>v.glMs?.bufferUpload || 0), bc = q.map(v=>v.glCalls?.bufferUpload || 0), gpu = q.map(v=>v.gpuMainMs).filter(Number.isFinite); const seconds = Math.max(.001, (q[q.length-1].t-q[0].t)/1000); return `  ${phase}: ${q.length} frames · ${(q.length / seconds).toFixed(1)} observed FPS · frame p95 ${percentile95(fm).toFixed(1)} ms · render submission p95 ${percentile95(sm).toFixed(1)} ms · buffer-upload CPU median ${sortedMedian(bu).toFixed(2)} ms / p95 ${percentile95(bu).toFixed(2)} ms · buffer-upload calls median ${sortedMedian(bc).toFixed(0)} · GPU median ${gpu.length ? sortedMedian(gpu).toFixed(2)+' ms' : 'pending/n/a'} · hitches ≥33.3 ms ${q.filter(v=>v.frameMs>=33.3).length}`; }), '', 'Worst frames ≥25 ms (stage timings are CPU wall time, not isolated GPU time):', ...(hitchLines.length ? hitchLines : ['  No frames ≥25 ms']), '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
       'Interpretation: observed average FPS is sample count divided by capture duration; it is more representative of sustained throughput than the reciprocal of median frame interval. Frame interval includes waiting for refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
     ].join('\n');
     traversalReportEl.textContent = traversalCapture.report;
     traversalStatus.textContent = `Complete · ${duration.toFixed(1)} s · ${a.length} frames · ${slow50} severe hitches`;
     traversalStartBtn.disabled = false; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = false;
+    if (!foliageBufferTest.active) foliageBufferTest.button.disabled = false;
   };
   traversalStartBtn.addEventListener('click', () => {
     dungeonLights?.foliage?.resetDiagnostics?.();
@@ -1412,6 +1415,19 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     traversalStatus.textContent = 'CAPTURING · move through the world normally'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = false; traversalCopyBtn.disabled = true;
   });
   traversalStopBtn.addEventListener('click', finishTraversalCapture);
+  foliageBufferTest.button = probeEl.querySelector('[data-foliage-test]');
+  foliageBufferTest.status = probeEl.querySelector('[data-foliage-test-status]');
+  foliageBufferTest.button.addEventListener('click', () => {
+    if (foliageBufferTest.active || traversalCapture.on || bench.on || scenarioBench.on) return;
+    const foliage = dungeonLights?.foliage;
+    if (!foliage) { foliageBufferTest.status.textContent = 'Unavailable: this scene has no foliage system.'; return; }
+    foliage.resetDiagnostics?.(); if (foliage.diagnostics) foliage.diagnostics.enabled = true;
+    foliageBufferTest.active = true; foliageBufferTest.phase = 'warmup'; foliageBufferTest.started = performance.now(); foliageBufferTest.startYaw = camera.rotation.y;
+    traversalCapture.on = true; traversalCapture.started = foliageBufferTest.started; traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0; traversalCapture.lastCameraQ = camera.quaternion.clone(); traversalCapture.stage = ''; traversalCapture.renderCallMs = 0;
+    foliageBufferTest.button.disabled = true; foliageBufferTest.status.textContent = 'Running · warm-up (2 s)…';
+    traversalReportEl.textContent = 'Automated foliage A/B test running. Results will appear in the Live traversal capture report.';
+    traversalStatus.textContent = 'CAPTURING · automated stationary camera sweep'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = true;
+  });
   traversalCopyBtn.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(traversalCapture.report); traversalStatus.textContent = 'Report copied to clipboard.'; }
     catch { traversalReportEl.focus?.(); traversalStatus.textContent = 'Clipboard blocked; select and copy the report text below.'; }
@@ -1784,6 +1800,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Your body (pose)');
     player.applyCamera(camera, settings.headBob ?? 1);
     tpDt = dt; if (thirdPerson) placeThirdPerson();
+    if (foliageBufferTest.active) {
+      const elapsed = performance.now() - foliageBufferTest.started;
+      foliageBufferTest.phase = elapsed < 2000 ? 'warmup' : elapsed < 10000 ? 'baseline-spin' : 'frozen-spin';
+      if (foliageBufferTest.phase === 'warmup') camera.rotation.y = foliageBufferTest.startYaw;
+      else { const phaseElapsed = foliageBufferTest.phase === 'baseline-spin' ? elapsed - 2000 : elapsed - 10000; camera.rotation.y = foliageBufferTest.startYaw + (phaseElapsed / 8000) * Math.PI * 2; }
+      foliageBufferTest.status.textContent = foliageBufferTest.phase === 'warmup' ? 'Running · warm-up (2 s)…' : foliageBufferTest.phase === 'baseline-spin' ? `Running · normal culling (${Math.min(8, (elapsed - 2000) / 1000).toFixed(1)} / 8 s)` : `Running · culling frozen (${Math.min(8, (elapsed - 10000) / 1000).toFixed(1)} / 8 s)`;
+    }
     if (body?.hairLOD) { const st = player.state, cd = thirdPerson ? Math.hypot(camera.position.x - st.pos.x, camera.position.y - st.pos.y - player.height * 0.95, camera.position.z - st.pos.z) : 0;
       body.hairLOD(cd); body.bodyLOD?.(cd);   // (the hair's and the body's detail by how far the camera is from you)
       const wv = weather?.windNow || 0, wd = sky?.weather?.windDir || [1, 0]; body.setWind(wd[0] * wv * 6, 0, wd[1] * wv * 6); }
@@ -1817,7 +1840,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Mirror');
     if (!thirdPerson) body?.showHead(false);           // your own eyes don't see your head...
     if (probe.on || traversalCapture.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
-    if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);
+    if (dungeonLights?.foliage && !(foliageBufferTest.active && foliageBufferTest.phase === 'frozen-spin')) dungeonLights.foliage.cull(camera);
     refreshAssignmentPanel();                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
@@ -1925,10 +1948,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       const stages = traversalCapture.frameStages || {}, glf = traversalCapture.frameGl || { glCalls: {}, glMs: {}, programsBefore: -1, geometriesBefore: 0, texturesBefore: 0 };
       const programsAfter = renderer.info.programs?.length ?? -1;
       if (traversalCapture.samples.length < traversalCapture.maxSamples) {
-        traversalCapture.samples.push({ frameId: traversalCapture.frameId, gpuMainMs: NaN, gpuReflectionMs: NaN, t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, x: pos.x, y: pos.y, z: pos.z });
+        traversalCapture.samples.push({ frameId: traversalCapture.frameId, gpuMainMs: NaN, gpuReflectionMs: NaN, t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, testPhase: foliageBufferTest.active ? foliageBufferTest.phase : null, x: pos.x, y: pos.y, z: pos.z });
       } else { traversalCapture.dropped++; finishTraversalCapture(); }
       traversalCapture.frameGl = null;
-      if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
+      if (foliageBufferTest.active && t >= foliageBufferTest.durationMs) {
+        foliageBufferTest.active = false; foliageBufferTest.phase = 'complete'; camera.rotation.y = foliageBufferTest.startYaw;
+        finishTraversalCapture(); foliageBufferTest.button.disabled = false; foliageBufferTest.status.textContent = 'Complete · compare baseline-spin vs frozen-spin in the report.';
+      } else if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
       else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;
     }
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;

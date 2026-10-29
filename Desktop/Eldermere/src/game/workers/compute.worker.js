@@ -4,17 +4,21 @@ self.onmessage = ({ data }) => {
   const workerStarted = performance.now();
   try {
     if (type === 'tree-cull') {
-      const { X, Y, Z, Sc, cx, cy, cz, mid, edges, hidden, baked } = payload;
+      const { X, Y, Z, Sc, cx, cy, cz, mid, edges, hidden, baked, targetLod } = payload;
       const records = [], wv = edges.map(e => Math.max(3, e * 0.1));
       if (!hidden) for (let i = 0; i < X.length; i++) {
-        const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz), far = edges[edges.length - 1];
+        const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz);
+        const far = edges[edges.length - 1];
         if (d > far) continue;
         // Cell-level frustum rejection happens on the main thread; avoid retesting each tree here.
         const blend = [0, 0, 0];
         for (let b = 0; b < 2; b++) blend[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
         blend[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
         if (!baked) blend[1] = blend[2];
-        for (let L = 0; L < (baked ? 3 : 2); L++) {
+        const lodCount = baked ? 3 : 2;
+        const firstLod = Number.isInteger(targetLod) ? targetLod : 0;
+        const lastLod = Number.isInteger(targetLod) ? targetLod + 1 : lodCount;
+        for (let L = firstLod; L < Math.min(lastLod, lodCount); L++) {
           const lo = L === 0 ? 0 : 1 - blend[L - 1], hi = 1 - blend[L];
           if (lo < hi) records.push([i, L, lo, hi]);
         }

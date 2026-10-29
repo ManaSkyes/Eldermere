@@ -448,7 +448,17 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         // Each live zone owns a separate LOD buffer and refresh interval. Worker tasks
         // calculate serializable records only; instance buffers are always written here.
         const zones = [1, 2, 3].map(id => lodZonePolicy.zones.find(z => z.id === id) || null);
-        const due = zones.map((z, i) => !!z && (lodZoneNeedsInitialRefresh || (lodRenderFrame % Math.max(1, Math.floor(Number(z.interval) || 1)) === 0) || (z.enabled === false && !lodZoneWasDisabled[i])));
+        // Crossfade ranges are complementary across adjacent LOD meshes. Refreshing each
+        // mesh on its own interval lets one side of a transition use newer fade values than
+        // the other, which turns the intended dither into a hard swap. Use one shared cadence
+        // for all enabled levels (the slowest configured interval), and always refresh them
+        // together. Movement during a worker batch still requests an immediate follow-up scan.
+        const enabledIntervals = zones
+          .filter(z => z && z.enabled !== false)
+          .map(z => Math.max(1, Math.floor(Number(z.interval) || 1)));
+        const sharedInterval = enabledIntervals.length ? Math.max(...enabledIntervals) : 1;
+        const sharedRefreshDue = lodZoneNeedsInitialRefresh || lodRenderFrame % sharedInterval === 0;
+        const due = zones.map((z, i) => !!z && (sharedRefreshDue || (z.enabled === false && !lodZoneWasDisabled[i])));
         if (!due.some(Boolean)) { if (timed) diag.skipped++; return; }
         const policyStarted = timed ? performance.now() : 0;
         const totalTrees = sets.reduce((n, S) => n + S.n, 0);

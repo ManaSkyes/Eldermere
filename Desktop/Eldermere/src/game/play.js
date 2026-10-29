@@ -1135,7 +1135,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
   const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
   // Live traversal capture: bounded per-frame samples while the player explores normally.
-  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false };
+  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
@@ -1147,6 +1147,37 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (timed) { const elapsed = performance.now() - t0; traversalCapture.renderCallMs += elapsed; const key = traversalCapture.stage === 'reflections' ? 'reflectionCallsMs' : traversalCapture.stage === 'main+postFX' ? 'mainCallsMs' : 'otherCallsMs'; traversalCapture.frameStages[key] = (traversalCapture.frameStages[key] || 0) + elapsed; }
     if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; }
   }; }
+  // Optional GL activity probes for traversal capture. These wrap existing WebGL entry points only
+  // to count/timestamp synchronous calls; rendering arguments and return values are passed through.
+  // Not every browser/context allows methods to be replaced, so report only hooks that installed.
+  {
+    const gl = renderer.getContext();
+    const glMethods = [
+      ['compileShader', 'shaderCompile'], ['linkProgram', 'programLink'],
+      ['texImage2D', 'textureUpload'], ['texSubImage2D', 'textureUpload'],
+      ['compressedTexImage2D', 'textureUpload'], ['compressedTexSubImage2D', 'textureUpload'],
+      ['copyTexImage2D', 'textureUpload'], ['copyTexSubImage2D', 'textureUpload'],
+      ['bufferData', 'bufferUpload'], ['bufferSubData', 'bufferUpload']
+    ];
+    for (const [method, category] of glMethods) {
+      try {
+        const original = gl[method];
+        if (typeof original !== 'function') continue;
+        gl[method] = function (...args) {
+          const capture = traversalCapture.on, t0 = capture ? performance.now() : 0;
+          try { return original.apply(gl, args); }
+          finally {
+            if (capture && traversalCapture.frameGl) {
+              const elapsed = performance.now() - t0, f = traversalCapture.frameGl;
+              f.glCalls[category] = (f.glCalls[category] || 0) + 1;
+              f.glMs[category] = (f.glMs[category] || 0) + elapsed;
+            }
+          }
+        };
+        if (gl[method] !== original) traversalCapture.glActivity.available.push(method);
+      } catch (_) { /* Some WebGL implementations expose non-writable methods. */ }
+    }
+  }
   // Time the actual shadow-map update when this Three.js build exposes its internal renderer hook.
   if (renderer.shadowMap && typeof renderer.shadowMap.render === 'function' && !renderer.shadowMap.__eldTimed) {
     const sm = renderer.shadowMap, renderShadows = sm.render.bind(sm); sm.__eldTimed = true; traversalCapture.shadowMapHook = true;
@@ -1283,7 +1314,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
     const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };
     const hitches = a.filter(q => q.frameMs >= 25).sort((x,y) => y.frameMs - x.frameMs).slice(0, 12);
-    const hitchLines = hitches.map(q => `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · ${traversalCapture.shadowMapHook ? `shadow maps ${(q.shadowMapMs||0).toFixed(1)}` : 'shadow maps n/a'} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris`);
+    const hitchLines = hitches.map(q => { const glFmt = (key) => `${q.glCalls?.[key] || 0} calls/${(q.glMs?.[key] || 0).toFixed(2)}ms`; return `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · ${traversalCapture.shadowMapHook ? `shadow maps ${(q.shadowMapMs||0).toFixed(1)}` : 'shadow maps n/a'} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris · shaders compile ${glFmt('shaderCompile')} · link ${glFmt('programLink')} · tex upload ${glFmt('textureUpload')} · buffer upload ${glFmt('bufferUpload')} · programs ${q.programsBefore}→${q.programsAfter} (Δ${q.programDelta}) · geom Δ${q.geometriesDelta} · tex Δ${q.texturesDelta}`; });
     const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
     const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
     const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
@@ -1307,6 +1338,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       foliageLine,
       `Render-stage CPU (whole stage, includes renderer submission): reflection update ${stageSummary('reflectionUpdateMs')} · main+postFX ${stageSummary('mainRenderMs')}`,
       `Shadow-map update CPU: ${traversalCapture.shadowMapHook ? stageSummary('shadowMapMs') : 'hook unavailable in this renderer build'}`,
+      `GL instrumentation hooks: ${traversalCapture.glActivity.available.length ? traversalCapture.glActivity.available.join(', ') : 'none installed'}`,
+      `Hitch-frame GL timings are CPU time around WebGL calls (not GPU execution); program/geometry/texture deltas are renderer-info counts, not proof of compilation/upload cost.`,
       `Renderer.render() CPU summed across calls: ${stageSummary('renderCallMs')} (main ${stageSummary('mainCallsMs')}; reflection ${stageSummary('reflectionCallsMs')}; other ${stageSummary('otherCallsMs')})`,
       `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
@@ -1617,7 +1650,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!running) return;
     requestAnimationFrame(frame);
     const cpu0 = performance.now(); lapT = cpu0;
-    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; }
+    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; traversalCapture.frameGl = { glCalls: {}, glMs: {}, programsBefore: renderer.info.programs?.length ?? -1, geometriesBefore: renderer.info.memory.geometries, texturesBefore: renderer.info.memory.textures }; }
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
     const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
@@ -1834,8 +1867,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       const turnDot = traversalCapture.lastCameraQ ? Math.max(-1, Math.min(1, Math.abs(camera.quaternion.dot(traversalCapture.lastCameraQ)))) : 1;
       const turnDeg = 2 * Math.acos(turnDot) * 180 / Math.PI;
       if (traversalCapture.lastCameraQ) traversalCapture.lastCameraQ.copy(camera.quaternion); else traversalCapture.lastCameraQ = camera.quaternion.clone();
-      const stages = traversalCapture.frameStages || {};
-      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
+      const stages = traversalCapture.frameStages || {}, glf = traversalCapture.frameGl || { glCalls: {}, glMs: {}, programsBefore: -1, geometriesBefore: 0, texturesBefore: 0 };
+      const programsAfter = renderer.info.programs?.length ?? -1;
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, x: pos.x, y: pos.y, z: pos.z });
+      traversalCapture.frameGl = null;
       else { traversalCapture.dropped++; finishTraversalCapture(); }
       if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
       else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;

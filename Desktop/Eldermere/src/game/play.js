@@ -1331,7 +1331,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
     status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':category.id==='ai'?'Live worker pipeline: NPC sensory candidate math. Monitor individual workers with F2.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
     panel.appendChild(status);
-    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};renderSchedulerTabs();}); panel.appendChild(reset);
+    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};if(category.id==='ai')enemies?.setAiMode?.('main');renderSchedulerTabs();}); panel.appendChild(reset);
     return panel;
   };
   const renderSchedulerTabs = () => {

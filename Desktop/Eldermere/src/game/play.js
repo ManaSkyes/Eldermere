@@ -1221,9 +1221,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   root.querySelector('.play').appendChild(probeEl);
   const assignmentEl = document.createElement('div');
   assignmentEl.hidden = true;
-  assignmentEl.style.cssText = 'position:absolute;top:40px;right:12px;z-index:41;background:rgba(14,16,40,.96);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:12px 14px;border-radius:8px;border:1px solid #8b78cf;min-width:280px;max-width:min(430px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
+  assignmentEl.style.cssText = 'position:absolute;inset:0;z-index:100;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:flex;flex-direction:column;gap:12px;border:0;border-radius:0';
   assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
-    <p style="font-size:11px;opacity:.85">Zone intervals and radii now schedule small foliage, trees, and bushes. Tree/bush zone updates currently use the main thread so each LOD buffer can refresh independently; per-zone worker dispatch is still a follow-up. Three.js buffer writes stay on the main thread.</p>
+    <p style="font-size:11px;opacity:.85">Dynamic scheduling workspace. LOD buffer uploads and WebGL scene changes remain on the main thread; worker mode is only active for systems with a worker-backed task route.</p>
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
     <label style="display:block;margin:8px 0">Worker count <select data-assignment-workers><option value="1">1 worker</option><option value="2" selected>2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12">12 workers</option></select></label>
     <div style="font-size:11px;opacity:.8">Tree culling is split into 1,024-tree chunks. Changing worker count rebuilds the pool after the current batch completes.</div>
@@ -1236,6 +1236,94 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <div style="margin-top:12px;padding-top:9px;border-top:1px solid #5a5490"><b>Foliage culling test</b><p style="font-size:11px;opacity:.85;margin:4px 0">Freeze visibility/LOD updates and keep the last foliage layout on screen. This is a diagnostic mode; plants may remain visible when they normally would be culled.</p><button type="button" data-foliage-freeze>Freeze Foliage Culling</button><div data-foliage-freeze-status style="font-size:11px;margin-top:5px">Active · foliage visibility updates normally</div></div>
     <p style="font-size:11px;opacity:.8">Worker mode can leave the previous tree layout visible while culling runs. If a worker fails, the route falls back to the main thread and reports the error.</p>`;
   root.querySelector('.play').appendChild(assignmentEl);
+  // Full-screen scheduler workspace. Keep existing live vegetation controls intact,
+  // and provide independent profiles for systems that will be connected incrementally.
+  const schedulerHeader = assignmentEl.firstElementChild;
+  schedulerHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;flex:0 0 auto';
+  schedulerHeader.querySelector('b').textContent = 'Dynamic Work Scheduler (F7)';
+  const schedulerNav = document.createElement('nav');
+  schedulerNav.setAttribute('aria-label', 'Scheduler categories');
+  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:sticky;top:-1px;background:rgba(10,11,28,.98);z-index:2';
+  const schedulerWorkspace = document.createElement('div');
+  schedulerWorkspace.style.cssText = 'min-height:0;flex:1;overflow:auto';
+  const schedulerLargePanel = document.createElement('section');
+  schedulerLargePanel.dataset.schedulerPanel = 'largeFoliage';
+  schedulerLargePanel.style.cssText = 'display:flex;flex-direction:column;gap:12px;max-width:1500px;margin:0 auto';
+  const existingSchedulerContent = Array.from(assignmentEl.children).slice(1);
+  existingSchedulerContent.forEach(node => schedulerLargePanel.appendChild(node));
+  schedulerWorkspace.appendChild(schedulerLargePanel);
+  const schedulerCategories = [
+    { id:'largeFoliage', label:'Large foliage', description:'Trees, pines, dead trees and bushes. This profile currently drives the live tree/bush LOD renderer.' },
+    { id:'smallFoliage', label:'Small foliage', description:'Grass, flowers, reeds and ground plants. Separate profile controls are ready; independent small-foliage routing is the next integration step.' },
+    { id:'enemies', label:'Enemies', description:'Enemy visibility, animation and AI update candidates. Settings are stored in this session; task-specific dispatch is not connected yet.' },
+    { id:'buildings', label:'Buildings', description:'Building and prop visibility/LOD candidates. Rendering and scene-object changes remain on the main thread until a safe worker data path is added.' },
+    { id:'weather', label:'Weather', description:'Weather simulation and surface update scheduling. GPU/scene changes must still be applied on the main thread.' },
+    { id:'ai', label:'AI', description:'AI decision, perception and navigation work. Worker offload requires serializable task inputs and stale-result checks.' },
+    { id:'world', label:'World generation', description:'Procedural generation candidates. Prefer workers for pure data generation, then apply generated scene objects on the main thread.' },
+    { id:'lighting', label:'Lighting / post', description:'Lighting, shadows and post-processing candidates. WebGL renderer operations remain main-thread-only.' }
+  ];
+  const schedulerProfiles = Object.fromEntries(schedulerCategories.map((cat, index) => [cat.id, {
+    mode: cat.id === 'largeFoliage' ? 'auto' : 'main',
+    priority: cat.id === 'largeFoliage' ? 2 : (cat.id === 'smallFoliage' ? 3 : 5),
+    zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
+  }]));
+  let activeSchedulerCategory = 'largeFoliage';
+  const schedulerTabButtons = new Map();
+  const makeSchedulerSelect = (value, choices, onChange) => {
+    const select = document.createElement('select');
+    select.style.cssText = 'background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px;max-width:100%';
+    choices.forEach(([v,label]) => { const o=document.createElement('option'); o.value=v; o.textContent=label; select.appendChild(o); });
+    select.value = value; select.addEventListener('change', () => onChange(select.value)); return select;
+  };
+  const makeSchedulerNumber = (value, min, max, onChange) => {
+    const input=document.createElement('input'); input.type='number'; input.min=String(min); input.max=String(max); input.value=String(value);
+    input.style.cssText='width:100%;min-width:70px;box-sizing:border-box;background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px';
+    input.addEventListener('change',()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=min&&n<=max)onChange(n);else input.value=String(value);}); return input;
+  };
+  const renderSchedulerProfile = category => {
+    const profile=schedulerProfiles[category.id], panel=document.createElement('section'); panel.dataset.schedulerPanel=category.id;
+    panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';
+    const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
+    const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
+    const modeWrap=document.createElement('label'); modeWrap.textContent='Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
+    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker'],['auto','Auto · load-aware']],v=>profile.mode=v)); settings.appendChild(modeWrap);
+    const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
+    priorityWrap.appendChild(makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v))); settings.appendChild(priorityWrap);
+    const summary=document.createElement('div'); summary.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:220px'; summary.textContent='Worker policy is a scheduling preference, not a promise that this task is already worker-backed.'; settings.appendChild(summary); panel.appendChild(settings);
+    const title=document.createElement('h3'); title.textContent='LOD zones'; title.style.cssText='font-size:15px;margin:0'; panel.appendChild(title);
+    const table=document.createElement('div'); table.style.cssText='display:grid;grid-template-columns:minmax(70px,.6fr) minmax(100px,1fr) minmax(110px,1fr) minmax(100px,1fr) minmax(150px,1.2fr);gap:8px;align-items:center;min-width:650px';
+    ['Zone','Enabled','Radius (m)','Every N frames','Execution assignment'].forEach(t=>{const h=document.createElement('b');h.textContent=t;h.style.cssText='font-size:12px;padding:7px 4px;border-bottom:1px solid #5a5490';table.appendChild(h);});
+    profile.zones.forEach((z,i)=>{
+      const name=document.createElement('div'); name.textContent='LOD '+z.id; name.style.cssText='padding:8px 4px;font-weight:600'; table.appendChild(name);
+      const enabledWrap=document.createElement('label'); enabledWrap.style.cssText='display:flex;gap:6px;align-items:center;padding:6px';
+      const enabled=document.createElement('input'); enabled.type='checkbox'; enabled.checked=z.enabled; enabled.addEventListener('change',()=>z.enabled=enabled.checked); enabledWrap.append(enabled,document.createTextNode(enabled.checked?'Enabled':'Disabled'));
+      enabled.addEventListener('change',()=>enabledWrap.lastChild.textContent=enabled.checked?'Enabled':'Disabled'); table.appendChild(enabledWrap);
+      table.appendChild(makeSchedulerNumber(z.radius,1,10000,v=>{z.radius=v;}));
+      table.appendChild(makeSchedulerNumber(z.interval,1,10000,v=>{z.interval=Math.round(v);}));
+      table.appendChild(makeSchedulerSelect(z.assignment,[['main','Main thread'],['worker-1','Worker 1'],['worker-2','Worker 2'],['worker-3','Worker 3'],['worker-4','Worker 4'],['worker-5','Worker 5'],['worker-6','Worker 6'],['auto','Auto']],v=>z.assignment=v));
+    });
+    const tableScroller=document.createElement('div'); tableScroller.style.cssText='overflow-x:auto;padding:10px;background:rgba(255,255,255,.025);border:1px solid #383356;border-radius:8px'; tableScroller.appendChild(table); panel.appendChild(tableScroller);
+    const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
+    status.textContent=category.id==='largeFoliage'?'Live integration: connected to the tree/bush LOD renderer.':'Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
+    panel.appendChild(status);
+    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};renderSchedulerTabs();}); panel.appendChild(reset);
+    return panel;
+  };
+  const renderSchedulerTabs = () => {
+    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear();
+    schedulerCategories.forEach(category=>{
+      const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
+      button.style.cssText+=';white-space:nowrap;flex:0 0 auto;border-color:'+(category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8')+';background:'+(category.id===activeSchedulerCategory?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)');
+      button.setAttribute('aria-selected',String(category.id===activeSchedulerCategory));
+      button.addEventListener('click',()=>{activeSchedulerCategory=category.id;renderSchedulerTabs();});
+      schedulerNav.appendChild(button); schedulerTabButtons.set(category.id,button);
+      const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
+      panel.hidden=category.id!==activeSchedulerCategory;
+      schedulerWorkspace.appendChild(panel);
+    });
+  };
+  assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerWorkspace);
+  renderSchedulerTabs();
   assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
   foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
   foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');

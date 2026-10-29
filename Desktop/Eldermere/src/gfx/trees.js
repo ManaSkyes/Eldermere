@@ -226,6 +226,17 @@ const TREE_WIND = TILE => `${windCore(TILE)}
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
+  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false;
+  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, jobs: 0, error: '' };
+  const ensureWorker = async () => {
+    if (!workerPool) {
+      const { createWorkerPool } = await import('../game/workers/workerPool.js');
+      workerPool = createWorkerPool(2);
+      workerState.status = 'starting';
+      await workerPool.ready();
+    }
+    return workerPool;
+  };
   const sets = [];
   if (!plants.some(p => SPECIES[p.k])) return { hidden: false, sets, bake() {}, cull() {} };
   const A = atlas(THREE);
@@ -286,7 +297,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   }
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
-  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0 };
+  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
   return {
     hidden: false,
     sets,
@@ -319,7 +330,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     // (only redone when the camera has moved half a metre or turned ~8°: the view is culled a third wider than the screen
     // so turning doesn't show gaps between refills, and nothing is re-uploaded while you just look a little around)
     diagnostics,
-    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0 }); },
+    workerState,
+    get workerMode() { return workerMode; },
+    setWorkerMode(mode) {
+      workerMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+      if (workerMode !== 'main' && !workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
+      else if (workerMode === 'main') workerState.status = 'main thread';
+    },
+    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); },
     cull(camera) {
       const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
       const hid = !!this.hidden, c0 = camera.position;
@@ -327,6 +345,41 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       last.hid = hid; last.x = c0.x; last.y = c0.y; last.z = c0.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+      const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));
+      if (useWorker) {
+        if (workerPending) { if (timed) diag.skipped++; return; }
+        workerPending = true;
+        const queuedAt = performance.now();
+        workerState.status = 'queued';
+        const planes = fr.planes.map(p => [p.normal.x, p.normal.y, p.normal.z, p.constant]);
+        const tasks = sets.map(S => ({ type: 'tree-cull', payload: { X: S.X, Y: S.Y, Z: S.Z, Sc: S.Sc, cx, cy, cz, planes, radius: S.rad, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked, nearShadow: NEAR_SHADOW } }));
+        ensureWorker().then(pool => {
+          workerState.status = 'running';
+          const startedWorker = performance.now();
+          return pool.runBatch(tasks).then(results => {
+            const workerElapsed = performance.now() - startedWorker;
+            workerState.lastMs = workerElapsed; workerState.queueMs = Math.max(0, startedWorker - queuedAt);
+            workerState.jobs++; workerState.status = 'ready';
+            if (timed) { diag.workerMs += workerElapsed; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
+            for (let si = 0; si < sets.length; si++) {
+              const S = sets[si], counts = [0, 0, 0], M = S.meshes;
+              for (const [i, L, lo, hi] of results[si].records) {
+                const mesh = M[L], j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
+                const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
+                a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+                mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+                const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+              }
+              for (let L=0; L<3; L++) { const mesh=M[L]; mesh.count=counts[L]; if(counts[L]) { mesh.instanceMatrix.needsUpdate=true; mesh.instanceColor.needsUpdate=true; mesh.geometry.attributes.aF.needsUpdate=true; mesh.geometry.attributes.aR.needsUpdate=true; } }
+            }
+            last.x = 1e9;
+          });
+        }).catch(error => {
+          workerFailed = true; workerState.status = 'failed · main-thread fallback';
+          workerState.error = error?.message || String(error); diagnostics.workerError = workerState.error; workerMode = 'main';
+        }).finally(() => { workerPending = false; });
+        return;
+      }
       const scanStarted = timed ? performance.now() : 0, bufferBefore = timed ? diag.bufferMs : 0;
       let visibleInstances = 0;
       for (const S of sets) {

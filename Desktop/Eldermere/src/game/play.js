@@ -1209,6 +1209,51 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   probeEl.querySelectorAll('button').forEach(styleProbeButton);
   probeEl.querySelectorAll('button').forEach(b => { if (!b.textContent.trim()) console.warn('F8 monitor button is missing a text label:', b); });
   root.querySelector('.play').appendChild(probeEl);
+  const assignmentEl = document.createElement('div');
+  assignmentEl.hidden = true;
+  assignmentEl.style.cssText = 'position:absolute;top:40px;right:12px;z-index:41;background:rgba(14,16,40,.96);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:12px 14px;border-radius:8px;border:1px solid #8b78cf;min-width:280px;max-width:min(430px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
+  assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
+    <p style="font-size:11px;opacity:.85">Assignments change execution where a real worker route exists. Worker results are applied to Three.js buffers on the main thread.</p>
+    <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
+    <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px">Waiting for tree system…</div>
+    <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
+    <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
+    <label style="display:block;margin:8px 0;opacity:.7">Three.js scene + WebGL uploads <select disabled><option>Main thread required</option></select></label>
+    <div style="font-size:11px;opacity:.8;margin-top:8px">Worker routing status: <span data-assignment-pool>Not started</span></div>
+    <p style="font-size:11px;opacity:.8">Worker mode can leave the previous tree layout visible while culling runs. If a worker fails, the route falls back to the main thread and reports the error.</p>`;
+  root.querySelector('.play').appendChild(assignmentEl);
+  assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
+  assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));
+  assignmentEl.querySelector('[data-assignment-reset]').addEventListener('click', () => {
+    assignmentEl.querySelector('[data-assignment="trees"]').value = 'main';
+    dungeonLights?.foliage?.setWorkerMode('main');
+  });
+  let assignmentRefreshAt = 0;
+  const refreshAssignmentPanel = () => {
+    if (assignmentEl.hidden || performance.now() < assignmentRefreshAt) return;
+    assignmentRefreshAt = performance.now() + 350;
+    const foliage = dungeonLights?.foliage, state = foliage?.workerState, mode = foliage?.workerMode || 'main';
+    assignmentEl.querySelector('[data-assignment-tree-status]').textContent = foliage
+      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nLast worker batch: ${(state?.lastMs || 0).toFixed(2)} ms · queue: ${(state?.queueMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
+      : 'No foliage/tree system on this map.';
+    assignmentEl.querySelector('[data-assignment-pool]').textContent = state?.error || state?.status || 'Main thread (default)';
+    const select = assignmentEl.querySelector('[data-assignment="trees"]');
+    if (select.value !== mode) select.value = mode;
+  };
+  const probeKeyHandler = e => {
+    if (e.code === 'F7') {
+      e.preventDefault(); assignmentEl.hidden = !assignmentEl.hidden;
+      if (!assignmentEl.hidden) { input.unlock(); showPause(false); refreshAssignmentPanel(); }
+      else if (!probe.on) input.lock();
+      return;
+    }
+    if (e.code === 'Escape' && !assignmentEl.hidden) {
+      e.preventDefault(); assignmentEl.hidden = true;
+      if (!probe.on) input.lock();
+    }
+  };
+  addEventListener('keydown', probeKeyHandler);
+
   probeEl.querySelector('[data-full-toggle]').addEventListener('click', () => {
     const full = probeEl.querySelector('.pp-full');
     full.hidden = !full.hidden;
@@ -1764,7 +1809,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Mirror');
     if (!thirdPerson) body?.showHead(false);           // your own eyes don't see your head...
     if (probe.on || traversalCapture.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
-    if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);                         // trees to their levels of detail (src/gfx/trees.js)
+    if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);
+    refreshAssignmentPanel();                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
     const reflectionQuery = startGpuQuery('reflection');
@@ -1889,6 +1935,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   addEventListener('beforeunload', guardClose);
   function stop() {
     removeEventListener('beforeunload', guardClose);
+    removeEventListener('keydown', probeKeyHandler);
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

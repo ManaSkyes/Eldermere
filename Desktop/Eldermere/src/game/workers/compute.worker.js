@@ -2,7 +2,29 @@
 self.onmessage = ({ data }) => {
   const { id, type, payload } = data || {};
   try {
-    if (type === 'cpu-stress') {
+    if (type === 'tree-cull') {
+      const { X, Y, Z, Sc, cx, cy, cz, planes, radius, mid, edges, hidden, baked, nearShadow } = payload;
+      const records = [];
+      if (!hidden) for (let i = 0; i < X.length; i++) {
+        const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz), far = edges[edges.length - 1];
+        if (d > far) continue;
+        if (d > nearShadow) {
+          const sx = X[i], sy = Y[i] + mid * Sc[i], sz = Z[i], r = radius * Sc[i] + 1.5;
+          let outside = false;
+          for (const q of planes) if (q[0] * sx + q[1] * sy + q[2] * sz + q[3] < -r) { outside = true; break; }
+          if (outside) continue;
+        }
+        const wv = edges.map(e => Math.max(3, e * 0.1)), blend = [0, 0, 0];
+        for (let b = 0; b < 2; b++) blend[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
+        blend[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
+        if (!baked) blend[1] = blend[2];
+        for (let L = 0; L < (baked ? 3 : 2); L++) {
+          const lo = L === 0 ? 0 : 1 - blend[L - 1], hi = 1 - blend[L];
+          if (lo < hi) records.push([i, L, lo, hi]);
+        }
+      }
+      self.postMessage({ id, ok: true, result: { records, scanned: X.length } });
+    } else if (type === 'cpu-stress') {
       const start = Math.max(0, payload.start | 0);
       const end = Math.max(start, payload.end | 0);
       const seed = payload.seed | 0;

@@ -1362,7 +1362,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const foliageDiag = dungeonLights?.foliage?.diagnostics;
     if (foliageDiag) foliageDiag.enabled = false;
     const foliageLine = foliageDiag
-      ? `Foliage culling: ${foliageDiag.calls} recalculations · ${foliageDiag.skipped} skipped checks · ${foliageDiag.calls ? (foliageDiag.totalMs / foliageDiag.calls).toFixed(2) : '0.00'} ms avg / ${foliageDiag.maxMs.toFixed(2)} ms max · ${foliageDiag.totalMs.toFixed(1)} ms total · scan ${foliageDiag.scanMs.toFixed(1)} ms · buffer prep ${foliageDiag.bufferMs.toFixed(1)} ms · ${foliageDiag.instances.toLocaleString()} visible LOD instances processed`
+      ? `Foliage culling: ${foliageDiag.calls} recalculations · ${foliageDiag.skipped} skipped checks · ${foliageDiag.calls ? (foliageDiag.totalMs / foliageDiag.calls).toFixed(2) : '0.00'} ms avg / ${foliageDiag.maxMs.toFixed(2)} ms max · ${foliageDiag.totalMs.toFixed(1)} ms total · scan ${foliageDiag.scanMs.toFixed(1)} ms · buffer prep ${foliageDiag.bufferMs.toFixed(1)} ms · ${foliageDiag.instances.toLocaleString()} visible LOD instances · cells ${foliageDiag.cellsVisited || 0}/${foliageDiag.cellsTested || 0} visited/tested · ${foliageDiag.instancesTested || 0} tree instances checked`
       : 'Foliage culling: diagnostics unavailable';
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
     const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };

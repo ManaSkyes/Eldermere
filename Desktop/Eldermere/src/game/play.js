@@ -1,6 +1,7 @@
 // src/game/play.js — the play screen: the 3D scene, the player, the HUD and the pause menu.
 // For now it runs the test grounds; later the same screen hosts the guild hall and dungeons.
 import { createInput, ACTIONS, keyName, loadSettings, saveSettings } from './input.js';
+import { createLodZoneScheduler } from '../gfx/lodZones.js';
 import { createController, MOVE } from './controller.js';
 import { testGroundsShapes, buildTestGrounds, testGroundsWater } from './testGrounds.js';
 import { escapeHtml } from '../ui/util.js';
@@ -1140,6 +1141,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const foliageBufferTest = { active: false, phase: 'idle', started: 0, startYaw: 0, durationMs: 18000, button: null, status: null };
   // Manual F7 switch for isolating foliage culling outside the timed F8 A/B test.
   const foliageCullFreeze = { frozen: false, button: null, status: null };
+  const lodZoneScheduler = createLodZoneScheduler();
   const refreshFoliageFreezeControl = () => {
     if (foliageCullFreeze.button) foliageCullFreeze.button.textContent = foliageCullFreeze.frozen ? 'Resume Foliage Culling' : 'Freeze Foliage Culling';
     if (foliageCullFreeze.status) foliageCullFreeze.status.textContent = foliageCullFreeze.frozen ? 'FROZEN · retaining the last foliage layout' : 'Active · foliage visibility updates normally';
@@ -1225,6 +1227,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
     <label style="display:block;margin:8px 0">Worker count <select data-assignment-workers><option value="1">1 worker</option><option value="2" selected>2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12">12 workers</option></select></label>
     <div style="font-size:11px;opacity:.8">Tree culling is split into 1,024-tree chunks. Changing worker count rebuilds the pool after the current batch completes.</div>
+    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure concentric distance bands independently of camera direction. Policy controls are live; renderer routing is the next migration step.</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · renderer routing pending</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
     <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px;white-space:pre-wrap">Waiting for tree system…</div>
     <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
@@ -1240,6 +1243,45 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   foliageCullFreeze.button.addEventListener('click', () => {
     foliageCullFreeze.frozen = !foliageCullFreeze.frozen;
     refreshFoliageFreezeControl();
+  });
+  const lodZoneContainer = assignmentEl.querySelector('[data-lod-zones]');
+  const renderLodZoneControls = () => {
+    lodZoneContainer.innerHTML = '';
+    lodZoneScheduler.snapshot().zones.forEach(z => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:42px 1fr 1fr;gap:5px;align-items:center;margin:7px 0;padding:6px;background:rgba(255,255,255,.045);border-radius:4px';
+      row.innerHTML = '<label style="font-size:11px"><input type="checkbox" data-enabled> LOD ' + z.id + '</label>' +
+        '<label style="font-size:11px">Radius (m)<input data-radius type="number" min="1" max="10000" step="5" value="' + z.radius + '" style="width:100%;box-sizing:border-box"></label>' +
+        '<label style="font-size:11px">Every N frames<input data-interval type="number" min="1" max="10000" value="' + z.interval + '" style="width:100%;box-sizing:border-box"></label>' +
+        '<label style="grid-column:2/4;font-size:11px">Worker assignment<select data-worker style="width:100%"><option value="main">Main thread</option><option value="worker-1">Worker 1</option><option value="worker-2">Worker 2</option><option value="worker-3">Worker 3</option><option value="worker-4">Worker 4</option><option value="worker-5">Worker 5</option><option value="worker-6">Worker 6</option><option value="auto">Auto</option></select></label>';
+      row.querySelector('[data-enabled]').checked = z.enabled;
+      row.querySelector('[data-worker]').value = z.assignment;
+      lodZoneContainer.appendChild(row);
+    });
+    const apply = () => {
+      try {
+        const next = Array.from(lodZoneContainer.children).map((row, i) => {
+          const prior = lodZoneScheduler.snapshot().zones[i];
+          return { ...prior, enabled: row.querySelector('[data-enabled]').checked,
+            radius: Number(row.querySelector('[data-radius]').value),
+            interval: Number(row.querySelector('[data-interval]').value),
+            assignment: row.querySelector('[data-worker]').value };
+        });
+        lodZoneScheduler.configure(next);
+        assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
+        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Valid policy saved · renderer routing pending';
+      } catch (error) {
+        assignmentEl.querySelector('[data-lod-zone-error]').textContent = error?.message || String(error);
+      }
+    };
+    lodZoneContainer.querySelectorAll('input,select').forEach(el => el.addEventListener('change', apply));
+  };
+  renderLodZoneControls();
+  assignmentEl.querySelector('[data-lod-zone-reset]').addEventListener('click', () => {
+    lodZoneScheduler.reset();
+    assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
+    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · renderer routing pending';
+    renderLodZoneControls();
   });
   assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));
   assignmentEl.querySelector('[data-assignment-workers]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerCount?.(Number(e.target.value)));

@@ -1268,18 +1268,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
   }]));
   let activeSchedulerCategory = 'largeFoliage';
-  // Large foliage is the first fully wired task profile; mirror its mode into the
-  // existing tree worker route while priority becomes meaningful as the global queue lands.
-  const largeTaskControls = document.createElement('div');
-  largeTaskControls.style.cssText='display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
-  const largeModeLabel=document.createElement('label'); largeModeLabel.textContent='Execution mode'; largeModeLabel.style.cssText='display:flex;flex-direction:column;gap:5px';
-  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · tree workload']],value=>{schedulerProfiles.largeFoliage.mode=value;dungeonLights?.foliage?.setWorkerMode?.(value);});
-  largeModeLabel.appendChild(largeModeSelect); largeTaskControls.appendChild(largeModeLabel);
-  const largePriorityLabel=document.createElement('label'); largePriorityLabel.textContent='Auto priority (1 = highest, 10 = lowest)'; largePriorityLabel.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
-  const largePrioritySelect=makeSchedulerSelect(String(schedulerProfiles.largeFoliage.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),value=>schedulerProfiles.largeFoliage.priority=Number(value));
-  largePriorityLabel.appendChild(largePrioritySelect); largeTaskControls.appendChild(largePriorityLabel);
-  const largePriorityNote=document.createElement('span'); largePriorityNote.style.cssText='font-size:12px;opacity:.8;flex:1;min-width:220px'; largePriorityNote.textContent='Priority is stored for the upcoming shared queue; the current tree renderer still chooses auto mode by workload size.'; largeTaskControls.appendChild(largePriorityNote);
-  schedulerLargePanel.prepend(largeTaskControls);
   const schedulerTabButtons = new Map();
   const makeSchedulerSelect = (value, choices, onChange) => {
     const select = document.createElement('select');
@@ -1292,6 +1280,18 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     input.style.cssText='width:100%;min-width:70px;box-sizing:border-box;background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px';
     input.addEventListener('change',()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=min&&n<=max)onChange(n);else input.value=String(value);}); return input;
   };
+  // Large foliage is the first fully wired task profile; mirror its mode into the
+  // existing tree worker route while priority becomes meaningful as the global queue lands.
+  const largeTaskControls = document.createElement('div');
+  largeTaskControls.style.cssText='display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
+  const largeModeLabel=document.createElement('label'); largeModeLabel.textContent='Execution mode'; largeModeLabel.style.cssText='display:flex;flex-direction:column;gap:5px';
+  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · tree workload']],value=>{schedulerProfiles.largeFoliage.mode=value;dungeonLights?.foliage?.setWorkerMode?.(value);});
+  largeModeLabel.appendChild(largeModeSelect); largeTaskControls.appendChild(largeModeLabel);
+  const largePriorityLabel=document.createElement('label'); largePriorityLabel.textContent='Auto priority (1 = highest, 10 = lowest)'; largePriorityLabel.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
+  const largePrioritySelect=makeSchedulerSelect(String(schedulerProfiles.largeFoliage.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),value=>schedulerProfiles.largeFoliage.priority=Number(value));
+  largePriorityLabel.appendChild(largePrioritySelect); largeTaskControls.appendChild(largePriorityLabel);
+  const largePriorityNote=document.createElement('span'); largePriorityNote.style.cssText='font-size:12px;opacity:.8;flex:1;min-width:220px'; largePriorityNote.textContent='Priority is stored for the upcoming shared queue; the current tree renderer still chooses auto mode by workload size.'; largeTaskControls.appendChild(largePriorityNote);
+  schedulerLargePanel.prepend(largeTaskControls);
   const renderSchedulerProfile = category => {
     const profile=schedulerProfiles[category.id], panel=document.createElement('section'); panel.dataset.schedulerPanel=category.id;
     panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';

@@ -261,7 +261,7 @@ export function createFoliage(THREE, scene, plants) {
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;
-      if (hs) { for (const S of sets) for (const Lv of S.lods) Lv.im.count = 0; lastCam.x = 1e9; return; }
+      if (hs) { for (const S of sets) for (const Lv of S.lods) { Lv.im.count = 0; Lv.activeChunkKeys = null; } lastCam.x = 1e9; return; }
       if (!this.dirty && Math.hypot(c.x - lastCam.x, c.y - lastCam.y, c.z - lastCam.z) < 0.5 && Math.abs(camera.quaternion.dot(lastCam.q)) > 0.9976 && camera.fov === lastCam.fov) return;
       this.dirty = false; lastCam.x = c.x; lastCam.y = c.y; lastCam.z = c.z; lastCam.q.copy(camera.quaternion); lastCam.fov = camera.fov;
       refill(camera, eye);

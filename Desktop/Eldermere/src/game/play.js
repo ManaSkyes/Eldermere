@@ -1279,12 +1279,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   let activeSchedulerCategory = 'largeFoliage';
   const schedulerTabButtons = new Map();
   const schedulerNavModeSelects = new Map();
+  const schedulerPanelModeSelects = new Map();
   const setSchedulerCategoryMode = (categoryId, value) => {
     const profile = schedulerProfiles[categoryId];
     if (!profile) return;
     profile.mode = value;
     const navSelect = schedulerNavModeSelects.get(categoryId);
     if (navSelect && navSelect.value !== value) navSelect.value = value;
+    const panelSelect = schedulerPanelModeSelects.get(categoryId);
+    if (panelSelect && panelSelect.value !== value) panelSelect.value = value;
     if (categoryId === 'largeFoliage') {
       if (typeof largeModeSelect !== 'undefined' && largeModeSelect.value !== value) largeModeSelect.value = value;
       dungeonLights?.foliage?.setWorkerMode?.(value);
@@ -1324,6 +1327,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
     const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
     const profileModeSelect=makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],v=>setSchedulerCategoryMode(category.id,v));
+    schedulerPanelModeSelects.set(category.id,profileModeSelect);
     modeWrap.appendChild(profileModeSelect); settings.appendChild(modeWrap);
     if(category.id==='ai'){const aiNote=document.createElement('div');aiNote.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:260px';aiNote.textContent='Worker tasks receive serializable snapshots for editor-placed NPC/enemy actors. Results are accepted only while the player position and scheduler generation remain valid. Creature/monsterActors AI is not routed yet (*); Three.js objects and gameplay side effects stay on the main thread.';settings.appendChild(aiNote);}
     const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority * (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
@@ -1345,11 +1349,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
     status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':category.id==='ai'?'Live worker pipeline: editor-placed NPC sensory candidate math. F8-spawned creature AI remains main-thread-only (*). Monitor worker assignments with F2.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
     panel.appendChild(status);
-    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};if(category.id==='ai')enemies?.setAiMode?.('main');renderSchedulerTabs();}); panel.appendChild(reset);
+    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};setSchedulerCategoryMode(category.id,'main');renderSchedulerTabs();}); panel.appendChild(reset);
     return panel;
   };
   const renderSchedulerTabs = () => {
-    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear();
+    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
     schedulerCategories.forEach(category=>{
       // Keep every category's execution mode directly visible in the tab bar. This
       // makes the settings independent and editable without entering each tab.

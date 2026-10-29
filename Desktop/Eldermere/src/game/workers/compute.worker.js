@@ -39,7 +39,8 @@ self.onmessage = ({ data }) => {
         if (a.fighting && !a.swarm && a.rank != null && tier < 3 && !a.act && !a.attacking) tier = Math.max(tier, a.rank < 8 ? 0 : a.rank < 16 ? 1 : 2);
         const umbrafiend = a.umbrafiend === true;
         const effectLod = umbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15);
-        const animationEvery = umbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
+        // Mid/far creatures need less frequent skeletal pose evaluation; combatants at tier 0 stay full-rate.
+        const animationEvery = umbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 3 : 10);
         // Actual CPU animation/effect math runs here, using only serializable snapshots.
         // The main thread applies these values to Three.js objects.
         let pose = null;

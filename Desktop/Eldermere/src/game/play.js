@@ -1135,13 +1135,18 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
   const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
   // Live traversal capture: bounded per-frame samples while the player explores normally.
-  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000 };
+  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
   // renderer's own counter is left to reset itself each render, as three.js expects (it also uses it to update
   // skinned bodies and buffers once per frame: stopping it broke the drawing)
-  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => { r0(sc, cm); if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; } }; }
+  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => {
+    const timed = traversalCapture.on, t0 = timed ? performance.now() : 0;
+    r0(sc, cm);
+    if (timed) { const elapsed = performance.now() - t0; traversalCapture.renderCallMs += elapsed; const key = traversalCapture.stage === 'reflections' ? 'reflectionCallsMs' : traversalCapture.stage === 'main+postFX' ? 'mainCallsMs' : 'otherCallsMs'; traversalCapture.frameStages[key] = (traversalCapture.frameStages[key] || 0) + elapsed; }
+    if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; }
+  }; }
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['umbra2weight', 'Two-influence Umbrafiend skinning'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
@@ -1271,6 +1276,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       ? `Foliage culling: ${foliageDiag.calls} recalculations · ${foliageDiag.skipped} skipped checks · ${foliageDiag.calls ? (foliageDiag.totalMs / foliageDiag.calls).toFixed(2) : '0.00'} ms avg / ${foliageDiag.maxMs.toFixed(2)} ms max · ${foliageDiag.totalMs.toFixed(1)} ms total · scan ${foliageDiag.scanMs.toFixed(1)} ms · buffer prep ${foliageDiag.bufferMs.toFixed(1)} ms · ${foliageDiag.instances.toLocaleString()} visible LOD instances processed`
       : 'Foliage culling: diagnostics unavailable';
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
+    const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };
+    const hitches = a.filter(q => q.frameMs >= 25).sort((x,y) => y.frameMs - x.frameMs).slice(0, 12);
+    const hitchLines = hitches.map(q => `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris`);
     const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
     const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
     const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
@@ -1292,10 +1300,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       `Game-update CPU: median ${fmtMs(logic.median)} · p95 ${fmtMs(logic.p95)} · worst ${fmtMs(logic.max)}`,
       `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
       foliageLine,
+      `Render-stage CPU (whole stage, includes renderer submission): reflection update ${stageSummary('reflectionUpdateMs')} · main+postFX ${stageSummary('mainRenderMs')}`,
+      `Renderer.render() CPU summed across calls: ${stageSummary('renderCallMs')} (main ${stageSummary('mainCallsMs')}; reflection ${stageSummary('reflectionCallsMs')}; other ${stageSummary('otherCallsMs')})`,
       `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
       `GPU timer-query median: main + postFX ${probeInfo.gpuSamples.main.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.main)) : 'no valid samples'} (${probeInfo.gpuSamples.main.length} samples) · reflections ${probeInfo.gpuSamples.reflection.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.reflection)) : 'no valid samples'} (${probeInfo.gpuSamples.reflection.length} samples)`,
-      mem, '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
+      mem, '', 'Worst frames ≥25 ms (stage timings are CPU wall time, not isolated GPU time):', ...(hitchLines.length ? hitchLines : ['  No frames ≥25 ms']), '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
       'Interpretation: observed average FPS is sample count divided by capture duration; it is more representative of sustained throughput than the reciprocal of median frame interval. Frame interval includes waiting for refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
     ].join('\n');
     traversalReportEl.textContent = traversalCapture.report;
@@ -1305,7 +1315,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   traversalStartBtn.addEventListener('click', () => {
     dungeonLights?.foliage?.resetDiagnostics?.();
     if (dungeonLights?.foliage?.diagnostics) dungeonLights.foliage.diagnostics.enabled = true;
-    traversalCapture.on = true; traversalCapture.started = performance.now(); traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0;
+    traversalCapture.on = true; traversalCapture.started = performance.now(); traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0; traversalCapture.lastCameraQ = camera.quaternion.clone(); traversalCapture.stage = ''; traversalCapture.renderCallMs = 0;
     traversalReportEl.textContent = 'Capturing… Run across the terrain, then press Stop & report.';
     traversalStatus.textContent = 'CAPTURING · move through the world normally'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = false; traversalCopyBtn.disabled = true;
   });
@@ -1718,13 +1728,19 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
     const reflectionQuery = startGpuQuery('reflection');
+    const stageReflectionStart = traversalCapture.on ? performance.now() : 0;
+    if (traversalCapture.on) traversalCapture.stage = 'reflections';
     if (reflections) { const st = player.state, gs = st.groundShape;                       // the puddles' mirror: the street / ground level you're on — standing on a crate, a step or a wall doesn't move it
       if (st.onGround && (reflY == null || gs?.terrain || gs?.path || Math.abs(st.pos.y - reflY) > 2.5)) reflY = st.pos.y;
       reflections.update(camera, reflY ?? st.pos.y); }
+    if (traversalCapture.on) { traversalCapture.frameStages.reflectionUpdateMs = performance.now() - stageReflectionStart; traversalCapture.stage = ''; }
     endGpuQuery(reflectionQuery);
     { const t0 = performance.now(); particles.update(dt, camera); if (probe.on) probeLaps['Particles'] = (probeLaps['Particles'] || 0) * 0.9 + (performance.now() - t0) * 0.1; }
     const mainQuery = startGpuQuery('main');
+    const stageMainStart = traversalCapture.on ? performance.now() : 0;
+    if (traversalCapture.on) traversalCapture.stage = 'main+postFX';
     if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' }); else renderer.render(scene, camera);
+    if (traversalCapture.on) { traversalCapture.frameStages.mainRenderMs = performance.now() - stageMainStart; traversalCapture.stage = ''; }
     endGpuQuery(mainQuery);
     body?.showHead(true);                              // ...but everything else (hair physics, mirrors) does
     const cpu2 = performance.now();
@@ -1805,10 +1821,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     bar.classList.toggle('exhausted', st.exhausted);
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     if (traversalCapture.on) {
+      traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0;
       const pos = player.state.pos, nowMs = performance.now(), t = nowMs - traversalCapture.started;
       if (traversalCapture.lastPos) traversalCapture.distance += Math.hypot(pos.x - traversalCapture.lastPos.x, pos.z - traversalCapture.lastPos.z);
       traversalCapture.lastPos = { x: pos.x, z: pos.z };
-      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
+      const turnDot = traversalCapture.lastCameraQ ? Math.max(-1, Math.min(1, Math.abs(camera.quaternion.dot(traversalCapture.lastCameraQ)))) : 1;
+      const turnDeg = 2 * Math.acos(turnDot) * 180 / Math.PI;
+      if (traversalCapture.lastCameraQ) traversalCapture.lastCameraQ.copy(camera.quaternion); else traversalCapture.lastCameraQ = camera.quaternion.clone();
+      const stages = traversalCapture.frameStages || {};
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
       else { traversalCapture.dropped++; finishTraversalCapture(); }
       if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
       else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;

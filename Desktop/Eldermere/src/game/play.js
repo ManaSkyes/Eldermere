@@ -1221,7 +1221,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   root.querySelector('.play').appendChild(probeEl);
   const assignmentEl = document.createElement('div');
   assignmentEl.hidden = true;
-  assignmentEl.style.cssText = 'position:absolute;inset:0;z-index:100;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:flex;flex-direction:column;gap:12px;border:0;border-radius:0';
+  assignmentEl.style.cssText = 'position:absolute;inset:0;z-index:100;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
   assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
     <p style="font-size:11px;opacity:.85">Dynamic scheduling workspace. LOD buffer uploads and WebGL scene changes remain on the main thread; worker mode is only active for systems with a worker-backed task route.</p>
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
@@ -1268,6 +1268,18 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
   }]));
   let activeSchedulerCategory = 'largeFoliage';
+  // Large foliage is the first fully wired task profile; mirror its mode into the
+  // existing tree worker route while priority becomes meaningful as the global queue lands.
+  const largeTaskControls = document.createElement('div');
+  largeTaskControls.style.cssText='display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
+  const largeModeLabel=document.createElement('label'); largeModeLabel.textContent='Execution mode'; largeModeLabel.style.cssText='display:flex;flex-direction:column;gap:5px';
+  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · tree workload']],value=>{schedulerProfiles.largeFoliage.mode=value;dungeonLights?.foliage?.setWorkerMode?.(value);});
+  largeModeLabel.appendChild(largeModeSelect); largeTaskControls.appendChild(largeModeLabel);
+  const largePriorityLabel=document.createElement('label'); largePriorityLabel.textContent='Auto priority (1 = highest, 10 = lowest)'; largePriorityLabel.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
+  const largePrioritySelect=makeSchedulerSelect(String(schedulerProfiles.largeFoliage.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),value=>schedulerProfiles.largeFoliage.priority=Number(value));
+  largePriorityLabel.appendChild(largePrioritySelect); largeTaskControls.appendChild(largePriorityLabel);
+  const largePriorityNote=document.createElement('span'); largePriorityNote.style.cssText='font-size:12px;opacity:.8;flex:1;min-width:220px'; largePriorityNote.textContent='Priority is stored for the upcoming shared queue; the current tree renderer still chooses auto mode by workload size.'; largeTaskControls.appendChild(largePriorityNote);
+  schedulerLargePanel.prepend(largeTaskControls);
   const schedulerTabButtons = new Map();
   const makeSchedulerSelect = (value, choices, onChange) => {
     const select = document.createElement('select');
@@ -1286,7 +1298,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
     const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
     const modeWrap=document.createElement('label'); modeWrap.textContent='Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
-    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker'],['auto','Auto · load-aware']],v=>profile.mode=v)); settings.appendChild(modeWrap);
+    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker'],['auto','Auto · renderer policy']],v=>profile.mode=v)); settings.appendChild(modeWrap);
     const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
     priorityWrap.appendChild(makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v))); settings.appendChild(priorityWrap);
     const summary=document.createElement('div'); summary.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:220px'; summary.textContent='Worker policy is a scheduling preference, not a promise that this task is already worker-backed.'; settings.appendChild(summary); panel.appendChild(settings);
@@ -1400,12 +1412,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const probeKeyHandler = e => {
     if (e.code === 'F7') {
       e.preventDefault(); assignmentEl.hidden = !assignmentEl.hidden;
+      assignmentEl.style.display = assignmentEl.hidden ? 'none' : 'flex';
       if (!assignmentEl.hidden) { input.unlock(); showPause(false); refreshAssignmentPanel(); }
       else if (!probe.on) input.lock();
       return;
     }
     if (e.code === 'Escape' && !assignmentEl.hidden) {
-      e.preventDefault(); assignmentEl.hidden = true;
+      e.preventDefault(); assignmentEl.hidden = true; assignmentEl.style.display = 'none';
       if (!probe.on) input.lock();
     }
   };

@@ -37,8 +37,18 @@ self.onmessage = ({ data }) => {
         const umbrafiend = a.umbrafiend === true;
         const effectLod = umbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15);
         const animationEvery = umbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
+        // Actual CPU animation/effect math runs here, using only serializable snapshots.
+        // The main thread applies these values to Three.js objects.
+        const phase = Number(a.step || 0) * 5;
+        const legL = a.speed > 0 ? Math.sin(phase) * 0.6 : 0;
+        const legR = a.speed > 0 ? -Math.sin(phase) * 0.6 : 0;
+        const wing = Math.sin(Number(a.time || 0) / 60) * 0.7;
+        const arm = a.wind > 0 ? (a.ranged ? -1.4 : -2.4) : a.cool > 0.9 ? 0.9 : -0.2;
+        const emissive = a.flash > 0 ? 2 : (a.wind > 0 && !a.ranged ? 1 : 0);
+        const ringOpacity = 0.35 + 0.35 * Math.sin(Number(a.time || 0) / 80);
         return { id: a.id, x: a.x, z: a.z, tier, meshVisible: tier < 3, effectLod,
-          animationEvery, ik: (a.speed > 0.2 || a.act) && (tier === 0 || (tier === 1 && a.distance < 15)) };
+          animationEvery, ik: (a.speed > 0.2 || a.act) && (tier === 0 || (tier === 1 && a.distance < 15)),
+          pose: { legL, legR, wingL: wing, wingR: -wing, arm, emissive, ringOpacity } };
       });
       self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { generation, sequence, plans } });
     } else if (type === 'npc-ai-sense') {

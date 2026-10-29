@@ -6,6 +6,9 @@ export function reportProcess(id, detail = {}) {
     workerMs: Math.max(0, detail.workerMs || 0), updatedAt: performance.now() });
 }
 export function clearProcess(id) { processes.delete(id); }
+export function clearProcessesByPrefix(prefix) {
+  for (const id of processes.keys()) if (id.startsWith(prefix)) processes.delete(id);
+}
 export function processSnapshot() {
   const now = performance.now();
   return [...processes.values()].map(p => ({ ...p, ageMs: now - p.updatedAt }));

@@ -125,9 +125,21 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
         scaleToDemand();
       });
     },
-    async runBatch(tasks) {
+    async runBatch(tasks, concurrency = tasks.length) {
       await ready;
-      return Promise.all(tasks.map(task => this.run(task.type, task.payload)));
+      // Use a sliding window for bulk jobs so background work does not flood the shared queue.
+      const limit = Math.max(1, Math.min(tasks.length || 1, Math.floor(Number(concurrency) || tasks.length || 1)));
+      const results = new Array(tasks.length);
+      let next = 0;
+      const runners = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+        while (next < tasks.length) {
+          const index = next++;
+          const task = tasks[index];
+          results[index] = await this.run(task.type, task.payload);
+        }
+      });
+      await Promise.all(runners);
+      return results;
     },
     close() {
       if (closed) return;

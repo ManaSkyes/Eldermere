@@ -778,9 +778,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const collectPresentationSnapshot = presentationMode !== 'main' && actors.length >= 4 && !presentationPending && performance.now() - presentationLastDispatch >= 80;
     const visualSnapshots = [];
     // Sample one actor in sixteen to estimate expensive sub-stages without calling performance.now() for every actor.
-    const actorStageMs = { visibility:0, behavior:0, ground:0, poseAndScene:0, combatAndAudio:0 };
+    const actorStageMs = { visibility:0, behavior:0, ground:0, poseAndScene:0, combatAndAudio:0, sampledActors:0 };
     for (let i = actors.length - 1; i >= 0; i--) {
       const A = actors[i], sampleActor = (i & 15) === 0; A.player = player; A.hooks = hooks;
+      if (sampleActor) actorStageMs.sampledActors++;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
         const K = A.corpse; K.t += dt; attach(A, true);
         if (K.t < 1.2) { const f = Math.min(1, K.t / 0.9), e = f * f * (3 - 2 * f); A.mo.update(dt, { speed: 0, ik: false }); placeBody(A); A.C.root.rotation.z = K.side * e * Math.PI / 2; A.C.root.position.y += e * (A.M.stats.radius || 0.5) * 0.42; A.C.sync(); }   // (lifted by its girth, so it lies on the ground, not in it)
@@ -819,7 +820,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
         if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);
       }
-      if (sampleActor) actorStageMs.visibility += (performance.now() - visibilityStartedAt) * 16;
+      if (sampleActor) actorStageMs.visibility += performance.now() - visibilityStartedAt;
       const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
@@ -827,14 +828,14 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
       const behaviorStartedAt = sampleActor ? performance.now() : 0;
       const speed = memberThink(A, dt, player);
-      if (sampleActor) actorStageMs.behavior += (performance.now() - behaviorStartedAt) * 16;
+      if (sampleActor) actorStageMs.behavior += performance.now() - behaviorStartedAt;
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
       // the ground under it, when it has moved: a walker every 0.35 m; a flyer only every 1.5 m (it isn't standing on it), and
       // the upper layers of a tower not at all (they're metres up: the bottom layer's ground does)
       const groundStartedAt = sampleActor ? performance.now() : 0;
       if (shapes.length && !(A.M.flight && A.layer) && (Math.abs(A.pos.x - (A.gx ?? 1e9)) + Math.abs(A.pos.z - (A.gz ?? 1e9)) > (A.M.flight ? 1.5 : 0.35))) groundUnder(A);
       else if (A.M.flight && A.layer) A.pos.y = A.group.center.y;
-      if (sampleActor) actorStageMs.ground += (performance.now() - groundStartedAt) * 16;
+      if (sampleActor) actorStageMs.ground += performance.now() - groundStartedAt;
       if (A.pitch !== A.pitchGoal) A.pitch = (A.pitch || 0) + ((A.pitchGoal || 0) - (A.pitch || 0)) * Math.min(1, dt * 6);
       const poseStartedAt = sampleActor ? performance.now() : 0;
       const vis = tier < 3;
@@ -851,12 +852,12 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         const every = presentation?.animationEvery ?? (isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6));
         if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = presentation ? presentation.ik : (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
-      if (sampleActor) actorStageMs.poseAndScene += (performance.now() - poseStartedAt) * 16;
+      if (sampleActor) actorStageMs.poseAndScene += performance.now() - poseStartedAt;
       const combatStartedAt = sampleActor ? performance.now() : 0;
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);
-      if (sampleActor) actorStageMs.combatAndAudio += (performance.now() - combatStartedAt) * 16;   // (only these go to your weapons and spells: they look through every target each frame)
+      if (sampleActor) actorStageMs.combatAndAudio += performance.now() - combatStartedAt;   // (only these go to your weapons and spells: they look through every target each frame)
       if (collectPresentationSnapshot) visualSnapshots.push({ id:A.presentationId, x:A.pos.x, z:A.pos.z, distance:d, inFrustum:on, visibilityDistance:VIS,
         fighting, act:!!A.mo.actName, swarmReserve:G.kind==='swarm'&&!fighting&&A.id==='nocturianBat'&&A.slot>=30,
         layered:!!A.layer, layer:A.layer||0, shown:A.shown, swarm:G.kind==='swarm', rank:A.rank,

@@ -75,7 +75,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     aiMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
     aiGeneration++; aiPending = false; groupSenseCache.clear(); aiLastError = '';
     if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('creature-ai-queue'); for(let i=1;i<=2;i++) clearProcess('creature-ai-worker-'+i); }
-    else ensureAiPool();
+    else if (aiMode === 'worker' || actors.length >= 4) ensureAiPool();
   };
   const ensureAiPool = () => {
     if (aiPool || aiPoolPromise || aiMode === 'main') return;
@@ -106,7 +106,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       presentationPool?.close(); presentationPool = null; presentationPoolPromise = null;
       clearProcess('npc-presentation-queue');
       for (let i=1;i<=PRESENTATION_WORKERS;i++) clearProcess('npc-presentation-worker-'+i);
-    } else ensurePresentationPool();
+    } else if (presentationMode === 'worker' || actors.length >= 4) ensurePresentationPool();
   };
   const getPresentationPlan = (actor, player) => {
     if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 4)) return null;

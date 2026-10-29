@@ -44,6 +44,7 @@ import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
 import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
 import { runWorkerStressTest } from './workers/stressTest.js';
+import { processSnapshot, reportProcess } from './workers/processMonitor.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -1251,7 +1252,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:sticky;top:-1px;background:rgba(10,11,28,.98);z-index:2';
   const schedulerLegend = document.createElement('div');
   schedulerLegend.style.cssText = 'font-size:12px;opacity:.88;padding:7px 10px;margin:6px 0;background:rgba(255,255,255,.04);border-radius:5px';
-  schedulerLegend.textContent = '* Not implemented or not connected to live renderer/worker behavior yet. Unstarred controls in Large foliage are the currently integrated path.';
+  schedulerLegend.textContent = '* Not implemented or not connected to live renderer/worker behavior yet. Tree LOD and the NPC sensory-calculation slice are currently routed through workers.';
   const schedulerWorkspace = document.createElement('div');
   schedulerWorkspace.style.cssText = 'min-height:0;flex:1;overflow:auto';
   const schedulerLargePanel = document.createElement('section');
@@ -1263,10 +1264,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const schedulerCategories = [
     { id:'largeFoliage', label:'Large foliage', description:'Trees, pines, dead trees and bushes. This profile currently drives the live tree/bush LOD renderer.' },
     { id:'smallFoliage', label:'Small foliage', description:'Small-foliage LOD is already integrated through the shared live vegetation-zone policy in Large foliage. Independent worker execution for small foliage is still pending (*).' },
-    { id:'enemies', label:'Enemies *', description:'Enemy visibility, animation and AI update candidates. Settings are stored in this session; task-specific dispatch is not connected yet.' },
+    { id:'npcs', label:'NPCs', description:'All non-player characters: hostile enemies, neutral people, allies, creatures and future companions. NPC-specific LOD and update throttling still need their own renderer routes (*).' },
     { id:'buildings', label:'Buildings *', description:'Building and prop visibility/LOD candidates. Rendering and scene-object changes remain on the main thread until a safe worker data path is added.' },
     { id:'weather', label:'Weather *', description:'Weather simulation and surface update scheduling. GPU/scene changes must still be applied on the main thread.' },
-    { id:'ai', label:'AI *', description:'AI decision, perception and navigation work. Worker offload requires serializable task inputs and stale-result checks.' },
+    { id:'ai', label:'AI', description:'NPC AI calculation routing. The first live worker task calculates sensory distance, hearing candidates and proximity; state changes, line-of-sight checks, combat, movement and scene updates remain on the main thread.' },
     { id:'world', label:'World generation *', description:'Procedural generation candidates. Prefer workers for pure data generation, then apply generated scene objects on the main thread.' },
     { id:'lighting', label:'Lighting / post *', description:'Lighting, shadows and post-processing candidates. WebGL renderer operations remain main-thread-only.' }
   ];
@@ -1308,11 +1309,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';
     const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
     const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
-    const modeWrap=document.createElement('label'); modeWrap.textContent='Execution mode *'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
-    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker'],['auto','Auto · renderer policy']],v=>profile.mode=v)); settings.appendChild(modeWrap);
+    const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode *'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
+    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],v=>{profile.mode=v;if(category.id==='ai')enemies?.setAiMode?.(v);})); settings.appendChild(modeWrap);
+    if(category.id==='ai'){const aiNote=document.createElement('div');aiNote.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:260px';aiNote.textContent='Worker tasks receive serializable NPC/player snapshots. Results are accepted only while the player position and scheduler generation remain valid. Three.js objects and gameplay side effects stay on the main thread.';settings.appendChild(aiNote);}
     const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority * (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
     priorityWrap.appendChild(makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v))); settings.appendChild(priorityWrap);
-    const summary=document.createElement('div'); summary.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:220px'; summary.textContent=category.id==='smallFoliage'?'* The small-foliage LOD renderer is live, but this tab’s independent execution mode, priority, and zone profile are not connected yet. Its live LOD zones are currently configured in Large foliage.':'* Profile only: this category’s mode, priority, zones, and worker assignments are stored independently for this session but do not affect live renderer/worker behavior yet.'; settings.appendChild(summary); panel.appendChild(settings);
+    const summary=document.createElement('div'); summary.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:220px'; summary.textContent=category.id==='smallFoliage'?'* The small-foliage LOD renderer is live, but this tab’s independent execution mode, priority, and zone profile are not connected yet. Its live LOD zones are currently configured in Large foliage.':category.id==='ai'?'Live route: NPC sensory distance, proximity and hearing-candidate calculations can run on the worker pool. AI state transitions and game effects still execute on main.':category.id==='npcs'?'NPC category/profile is independent; use the AI tab to choose where sensory calculations run. NPC-specific rendering and animation routing remain future work (*).':'* Profile only: this category’s mode, priority, zones, and worker assignments are stored independently for this session but do not affect live renderer/worker behavior yet.'; settings.appendChild(summary); panel.appendChild(settings);
     const title=document.createElement('h3'); title.textContent='LOD zones'; title.style.cssText='font-size:15px;margin:0'; panel.appendChild(title);
     const table=document.createElement('div'); table.style.cssText='display:grid;grid-template-columns:minmax(70px,.6fr) minmax(100px,1fr) minmax(110px,1fr) minmax(100px,1fr) minmax(150px,1.2fr);gap:8px;align-items:center;min-width:650px';
     ['Zone','Enabled *','Radius (m) *','Every N frames *','Execution assignment *'].forEach(t=>{const h=document.createElement('b');h.textContent=t;h.style.cssText='font-size:12px;padding:7px 4px;border-bottom:1px solid #5a5490';table.appendChild(h);});
@@ -1327,7 +1329,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     });
     const tableScroller=document.createElement('div'); tableScroller.style.cssText='overflow-x:auto;padding:10px;background:rgba(255,255,255,.025);border:1px solid #383356;border-radius:8px'; tableScroller.appendChild(table); panel.appendChild(tableScroller);
     const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
-    status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
+    status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':category.id==='ai'?'Live worker pipeline: NPC sensory candidate math. Monitor individual workers with F2.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
     panel.appendChild(status);
     const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};renderSchedulerTabs();}); panel.appendChild(reset);
     return panel;
@@ -1349,6 +1351,26 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerLegend); assignmentEl.appendChild(schedulerWorkspace);
   renderSchedulerTabs();
+  // F2 process monitor: reports real worker-pool tasks plus the main-thread responsibilities.
+  let processMonitorOpen = false, processMonitorLastFrameMs = 0;
+  const processMonitor = document.createElement('aside');
+  processMonitor.setAttribute('aria-label','Process and worker activity');
+  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:min(340px,calc(100vw - 24px));max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.94);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:none';
+  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div data-process-list></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates are never moved into workers.</div>';
+  $('.play').appendChild(processMonitor);
+  const refreshProcessMonitor = () => {
+    if (!processMonitorOpen) return;
+    const rows=[{label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'}];
+    const seen=new Set();
+    for(const p of processSnapshot()){seen.add(p.id);rows.push(p);}
+    const npcState=enemies?.workerSnapshot?.();
+    if(npcState?.pool){for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id))rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||'Available'});}
+      rows.push({label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});}
+    const treeState=dungeonLights?.foliage?.workerState;
+    if(treeState){const count=Number(treeState.workerCount||dungeonLights?.foliage?.workerCount||0),busy=Math.min(count,Number(treeState.jobs||0));for(let i=1;i<=count;i++)rows.push({label:'Tree LOD Worker '+i,status:i<=busy?'working':(treeState.status==='main thread'?'disabled':'idle'),task:i<=busy?'Tree visibility / LOD batch':(treeState.status||'Ready')});}
+    processMonitor.querySelector('[data-process-frame]').textContent=processMonitorLastFrameMs.toFixed(1)+' ms/frame';
+    processMonitor.querySelector('[data-process-list]').innerHTML=rows.map(p=>'<div style="display:grid;grid-template-columns:116px 58px 1fr;gap:5px;padding:5px 0;border-bottom:1px solid #ffffff12"><b style="font-weight:600">'+String(p.label||p.id||'Process').replace(/</g,'&lt;')+'</b><span style="color:'+(p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0')+'">'+String(p.status||'idle')+'</span><span style="opacity:.82;overflow-wrap:anywhere">'+String(p.task||'No task assigned').replace(/</g,'&lt;')+'</span></div>').join('');
+  };
   foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
   foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
   refreshFoliageFreezeControl();
@@ -1441,6 +1463,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (Number(workerSelect.value) !== configuredWorkers) workerSelect.value = String(configuredWorkers);
   };
   const probeKeyHandler = e => {
+    if (e.code === 'F2') {
+      e.preventDefault(); processMonitorOpen=!processMonitorOpen;
+      processMonitor.style.display=processMonitorOpen?'block':'none';
+      if(processMonitorOpen){input.unlock();showPause(false);refreshProcessMonitor();}
+      else if(!probe.on&&assignmentEl.hidden)input.lock();
+      return;
+    }
     if (e.code === 'F7') {
       e.preventDefault(); assignmentEl.hidden = !assignmentEl.hidden;
       assignmentEl.style.display = assignmentEl.hidden ? 'none' : 'flex';
@@ -2153,6 +2182,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
         probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(Number.isFinite(probeInfo.gpu) ? probeInfo.gpu : 0).toFixed(2)} ms total (median: main/postFX ${(Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0).toFixed(2)} + reflections ${(Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0).toFixed(2)}; ${probeInfo.gpuSamples.main.length}/${probeInfo.gpuSamples.reflection.length} samples)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync && !tq ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
+    processMonitorLastFrameMs = Math.max(0, performance.now() - cpu0); if (processMonitorOpen) refreshProcessMonitor();
     dbg.textContent = `${fps} fps · ${Math.hypot(st.vel.x, st.vel.z).toFixed(1)} m/s${st.sprinting ? ' · sprint' : ''}${st.crouching ? ' · crouch' : ''}${st.sitting ? ' · sitting' : ''}${st.onGround ? '' : ' · air'}${loadFactor < 1 ? ' · overloaded' : ''}`;
   }
   requestAnimationFrame(frame);
@@ -2163,6 +2193,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   function stop() {
     removeEventListener('beforeunload', guardClose);
     removeEventListener('keydown', probeKeyHandler);
+    processMonitor.remove();
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

@@ -757,7 +757,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (gone) { s.m.parent?.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); shots.splice(i, 1); }
     }
     // the groups: who's awake, what each is doing, who joins whom
+    const aiStartedAt = performance.now();
     dispatchCreatureSense(player);
+    const senseDispatchMs = performance.now() - aiStartedAt;
+    const groupStartedAt = performance.now();
     for (const G of groups) {
       const d = Math.hypot(G.center.x - player.pos.x, G.center.z - player.pos.z);
       G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee' || G.state === 'investigate';
@@ -765,6 +768,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (G.awake || G.thinkDt > 1) { groupThink(G, G.thinkDt, player); G.thinkDt = 0; }
     }
     if ((joinT -= dt) <= 0) { joinT = 0.5; joinGroups(); }
+    const groupThinkMs = performance.now() - groupStartedAt;
+    const actorLoopStartedAt = performance.now();
     nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
     const visualSnapshots = [];
     for (let i = actors.length - 1; i >= 0; i--) {
@@ -840,8 +845,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         layered:!!A.layer, layer:A.layer||0, shown:A.shown, swarm:G.kind==='swarm', rank:A.rank,
         attacking:!!A.attacking, umbrafiend:isUmbrafiend, speed });
     }
+    const actorLoopMs = performance.now() - actorLoopStartedAt;
+    const presentationDispatchStartedAt = performance.now();
     dispatchPresentationPlan(visualSnapshots, player);
-    const telemetry = { updateMs:0, total:actors.length, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:visualSnapshots.length };
+    const presentationDispatchMainMs = performance.now() - presentationDispatchStartedAt;
+    const telemetry = { updateMs:0, aiDispatchMs:senseDispatchMs, groupThinkMs, actorLoopMs, presentationDispatchMainMs, total:actors.length, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:visualSnapshots.length };
     for (const G of groups) if (G.awake) telemetry.awakeGroups++;
     for (const A of actors) {
       if (A.alive) telemetry.alive++; else telemetry.dead++;

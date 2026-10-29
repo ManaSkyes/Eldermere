@@ -1278,6 +1278,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lodZoneContainer.querySelectorAll('input,select').forEach(el => el.addEventListener('change', apply));
   };
   renderLodZoneControls();
+  dungeonLights?.foliage?.setLodZonePolicy?.(lodZoneScheduler.snapshot());
   assignmentEl.querySelector('[data-lod-zone-reset]').addEventListener('click', () => {
     const policy = lodZoneScheduler.reset();
     dungeonLights?.foliage?.setLodZonePolicy?.(policy);

@@ -390,7 +390,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
       const cellCandidates = sets.map(S => hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]));
-      const cellSignature = cellCandidates.map((cells, si) => si + ':' + cells.map(c => c.key).join(',')).join('|');
+      const cellSignature = cellCandidates.map((cells, si) => si + ':' + cells.map(c => c.key).join(';')).join('|');
       if (hid === previousHid && cameraMoved < 0.5 && camera.fov === previousFov && last.cellSignature === cellSignature) { if (timed) diag.skipped++; return; }
       last.cellSignature = cellSignature;
       const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));

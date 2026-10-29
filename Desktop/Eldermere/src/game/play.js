@@ -1366,8 +1366,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const npcState=enemies?.workerSnapshot?.();
     if(npcState?.pool){for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id))rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||'Available'});}
       rows.push({label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});}
-    const treeState=dungeonLights?.foliage?.workerState;
-    if(treeState){const count=Number(treeState.workerCount||dungeonLights?.foliage?.workerCount||0),busy=Math.min(count,Number(treeState.jobs||0));for(let i=1;i<=count;i++)rows.push({label:'Tree LOD Worker '+i,status:i<=busy?'working':(treeState.status==='main thread'?'disabled':'idle'),task:i<=busy?'Tree visibility / LOD batch':(treeState.status||'Ready')});}
+    const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
+    if(treePool){for(const w of treePool.workers)rows.push({label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.task||'Available for tree-cull tasks'});}
+    else if(treeState)rows.push({label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
     processMonitor.querySelector('[data-process-frame]').textContent=processMonitorLastFrameMs.toFixed(1)+' ms/frame';
     processMonitor.querySelector('[data-process-list]').innerHTML=rows.map(p=>'<div style="display:grid;grid-template-columns:116px 58px 1fr;gap:5px;padding:5px 0;border-bottom:1px solid #ffffff12"><b style="font-weight:600">'+String(p.label||p.id||'Process').replace(/</g,'&lt;')+'</b><span style="color:'+(p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0')+'">'+String(p.status||'idle')+'</span><span style="opacity:.82;overflow-wrap:anywhere">'+String(p.task||'No task assigned').replace(/</g,'&lt;')+'</span></div>').join('');
   };

@@ -182,6 +182,7 @@ export function createFoliage(THREE, scene, plants) {
       if (!last || last.key !== key) chunks.push({ key, a: i, b: i + 1, x0: p.x, x1: p.x, z0: p.z, z1: p.z, y0: p.y, y1: p.y, box: new THREE.Box3() });
       else { last.b = i + 1; last.x0 = Math.min(last.x0, p.x); last.x1 = Math.max(last.x1, p.x); last.z0 = Math.min(last.z0, p.z); last.z1 = Math.max(last.z1, p.z); last.y0 = Math.min(last.y0, p.y); last.y1 = Math.max(last.y1, p.y); } });
     for (const c of chunks) c.box.min.set(c.x0 - 1.5, c.y0 - 0.5, c.z0 - 1.5), c.box.max.set(c.x1 + 1.5, c.y1 + 2, c.z1 + 1.5);
+    const chunkLookup = new Map(chunks.map(c => [c.key, c]));
     const lods = []; let lo = 0;
     for (const [geos, hi] of L[k]) {
       const geo = geos[v % geos.length].clone(), aP = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aP', aP);
@@ -189,14 +190,16 @@ export function createFoliage(THREE, scene, plants) {
       im.count = 0; im.frustumCulled = false; im.castShadow = false; im.receiveShadow = true; im.userData.noCover = true; scene.add(im);
       lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1) }); lo = hi;
     }
-    sets.push({ k, n, MAT, COL, PR, chunks, lods });
+    sets.push({ k, n, MAT, COL, PR, chunks, chunkLookup, lods });
   }
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), wide = new THREE.PerspectiveCamera(), lastCam = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0 };
   const refill = (camera, eye) => {
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
     for (const S of sets) for (const Lv of S.lods) {
       let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
-      for (const c of S.chunks) {
+      const reach = Lv.hi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const c = S.chunkLookup.get(gx * 4096 + gz); if (!c) continue;
         const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (Math.hypot(ex, ez) > Lv.hi + 1) continue;
         const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (Math.hypot(fx, fz) < Lv.from - 1) continue;
         if (!fr.intersectsBox(c.box)) continue;
@@ -204,7 +207,11 @@ export function createFoliage(THREE, scene, plants) {
         for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = Lv.lo; A[q * 4 + 3] = Lv.hi; }
         cnt += m;
       }
-      Lv.im.count = cnt; if (cnt) { Lv.im.instanceMatrix.needsUpdate = true; Lv.im.instanceColor.needsUpdate = true; Lv.aP.needsUpdate = true; }
+      Lv.im.count = cnt;
+      if (cnt) {
+        const attrs = [[Lv.im.instanceMatrix, cnt * 16], [Lv.im.instanceColor, cnt * 3], [Lv.aP, cnt * 4]];
+        for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+      }
     }
   };
   // ---- the spring grid round the player ----

@@ -379,6 +379,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     // so turning doesn't show gaps between refills, and nothing is re-uploaded while you just look a little around)
     diagnostics,
     workerState,
+    get workerPoolSnapshot() { return workerPool?.snapshot?.() || null; },
     get workerMode() { return workerMode; },
     get workerCount() { return workerCount; },
     get workerAllocationMode() { return workerAllocationMode; },

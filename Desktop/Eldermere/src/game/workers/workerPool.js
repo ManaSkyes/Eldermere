@@ -121,3 +121,13 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     },
   };
 }
+
+
+// One application-wide worker budget shared by foliage, creature AI, and presentation.
+// The underlying pool scales up only when queued demand exceeds current capacity and
+// retires excess idle workers after a quiet period.
+let applicationWorkerPool = null;
+export function getApplicationWorkerPool() {
+  if (!applicationWorkerPool) applicationWorkerPool = createWorkerPool(recommendedWorkerCount());
+  return applicationWorkerPool;
+}

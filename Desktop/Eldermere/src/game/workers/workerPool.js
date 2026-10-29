@@ -7,7 +7,7 @@ export function recommendedWorkerCount() {
 
 export function createWorkerPool(size = recommendedWorkerCount()) {
   const maxWorkers = Math.max(1, Math.min(12, Math.floor(Number(size) || 1)));
-  let nextId = 1, closed = false, readySettled = false, resolveReady, rejectReady;
+  let nextJobId = 1, nextWorkerId = 1, closed = false, readySettled = false, resolveReady, rejectReady;
   const workers = [], queue = [], pending = new Map();
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const now = () => performance.now();
@@ -50,7 +50,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
 
   function spawnWorker() {
     if (closed || live().length >= maxWorkers) return null;
-    const worker = { index: nextId++, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }),
+    const worker = { index: nextWorkerId++, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }),
       busy: false, ready: false, jobId: null, taskType: '', lastTaskType: '', retired: false };
     workers.push(worker);
     worker.instance.addEventListener('message', event => {
@@ -104,7 +104,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     run(type, payload) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {
-        queue.push({ id: nextId++, type, payload, resolve, reject, queuedAt: now() });
+        queue.push({ id: nextJobId++, type, payload, resolve, reject, queuedAt: now() });
         scaleToDemand();
       });
     },

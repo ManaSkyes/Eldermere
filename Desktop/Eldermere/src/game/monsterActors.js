@@ -51,8 +51,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   let nextGroupSenseKey = 1; const groupSenseKeys = new WeakMap(), groupSenseCache = new Map();
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationPendingSince = 0;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
-  let presentationWorkerMs = 0, presentationQueueMs = 0, presentationDispatchMs = 0, presentationRoundTripMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
-  let aiRoundTripMs = 0;
+  let presentationWorkerMs = 0, presentationQueueMs = 0, presentationDispatchMs = 0, presentationRoundTripMs = 0, presentationBatchMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
+  let aiRoundTripMs = 0, aiBatchMs = 0;
   let presentationPlans = new Map();
   const SHARED_WORKERS = 12; // Application-wide maximum; the shared pool grows only when queued demand requires it.
   let sharedPool = null, sharedPoolPromise = null;
@@ -105,7 +105,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // Group detection only reevaluates every 250 ms; don't serialize hundreds of member snapshots every frame.
     if (!sharedPool || aiPending || !groups.length || now - aiLastDispatchAt < 200) return;
     aiLastDispatchAt = now;
-    const pool = sharedPool, generation = aiGeneration, sequence = ++aiSequence;
+    const pool = sharedPool, generation = aiGeneration, sequence = ++aiSequence, batchStartedAt = performance.now();
     const snapshots = groups.map(G => {
       let key = groupSenseKeys.get(G);
       if (!key) { key = nextGroupSenseKey++; groupSenseKeys.set(G, key); }
@@ -120,14 +120,15 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         if (generation !== aiGeneration || sequence !== aiSequence) return;
         for (const result of results) for (const item of result.results || []) groupSenseCache.set(item.key, { ...item, at:performance.now() });
         aiWorkerMs = results.reduce((n,r)=>n+(r.__timing?.workerMs||0),0);
-        aiQueueMs = results.reduce((n,r)=>n+(r.__timing?.queueMs||0),0);
+        aiQueueMs = Math.max(0,...results.map(r=>r.__timing?.queueMs||0));
         aiDispatchMs = results.reduce((n,r)=>n+(r.__timing?.dispatchMs||0),0);
-        aiRoundTripMs = results.reduce((n,r)=>n+(r.__timing?.roundTripMs||0),0);
+        aiRoundTripMs = Math.max(0,...results.map(r=>r.__timing?.roundTripMs||0));
         aiLastError = '';
       })
       .catch(error => { aiLastError=error?.message||'Creature AI perception failed'; reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'error',task:aiLastError}); })
       .finally(() => {
         if (generation !== aiGeneration) return;
+        aiBatchMs = performance.now() - batchStartedAt;
         aiPending = false;
         const snap = pool.snapshot();
         syncSharedWorkerProcesses(snap);
@@ -721,7 +722,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       syncSharedWorkerProcesses(snap);
       return;
     }
-    presentationPending = true; presentationPendingSince = now; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
+    presentationPending = true; presentationPendingSince = now; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = ''; const batchStartedAt = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
     const chunkSize = Math.max(1, Math.ceil(snapshot.length / SHARED_WORKERS));
@@ -731,7 +732,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
     Promise.all(chunks.map(actors => sharedPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
       if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
-      presentationWorkerMs = results.reduce((n, result) => n + (result.__timing?.workerMs || 0), 0); presentationQueueMs = results.reduce((n, result) => n + (result.__timing?.queueMs || 0), 0); presentationDispatchMs = results.reduce((n, result) => n + (result.__timing?.dispatchMs || 0), 0); presentationRoundTripMs = results.reduce((n, result) => n + (result.__timing?.roundTripMs || 0), 0);
+      presentationWorkerMs = results.reduce((n, result) => n + (result.__timing?.workerMs || 0), 0); presentationQueueMs = Math.max(0, ...results.map(result => result.__timing?.queueMs || 0)); presentationDispatchMs = results.reduce((n, result) => n + (result.__timing?.dispatchMs || 0), 0); presentationRoundTripMs = Math.max(0, ...results.map(result => result.__timing?.roundTripMs || 0));
       presentationLastError = '';
       presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
       presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
@@ -739,7 +740,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       presentationLastError = error?.message || 'Presentation task failed';
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
       if (presentationMode === 'auto') setPresentationMode('main');
-    }).finally(() => { if (generation === presentationGeneration) { presentationPending = false; presentationPendingSince = 0; } const snap=sharedPool?.snapshot?.(); if(snap) syncSharedWorkerProcesses(snap); });
+    }).finally(() => { if (generation === presentationGeneration) { presentationBatchMs = performance.now() - batchStartedAt; presentationPending = false; presentationPendingSince = 0; const snap=sharedPool?.snapshot?.(); if(snap) { syncSharedWorkerProcesses(snap); reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:presentationLastError?'error':'idle', queued:snap.queued, workerMs:presentationWorkerMs, task:(presentationLastError||'Plan ready')+' · '+presentationDispatchCount+' batches · CPU '+presentationWorkerMs.toFixed(2)+' ms · max queue '+presentationQueueMs.toFixed(2)+' ms · batch '+presentationBatchMs.toFixed(2)+' ms'}); } } });
     const snap = sharedPool.snapshot();
     snap.workers.forEach(w => reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
   }
@@ -889,8 +890,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
-    presentationSnapshot() { const pool = sharedPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, population:{...lastUpdateTelemetry}, pending:presentationPending, pendingAgeMs:presentationPending && presentationPendingSince ? Math.max(0, performance.now()-presentationPendingSince) : 0, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, queueMs:presentationQueueMs, dispatchMs:presentationDispatchMs, roundTripMs:presentationRoundTripMs, lastError:presentationLastError, pool }; },
-    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, population:{...lastUpdateTelemetry}, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, queueMs:aiQueueMs, dispatchMs:aiDispatchMs, roundTripMs:aiRoundTripMs, lastError:aiLastError, pool:sharedPool?.snapshot?.()||null }; },
+    presentationSnapshot() { const pool = sharedPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, population:{...lastUpdateTelemetry}, pending:presentationPending, pendingAgeMs:presentationPending && presentationPendingSince ? Math.max(0, performance.now()-presentationPendingSince) : 0, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, queueMs:presentationQueueMs, dispatchMs:presentationDispatchMs, roundTripMs:presentationRoundTripMs, batchMs:presentationBatchMs, lastError:presentationLastError, pool }; },
+    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, population:{...lastUpdateTelemetry}, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, queueMs:aiQueueMs, dispatchMs:aiDispatchMs, roundTripMs:aiRoundTripMs, batchMs:aiBatchMs, lastError:aiLastError, pool:sharedPool?.snapshot?.()||null }; },
     setAiMode, setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },

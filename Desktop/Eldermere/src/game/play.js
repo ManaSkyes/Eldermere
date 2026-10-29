@@ -1215,7 +1215,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
     <p style="font-size:11px;opacity:.85">Assignments change execution where a real worker route exists. Worker results are applied to Three.js buffers on the main thread.</p>
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
-    <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px">Waiting for tree system…</div>
+    <label style="display:block;margin:8px 0">Worker count <select data-assignment-workers><option value="1">1 worker</option><option value="2" selected>2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12">12 workers</option></select></label>
+    <div style="font-size:11px;opacity:.8">Tree culling is split into 1,024-tree chunks. Changing worker count rebuilds the pool after the current batch completes.</div>
+    <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px;white-space:pre-wrap">Waiting for tree system…</div>
     <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">Three.js scene + WebGL uploads <select disabled><option>Main thread required</option></select></label>
@@ -1224,8 +1226,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   root.querySelector('.play').appendChild(assignmentEl);
   assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
   assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));
+  assignmentEl.querySelector('[data-assignment-workers]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerCount?.(Number(e.target.value)));
   assignmentEl.querySelector('[data-assignment-reset]').addEventListener('click', () => {
     assignmentEl.querySelector('[data-assignment="trees"]').value = 'main';
+    assignmentEl.querySelector('[data-assignment-workers]').value = '2';
+    dungeonLights?.foliage?.setWorkerCount?.(2);
     dungeonLights?.foliage?.setWorkerMode('main');
   });
   let assignmentRefreshAt = 0;
@@ -1234,11 +1239,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     assignmentRefreshAt = performance.now() + 350;
     const foliage = dungeonLights?.foliage, state = foliage?.workerState, mode = foliage?.workerMode || 'main';
     assignmentEl.querySelector('[data-assignment-tree-status]').textContent = foliage
-      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nLast worker batch: ${(state?.lastMs || 0).toFixed(2)} ms · queue: ${(state?.queueMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
+      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nWorkers: ${state?.workerCount || foliage?.workerCount || 2} · chunk size: ${state?.chunkSize || 1024}\nBatch wall time: ${(state?.lastMs || 0).toFixed(2)} ms · avg queue wait: ${(state?.queueMs || 0).toFixed(2)} ms\nSum worker CPU: ${(state?.workerMs || 0).toFixed(2)} ms · dispatch/clone: ${(state?.dispatchMs || 0).toFixed(2)} ms · apply buffers: ${(state?.applyMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
       : 'No foliage/tree system on this map.';
     assignmentEl.querySelector('[data-assignment-pool]').textContent = state?.error || state?.status || 'Main thread (default)';
     const select = assignmentEl.querySelector('[data-assignment="trees"]');
     if (select.value !== mode) select.value = mode;
+    const workerSelect = assignmentEl.querySelector('[data-assignment-workers]');
+    const workerCount = state?.workerCount || foliage?.workerCount || 2;
+    if (Number(workerSelect.value) !== workerCount) workerSelect.value = String(workerCount);
   };
   const probeKeyHandler = e => {
     if (e.code === 'F7') {

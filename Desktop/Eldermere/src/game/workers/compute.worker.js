@@ -1,6 +1,7 @@
 // CPU-only jobs for the worker pool. Keep this file free of DOM and Three.js access.
 self.onmessage = ({ data }) => {
   const { id, type, payload } = data || {};
+  const workerStarted = performance.now();
   try {
     if (type === 'tree-cull') {
       const { X, Y, Z, Sc, cx, cy, cz, planes, radius, mid, edges, hidden, baked, nearShadow } = payload;
@@ -23,7 +24,7 @@ self.onmessage = ({ data }) => {
           if (lo < hi) records.push([i, L, lo, hi]);
         }
       }
-      self.postMessage({ id, ok: true, result: { records, scanned: X.length } });
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: X.length } });
     } else if (type === 'cpu-stress') {
       const start = Math.max(0, payload.start | 0);
       const end = Math.max(start, payload.end | 0);
@@ -36,12 +37,12 @@ self.onmessage = ({ data }) => {
         const x = i * 0.0000137 + seed;
         signal += Math.sin(x) * Math.cos(x * 0.37) + Math.sqrt((i % 997) + 1) * 0.0001;
       }
-      self.postMessage({ id, ok: true, result: { start, end, checksum, signal } });
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { start, end, checksum, signal } });
     } else {
       throw new Error('Unknown worker task: ' + type);
     }
   } catch (error) {
-    self.postMessage({ id, ok: false, error: error?.message || String(error) });
+    self.postMessage({ id, ok: false, workerMs: performance.now() - workerStarted, error: error?.message || String(error) });
   }
 };
 

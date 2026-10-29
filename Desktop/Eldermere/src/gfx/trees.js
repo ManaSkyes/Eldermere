@@ -226,12 +226,14 @@ const TREE_WIND = TILE => `${windCore(TILE)}
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
-  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false;
-  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, jobs: 0, error: '' };
+  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2;
+  const TREE_WORKER_CHUNK_SIZE = 1024;
+  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
   const ensureWorker = async () => {
-    if (!workerPool) {
+    if (!workerPool || workerPool.size !== workerCount) {
+      if (workerPool) workerPool.close();
       const { createWorkerPool } = await import('../game/workers/workerPool.js');
-      workerPool = createWorkerPool(2);
+      workerPool = createWorkerPool(workerCount);
       workerState.status = 'starting';
       await workerPool.ready();
     }
@@ -332,13 +334,20 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     diagnostics,
     workerState,
     get workerMode() { return workerMode; },
+    get workerCount() { return workerCount; },
+    setWorkerCount(count) {
+      workerCount = Math.max(1, Math.min(12, Math.floor(Number(count) || 2)));
+      workerState.workerCount = workerCount;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      last.x = 1e9;
+    },
     setWorkerMode(mode) {
       workerMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
       last.x = 1e9; // force the selected route to take effect even if the camera is stationary
       if (workerMode !== 'main' && !workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
       else if (workerMode === 'main') workerState.status = 'main thread';
     },
-    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); },
+    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
     cull(camera) {
       const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
       const hid = !!this.hidden, c0 = camera.position;
@@ -353,26 +362,46 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         const queuedAt = performance.now();
         workerState.status = 'queued';
         const planes = fr.planes.map(p => [p.normal.x, p.normal.y, p.normal.z, p.constant]);
-        const tasks = sets.map(S => ({ type: 'tree-cull', payload: { X: S.X, Y: S.Y, Z: S.Z, Sc: S.Sc, cx, cy, cz, planes, radius: S.rad, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked, nearShadow: NEAR_SHADOW } }));
+        // Split species into bounded chunks so large species can keep workers busy.
+        const tasks = [];
+        for (let si = 0; si < sets.length; si++) {
+          const S = sets[si];
+          for (let offset = 0; offset < S.n; offset += TREE_WORKER_CHUNK_SIZE) {
+            const end = Math.min(S.n, offset + TREE_WORKER_CHUNK_SIZE);
+            tasks.push({ si, offset, type: 'tree-cull', payload: {
+              X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
+              cx, cy, cz, planes, radius: S.rad, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked, nearShadow: NEAR_SHADOW
+            }});
+          }
+        }
         ensureWorker().then(pool => {
           workerState.status = 'running';
-          const startedWorker = performance.now();
+          const batchStarted = performance.now();
           return pool.runBatch(tasks).then(results => {
-            const workerElapsed = performance.now() - startedWorker;
-            workerState.lastMs = workerElapsed; workerState.queueMs = Math.max(0, startedWorker - queuedAt);
+            workerState.lastMs = performance.now() - batchStarted;
+            workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
+            workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
+            workerState.dispatchMs = results.reduce((n, r) => n + (r.__timing?.dispatchMs || 0), 0);
             workerState.jobs++; workerState.status = 'ready';
-            if (timed) { diag.workerMs += workerElapsed; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
-            for (let si = 0; si < sets.length; si++) {
-              const S = sets[si], counts = [0, 0, 0], M = S.meshes;
-              for (const [i, L, lo, hi] of results[si].records) {
+            if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
+            const applyStarted = performance.now();
+            const countsBySet = sets.map(() => [0, 0, 0]);
+            for (let ri = 0; ri < results.length; ri++) {
+              const result = results[ri], task = tasks[ri], S = sets[task.si], counts = countsBySet[task.si], M = S.meshes;
+              for (const [localIndex, L, lo, hi] of result.records) {
+                const i = task.offset + localIndex;
                 const mesh = M[L], j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
                 const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
                 a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
                 mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
                 const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
               }
+            }
+            for (let si = 0; si < sets.length; si++) {
+              const M = sets[si].meshes, counts = countsBySet[si];
               for (let L=0; L<3; L++) { const mesh=M[L]; mesh.count=counts[L]; if(counts[L]) { mesh.instanceMatrix.needsUpdate=true; mesh.instanceColor.needsUpdate=true; mesh.geometry.attributes.aF.needsUpdate=true; mesh.geometry.attributes.aR.needsUpdate=true; } }
             }
+            workerState.applyMs = performance.now() - applyStarted;
             last.x = 1e9;
           });
         }).catch(error => {

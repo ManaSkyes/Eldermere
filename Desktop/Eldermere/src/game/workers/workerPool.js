@@ -18,8 +18,13 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     const job = queue.shift();
     worker.busy = true;
     worker.jobId = job.id;
-    pending.set(job.id, { resolve: job.resolve, reject: job.reject, worker });
-    try { worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload }); }
+    const startedAt = performance.now();
+    pending.set(job.id, { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt });
+    try {
+      const dispatchStarted = performance.now();
+      worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload });
+      pending.get(job.id).dispatchMs = performance.now() - dispatchStarted;
+    } }
     catch (error) {
       pending.delete(job.id); worker.busy = false; worker.jobId = null;
       job.reject(error); dispatch(worker);
@@ -40,8 +45,10 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
       if (!job) return;
       pending.delete(message.id);
       worker.busy = false; worker.jobId = null;
-      if (message.ok) job.resolve(message.result);
-      else job.reject(new Error(message.error || 'Worker task failed'));
+      if (message.ok) {
+        if (message.result && typeof message.result === 'object') message.result.__timing = { queueMs: Math.max(0, job.startedAt - job.queuedAt), workerMs: Number(message.workerMs) || 0, dispatchMs: job.dispatchMs || 0 };
+        job.resolve(message.result);
+      } else job.reject(new Error(message.error || 'Worker task failed'));
       dispatch(worker);
     });
     worker.instance.addEventListener('error', event => {
@@ -58,7 +65,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     run(type, payload) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {
-        queue.push({ id: nextId++, type, payload, resolve, reject });
+        queue.push({ id: nextId++, type, payload, resolve, reject, queuedAt: performance.now() });
         for (const worker of workers) dispatch(worker);
       });
     },

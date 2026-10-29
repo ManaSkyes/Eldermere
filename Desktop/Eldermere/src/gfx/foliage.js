@@ -234,8 +234,10 @@ export function createFoliage(THREE, scene, plants) {
   return {
     wind, pushers, trees,
     get workerMode() { return trees.workerMode || 'main'; },
-    get workerState() { return trees.workerState || { status: 'no tree instances', jobs: 0, lastMs: 0, queueMs: 0, error: '' }; },
+    get workerCount() { return trees.workerCount || 2; },
+    get workerState() { return trees.workerState || { status: 'no tree instances', jobs: 0, lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, workerCount: 2, chunkSize: 1024, error: '' }; },
     setWorkerMode(mode) { trees.setWorkerMode?.(mode); },
+    setWorkerCount(count) { trees.setWorkerCount?.(count); },
     // Expose the tree system's optional traversal counters to the F8 report.
     get diagnostics() { return trees.diagnostics; },
     resetDiagnostics() { trees.resetDiagnostics?.(); },

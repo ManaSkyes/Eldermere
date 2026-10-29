@@ -400,7 +400,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         const tasks = [];
         let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
         for (let si = 0; si < sets.length; si++) {
-          const S = sets[si], candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]);
+          const S = sets[si], candidates = this.hidden ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]);
           cellsTested += candidates.tested; cellsVisited += candidates.length;
           for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
             const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
@@ -458,7 +458,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       let visibleInstances = 0, cellsTested = 0, cellsVisited = 0, instancesTested = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
-        const candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, far);
+        const candidates = this.hidden ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, far);
         cellsTested += candidates.tested; cellsVisited += candidates.length;
         for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
           instancesTested++;

@@ -1430,7 +1430,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const processMonitor = document.createElement('aside');
   processMonitor.setAttribute('aria-label','Process and worker activity');
   processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:340px;max-width:calc(100vw - 24px);box-sizing:border-box;max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.96);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:auto;contain:layout style';
-  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div style="display:flex;gap:6px;margin-bottom:8px"><button type="button" data-process-copy style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Copy report</button><button type="button" data-process-download style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Download JSON</button><span data-process-feedback style="align-self:center;opacity:.8"></span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
+  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button type="button" data-process-capture style="cursor:pointer;background:#4c4178;color:#fff;border:1px solid #a99bdc;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Capture live (3s)</button><button type="button" data-process-copy style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Copy report</button><button type="button" data-process-download style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Download JSON</button><span data-process-feedback style="align-self:center;opacity:.8"></span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Capture hides this panel and resumes gameplay for 3 seconds, then snapshots the live state and reopens F2.</div><div style="opacity:.65;margin-top:4px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
   $('.play').appendChild(processMonitor);
   const copyProcessReport = async () => {
     if (!processMonitorLastReport) refreshProcessMonitor(true);
@@ -1447,8 +1447,31 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   processMonitor.querySelector('[data-process-copy]').addEventListener('click', copyProcessReport);
   processMonitor.querySelector('[data-process-download]').addEventListener('click', downloadProcessReport);
+  let processCaptureTimer = null;
+  processMonitor.querySelector('[data-process-capture]').addEventListener('click', () => {
+    if (processCaptureTimer) clearTimeout(processCaptureTimer);
+    const button = processMonitor.querySelector('[data-process-capture]');
+    const feedback = processMonitor.querySelector('[data-process-feedback]');
+    processMonitorOpen = false;
+    processMonitor.style.display = 'none';
+    input.lock();
+    if (feedback) feedback.textContent = 'Capturing live gameplay…';
+    button.disabled = true;
+    processCaptureTimer = setTimeout(() => {
+      processCaptureTimer = null;
+      refreshProcessMonitor(true);
+      processMonitorOpen = true;
+      processMonitor.style.display = 'block';
+      input.unlock();
+      showPause(false);
+      button.disabled = false;
+      button.textContent = 'Capture again (3s)';
+      const status = processMonitor.querySelector('[data-process-feedback]');
+      if (status) status.textContent = 'Live snapshot captured';
+    }, 3000);
+  });
   const refreshProcessMonitor = (force = false) => {
-    if (!processMonitorOpen) return;
+    if (!processMonitorOpen && !force) return;
     const now = performance.now();
     if (!force && now - processMonitorLastRefresh < 250) return;
     processMonitorLastRefresh = now;
@@ -2334,6 +2357,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   function stop() {
     removeEventListener('beforeunload', guardClose);
     removeEventListener('keydown', probeKeyHandler);
+    if (processCaptureTimer) clearTimeout(processCaptureTimer);
     processMonitor.remove();
     enemies?.setAiMode?.('main');
     enemies?.setPresentationMode?.('main');

@@ -238,12 +238,13 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       workerCount = desired;
       workerState.workerCount = workerCount;
     }
-    if (!workerPool || workerPool.size !== workerCount) {
-      if (workerPool) workerPool.close();
-      const { createWorkerPool } = await import('../game/workers/workerPool.js');
-      workerPool = createWorkerPool(workerCount);
+    if (!workerPool) {
+      const { getApplicationWorkerPool } = await import('../game/workers/workerPool.js');
+      workerPool = getApplicationWorkerPool();
       workerState.status = 'starting';
       await workerPool.ready();
+      workerCount = workerPool.size;
+      workerState.workerCount = workerCount;
     }
     return workerPool;
   };
@@ -418,9 +419,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       last.x = 1e9; // force the selected route to take effect even if the camera is stationary
       if (workerMode === 'main') {
         // Do not leave an idle worker pool alive or report its workers as available for tree work.
-        if (workerPool) { workerPool.close(); workerPool = null; }
         workerPending = false;
-        workerCount = workerAllocationMode === 'manual' ? workerLimit : Math.min(2, workerLimit);
+        workerCount = workerAllocationMode === 'manual' ? workerLimit : Math.min(12, workerLimit);
         workerState.workerCount = workerCount;
         workerState.status = 'main thread · worker pool stopped';
       } else if (!workerFailed) workerState.status = workerPool ? 'ready' : 'starting';

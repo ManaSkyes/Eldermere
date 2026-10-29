@@ -1138,6 +1138,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, frameId: 0, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
   // Repeatable A/B: stationary camera sweep, first with normal foliage culling, then with foliage culling frozen.
   const foliageBufferTest = { active: false, phase: 'idle', started: 0, startYaw: 0, durationMs: 18000, button: null, status: null };
+  // Manual F7 switch for isolating foliage culling outside the timed F8 A/B test.
+  const foliageCullFreeze = { frozen: false, button: null, status: null };
+  const refreshFoliageFreezeControl = () => {
+    if (foliageCullFreeze.button) foliageCullFreeze.button.textContent = foliageCullFreeze.frozen ? 'Resume Foliage Culling' : 'Freeze Foliage Culling';
+    if (foliageCullFreeze.status) foliageCullFreeze.status.textContent = foliageCullFreeze.frozen ? 'FROZEN · retaining the last foliage layout' : 'Active · foliage visibility updates normally';
+  };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
@@ -1224,9 +1230,17 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">Three.js scene + WebGL uploads <select disabled><option>Main thread required</option></select></label>
     <div style="font-size:11px;opacity:.8;margin-top:8px">Worker routing status: <span data-assignment-pool>Not started</span></div>
+    <div style="margin-top:12px;padding-top:9px;border-top:1px solid #5a5490"><b>Foliage culling test</b><p style="font-size:11px;opacity:.85;margin:4px 0">Freeze visibility/LOD updates and keep the last foliage layout on screen. This is a diagnostic mode; plants may remain visible when they normally would be culled.</p><button type="button" data-foliage-freeze>Freeze Foliage Culling</button><div data-foliage-freeze-status style="font-size:11px;margin-top:5px">Active · foliage visibility updates normally</div></div>
     <p style="font-size:11px;opacity:.8">Worker mode can leave the previous tree layout visible while culling runs. If a worker fails, the route falls back to the main thread and reports the error.</p>`;
   root.querySelector('.play').appendChild(assignmentEl);
   assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
+  foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
+  foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
+  refreshFoliageFreezeControl();
+  foliageCullFreeze.button.addEventListener('click', () => {
+    foliageCullFreeze.frozen = !foliageCullFreeze.frozen;
+    refreshFoliageFreezeControl();
+  });
   assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));
   assignmentEl.querySelector('[data-assignment-workers]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerCount?.(Number(e.target.value)));
   assignmentEl.querySelector('[data-assignment-reset]').addEventListener('click', () => {
@@ -1840,7 +1854,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Mirror');
     if (!thirdPerson) body?.showHead(false);           // your own eyes don't see your head...
     if (probe.on || traversalCapture.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
-    if (dungeonLights?.foliage && !(foliageBufferTest.active && foliageBufferTest.phase === 'frozen-spin')) dungeonLights.foliage.cull(camera);
+    if (dungeonLights?.foliage && !foliageCullFreeze.frozen && !(foliageBufferTest.active && foliageBufferTest.phase === 'frozen-spin')) dungeonLights.foliage.cull(camera);
     refreshAssignmentPanel();                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();

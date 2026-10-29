@@ -1236,6 +1236,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <div style="margin-top:12px;padding-top:9px;border-top:1px solid #5a5490"><b>Foliage culling test</b><p style="font-size:11px;opacity:.85;margin:4px 0">Freeze visibility/LOD updates and keep the last foliage layout on screen. This is a diagnostic mode; plants may remain visible when they normally would be culled.</p><button type="button" data-foliage-freeze>Freeze Foliage Culling</button><div data-foliage-freeze-status style="font-size:11px;margin-top:5px">Active · foliage visibility updates normally</div></div>
     <p style="font-size:11px;opacity:.8">Worker mode can leave the previous tree layout visible while culling runs. If a worker fails, the route falls back to the main thread and reports the error.</p>`;
   root.querySelector('.play').appendChild(assignmentEl);
+  assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
   // Full-screen scheduler workspace. Keep existing live vegetation controls intact,
   // and provide independent profiles for systems that will be connected incrementally.
   const schedulerHeader = assignmentEl.firstElementChild;
@@ -1340,7 +1341,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerWorkspace);
   renderSchedulerTabs();
-  assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
   foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
   foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
   refreshFoliageFreezeControl();

@@ -274,7 +274,7 @@ export function createFoliage(THREE, scene, plants) {
     bake(renderer) { trees.bake(renderer); },                                                       // (once, when the map's ready: the trees' impostor pictures)
     // each frame, just before drawing: the trees to their levels, and the small plants' buffers refilled when the
     // camera has moved or turned enough (or the F8 panel hid them)
-    setLodZonePolicy(policy) { lodZonePolicy = policy || null; for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
+    setLodZonePolicy(policy) { lodZonePolicy = policy || null; trees.setLodZonePolicy?.(lodZonePolicy); for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;

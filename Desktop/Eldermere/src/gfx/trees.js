@@ -227,7 +227,7 @@ const TREE_WIND = TILE => `${windCore(TILE)}
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
-  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2;
+  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerGeneration = 0;
   const TREE_WORKER_CHUNK_SIZE = 1024;
   const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
   const ensureWorker = async () => {
@@ -395,6 +395,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       last.cellSignature = cellSignature;
       const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));
       if (useWorker) {
+        const requestGeneration = ++workerGeneration;
         if (workerPending) { if (timed) diag.skipped++; return; }
         workerPending = true;
         const queuedAt = performance.now();
@@ -419,6 +420,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           workerState.status = 'running';
           const batchStarted = performance.now();
           return pool.runBatch(tasks).then(results => {
+            // A newer camera/visibility request supersedes this batch. Never upload stale buffers.
+            if (requestGeneration !== workerGeneration) { last.x = 1e9; return; }
             workerState.lastMs = performance.now() - batchStarted;
             workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
             workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
@@ -465,7 +468,10 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         cellsTested += candidates.tested; cellsVisited += candidates.length;
         for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
           instancesTested++;
-          const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;\n          // Cheap spherical rejection before the square root needed for smooth LOD transitions.\n          if (dx * dx + dy * dy + dz * dz > far * far) continue;\n          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;
+          // Cheap spherical rejection before the square root needed for smooth LOD transitions.
+          if (dx * dx + dy * dy + dz * dz > far * far) continue;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
           // how far across each boundary this tree is (0 before it, 1 past it); the last is the fade out at the far edge
           const t = [0, 0, 0]; for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (E[b] - wv[b])) / (2 * wv[b]))); t[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
           if (!baked) { t[1] = t[2]; }                                                          // (before the pictures exist, the mid model goes all the way)

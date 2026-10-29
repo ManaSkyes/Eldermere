@@ -1425,12 +1425,28 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   renderSchedulerTabs();
   // F2 process monitor. Reuse stable rows and refresh at 4 Hz to avoid per-frame layout churn.
   let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastRefresh = 0;
+  let processMonitorLastReport = null;
   const processMonitorRows = new Map();
   const processMonitor = document.createElement('aside');
   processMonitor.setAttribute('aria-label','Process and worker activity');
-  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:340px;max-width:calc(100vw - 24px);box-sizing:border-box;max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.96);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:none;contain:layout style';
-  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
+  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:340px;max-width:calc(100vw - 24px);box-sizing:border-box;max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.96);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:auto;contain:layout style';
+  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div style="display:flex;gap:6px;margin-bottom:8px"><button type="button" data-process-copy style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Copy report</button><button type="button" data-process-download style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Download JSON</button><span data-process-feedback style="align-self:center;opacity:.8"></span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
   $('.play').appendChild(processMonitor);
+  const copyProcessReport = async () => {
+    if (!processMonitorLastReport) refreshProcessMonitor(true);
+    const report = JSON.stringify(processMonitorLastReport || {}, null, 2);
+    const feedback = processMonitor.querySelector('[data-process-feedback]');
+    try { await navigator.clipboard.writeText(report); if(feedback) feedback.textContent='Copied'; }
+    catch (error) { const area=document.createElement('textarea'); area.value=report; area.style.cssText='position:fixed;left:-9999px;top:0'; document.body.appendChild(area); area.select(); const ok=document.execCommand('copy'); area.remove(); if(feedback) feedback.textContent=ok?'Copied':'Copy blocked'; }
+  };
+  const downloadProcessReport = () => {
+    if (!processMonitorLastReport) refreshProcessMonitor(true);
+    const blob = new Blob([JSON.stringify(processMonitorLastReport || {}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='eldermere-performance-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const feedback=processMonitor.querySelector('[data-process-feedback]'); if(feedback) feedback.textContent='Report saved';
+  };
+  processMonitor.querySelector('[data-process-copy]').addEventListener('click', copyProcessReport);
+  processMonitor.querySelector('[data-process-download]').addEventListener('click', downloadProcessReport);
   const refreshProcessMonitor = (force = false) => {
     if (!processMonitorOpen) return;
     const now = performance.now();
@@ -1472,6 +1488,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
     if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;rows.push({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
     else if(treeState)rows.push({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:processSnapshot(), creatureAI:creatureAi||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
     const list=processMonitor.querySelector('[data-process-list]');
     const activeIds=new Set(rows.map(p=>p.id));
     for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}

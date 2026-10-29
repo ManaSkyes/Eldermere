@@ -282,7 +282,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     presentationPending = true; presentationLastDispatch = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Planning NPC visual LOD and effect budgets' });
+    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Computing mesh LOD, animation pose and effect parameters' });
     presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
       if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
       presentationWorkerMs = result.__timing?.workerMs || 0;

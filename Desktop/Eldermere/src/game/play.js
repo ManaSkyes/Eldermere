@@ -1538,7 +1538,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     const treeState=dungeonLights?.foliage?.workerState;
     if(treeState)addRow({id:'tree-lod-scheduler',label:'Tree LOD scheduler',status:treeState.status?.includes('running')?'working':'idle',task:(treeState.status||'Not initialized')+' · jobs '+(treeState.jobs||0)+' · last batch '+(treeState.lastMs||0).toFixed(2)+' ms · worker CPU '+(treeState.workerMs||0).toFixed(2)+' ms · queue wait avg '+(treeState.queueMs||0).toFixed(2)+' ms · apply '+(treeState.applyMs||0).toFixed(2)+' ms'});
-    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi||null, creaturePopulation:monsters?.presentationSnapshot?.()?.population||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
+    const smallFoliagePolicy=smallLodZoneScheduler.snapshot();
+    const smallFoliageZones=(smallFoliagePolicy.zones||[]).slice(0,3);
+    const smallFoliageActive=smallFoliageZones.filter(z=>z.enabled!==false);
+    addRow({id:'small-foliage-lod-scheduler',label:'Small foliage LOD',status:smallFoliageActive.length?'working':'idle',
+      task:'main-thread culling · '+smallFoliageActive.length+'/3 zones enabled · '+smallFoliageZones.map(z=>'Z'+z.id+' '+(z.enabled===false?'off':Math.round(Number(z.radius)||0)+' m / '+Math.max(1,Math.floor(Number(z.interval)||1))+'f')).join(' · ')+' · grass/plants buffer uploads on main'});
+    const creaturePopulation=monsters?.presentationSnapshot?.()?.population||null;
+    const creatureSceneCount=creaturePopulation?.attached??creaturePopulation?.total??0;
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi||null, creaturePopulation:creaturePopulation?{...creaturePopulation,registered:creaturePopulation.total,sceneCount:creatureSceneCount}:null, creatureSceneCount, creatureRegisteredCount:creaturePopulation?.total??0, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null, smallFoliagePolicy };
     const list=processMonitor.querySelector('[data-process-list]');
     const activeIds=new Set(rows.map(p=>p.id));
     for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}

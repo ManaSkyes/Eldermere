@@ -1292,6 +1292,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   largePriorityLabel.appendChild(largePrioritySelect); largeTaskControls.appendChild(largePriorityLabel);
   const largePriorityNote=document.createElement('span'); largePriorityNote.style.cssText='font-size:12px;opacity:.8;flex:1;min-width:220px'; largePriorityNote.textContent='Priority is stored for the upcoming shared queue; the current tree renderer still chooses auto mode by workload size.'; largeTaskControls.appendChild(largePriorityNote);
   schedulerLargePanel.prepend(largeTaskControls);
+  const legacyTreeModeLabel = assignmentEl.querySelector('[data-assignment="trees"]')?.parentElement;
+  if (legacyTreeModeLabel) legacyTreeModeLabel.hidden = true; // the full-screen task-level mode control replaces this duplicate
   const renderSchedulerProfile = category => {
     const profile=schedulerProfiles[category.id], panel=document.createElement('section'); panel.dataset.schedulerPanel=category.id;
     panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';
@@ -1325,7 +1327,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear();
     schedulerCategories.forEach(category=>{
       const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
-      button.style.cssText+=';white-space:nowrap;flex:0 0 auto;border-color:'+(category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8')+';background:'+(category.id===activeSchedulerCategory?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)');
+      button.style.cssText+=';white-space:nowrap;flex:0 0 auto';
+      button.style.setProperty('border-color',category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8','important');
+      button.style.setProperty('background-color',category.id===activeSchedulerCategory?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)','important');
       button.setAttribute('aria-selected',String(category.id===activeSchedulerCategory));
       button.addEventListener('click',()=>{activeSchedulerCategory=category.id;renderSchedulerTabs();});
       schedulerNav.appendChild(button); schedulerTabButtons.set(category.id,button);

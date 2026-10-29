@@ -681,7 +681,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
     const chunks = [];
     for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
-    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });\n    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
+    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });
+    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
     Promise.all(chunks.map(actors => sharedPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
       if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
       presentationWorkerMs = results.reduce((n, result) => n + (result.__timing?.workerMs || 0), 0); presentationQueueMs = results.reduce((n, result) => n + (result.__timing?.queueMs || 0), 0); presentationDispatchMs = results.reduce((n, result) => n + (result.__timing?.dispatchMs || 0), 0);

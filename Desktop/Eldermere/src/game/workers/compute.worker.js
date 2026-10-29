@@ -24,6 +24,23 @@ self.onmessage = ({ data }) => {
         }
       }
       self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: X.length } });
+    } else if (type === 'npc-presentation-plan') {
+      // CPU-only NPC presentation scheduling. The worker chooses mesh visibility/LOD,
+      // animation cadence and effect budgets; the main thread still applies Three.js
+      // transforms, skeletal poses, material changes and GPU uploads.
+      const { actors = [], generation = 0, sequence = 0 } = payload || {};
+      const plans = actors.map(a => {
+        let tier = a.act && a.distance < 30 ? 0 : (!a.inFrustum || a.distance > a.visibilityDistance ? 3 : a.fighting && a.distance < 25 ? 0 : a.distance < 35 ? 1 : 2);
+        if (a.swarmReserve) tier = 3;
+        if (a.fighting && a.layered && tier < 3) tier = a.shown === false ? 3 : Math.max(tier, a.layer || 0);
+        if (a.fighting && !a.swarm && a.rank != null && tier < 3 && !a.act && !a.attacking) tier = Math.max(tier, a.rank < 8 ? 0 : a.rank < 16 ? 1 : 2);
+        const umbrafiend = a.umbrafiend === true;
+        const effectLod = umbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15);
+        const animationEvery = umbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
+        return { id: a.id, x: a.x, z: a.z, tier, meshVisible: tier < 3, effectLod,
+          animationEvery, ik: (a.speed > 0.2 || a.act) && (tier === 0 || (tier === 1 && a.distance < 15)) };
+      });
+      self.postMessage({ id, type, generation, sequence, workerMs: performance.now() - workerStarted, result: { plans } });
     } else if (type === 'npc-ai-sense') {
       // Pure NPC perception math only: no Three.js, DOM, or game-state mutation in a worker.
       const { player, npcs } = payload;

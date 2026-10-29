@@ -285,7 +285,7 @@ export function createFoliage(THREE, scene, plants) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;
       if (hs) { for (const S of sets) for (const Lv of S.lods) { Lv.im.count = 0; Lv.activeChunkKeys = null; } lastCam.x = 1e9; return; }
-      const scheduledRefresh = !!smallLodZonePolicy?.zones?.some(z => z.enabled !== false && (lodRenderFrame + 1) % Math.max(1, Math.floor(z.interval || 1)) === 0);
+      const scheduledRefresh = !!smallLodZonePolicy?.zones?.some(z => z.id <= 3 && z.enabled !== false && (lodRenderFrame + 1) % Math.max(1, Math.floor(z.interval || 1)) === 0);
       if (!this.dirty && !scheduledRefresh && Math.hypot(c.x - lastCam.x, c.y - lastCam.y, c.z - lastCam.z) < 0.5 && Math.abs(camera.quaternion.dot(lastCam.q)) > 0.9976 && camera.fov === lastCam.fov) return;
       this.dirty = false; lastCam.x = c.x; lastCam.y = c.y; lastCam.z = c.z; lastCam.q.copy(camera.quaternion); lastCam.fov = camera.fov;
       refill(camera, eye);

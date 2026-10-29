@@ -1351,26 +1351,51 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerLegend); assignmentEl.appendChild(schedulerWorkspace);
   renderSchedulerTabs();
-  // F2 process monitor: reports real worker-pool tasks plus the main-thread responsibilities.
-  let processMonitorOpen = false, processMonitorLastFrameMs = 0;
+  // F2 process monitor. Reuse stable rows and refresh at 4 Hz to avoid per-frame layout churn.
+  let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastRefresh = 0;
+  const processMonitorRows = new Map();
   const processMonitor = document.createElement('aside');
   processMonitor.setAttribute('aria-label','Process and worker activity');
-  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:min(340px,calc(100vw - 24px));max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.94);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:none';
-  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div data-process-list></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates are never moved into workers.</div>';
+  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:340px;max-width:calc(100vw - 24px);box-sizing:border-box;max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.96);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:none;contain:layout style';
+  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
   $('.play').appendChild(processMonitor);
-  const refreshProcessMonitor = () => {
+  const refreshProcessMonitor = (force = false) => {
     if (!processMonitorOpen) return;
-    const rows=[{label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'}];
+    const now = performance.now();
+    if (!force && now - processMonitorLastRefresh < 250) return;
+    processMonitorLastRefresh = now;
+    const rows=[{id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'}];
     const seen=new Set();
-    for(const p of processSnapshot()){seen.add(p.id);rows.push(p);}
+    for(const p of processSnapshot()){const id=p.id||p.label;if(!id||seen.has(id))continue;seen.add(id);rows.push({...p,id});}
     const npcState=enemies?.workerSnapshot?.();
-    if(npcState?.pool){for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id))rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||'Available'});}
-      rows.push({label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});}
+    if(npcState?.pool){
+      for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
+      rows.push({id:'npc-ai-queue',label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});
+    }
     const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
-    if(treePool){for(const w of treePool.workers)rows.push({label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.task||'Available for tree-cull tasks'});}
-    else if(treeState)rows.push({label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
+    if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;rows.push({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
+    else if(treeState)rows.push({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
+    const list=processMonitor.querySelector('[data-process-list]');
+    const activeIds=new Set(rows.map(p=>p.id));
+    for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}
+    for(const p of rows){
+      let node=processMonitorRows.get(p.id);
+      if(!node){
+        node=document.createElement('div');
+        node.style.cssText='display:grid;grid-template-columns:112px 54px minmax(0,1fr);align-items:start;gap:5px;padding:5px 0;border-bottom:1px solid #ffffff12;min-height:28px;box-sizing:border-box';
+        const label=document.createElement('b');label.style.cssText='font-weight:600;overflow-wrap:anywhere';
+        const status=document.createElement('span');status.style.cssText='font-size:11px';
+        const task=document.createElement('span');task.style.cssText='opacity:.82;overflow-wrap:anywhere;min-width:0';
+        node.append(label,status,task);node._processLabel=label;node._processStatus=status;node._processTask=task;
+        processMonitorRows.set(p.id,node);list.appendChild(node);
+      }
+      node._processLabel.textContent=p.label||p.id;
+      node._processStatus.textContent=p.status||'idle';
+      node._processStatus.style.color=p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0';
+      node._processTask.textContent=p.task||'No task assigned';
+      list.appendChild(node);
+    }
     processMonitor.querySelector('[data-process-frame]').textContent=processMonitorLastFrameMs.toFixed(1)+' ms/frame';
-    processMonitor.querySelector('[data-process-list]').innerHTML=rows.map(p=>'<div style="display:grid;grid-template-columns:116px 58px 1fr;gap:5px;padding:5px 0;border-bottom:1px solid #ffffff12"><b style="font-weight:600">'+String(p.label||p.id||'Process').replace(/</g,'&lt;')+'</b><span style="color:'+(p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0')+'">'+String(p.status||'idle')+'</span><span style="opacity:.82;overflow-wrap:anywhere">'+String(p.task||'No task assigned').replace(/</g,'&lt;')+'</span></div>').join('');
   };
   foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
   foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
@@ -1467,7 +1492,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (e.code === 'F2') {
       e.preventDefault(); processMonitorOpen=!processMonitorOpen;
       processMonitor.style.display=processMonitorOpen?'block':'none';
-      if(processMonitorOpen){input.unlock();showPause(false);refreshProcessMonitor();}
+      if(processMonitorOpen){input.unlock();showPause(false);refreshProcessMonitor(true);}
       else if(!probe.on&&assignmentEl.hidden)input.lock();
       return;
     }

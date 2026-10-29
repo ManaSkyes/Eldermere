@@ -24,7 +24,19 @@ self.onmessage = ({ data }) => {
         }
       }
       self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: X.length } });
-    } else if (type === 'cpu-stress') {
+    } else if (type === 'npc-ai-sense') {
+      // Pure NPC perception math only: no Three.js, DOM, or game-state mutation in a worker.
+      const { player, npcs } = payload;
+      const results = npcs.map(n => {
+        const dx = player.x - n.x, dz = player.z - n.z, dy = player.y - n.y;
+        const distSq = dx * dx + dz * dz;
+        const dist = Math.sqrt(distSq);
+        const hearing = Math.max(0, player.loudness || 0) * (Math.max(0, n.hearing || 14) * Math.max(0, n.perception || 1) / 14);
+        return { index: n.index, dist, distSq, close: Math.max(0, 1 - dist / Math.max(1, n.sight * Math.max(0, n.perception || 1))),
+          heard: dist < hearing && Math.abs(dy) < 5 };
+      });
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { results, player: { x: player.x, y: player.y, z: player.z }, count: results.length } });
+ else if (type === 'cpu-stress') {
       const start = Math.max(0, payload.start | 0);
       const end = Math.max(start, payload.end | 0);
       const seed = payload.seed | 0;

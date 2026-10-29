@@ -193,15 +193,31 @@ export function createFoliage(THREE, scene, plants) {
     sets.push({ k, n, MAT, COL, PR, chunks, chunkLookup, lods });
   }
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), wide = new THREE.PerspectiveCamera(), lastCam = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0 };
+  // F7 policy is passed in by the play screen. The three small-foliage LOD buffers
+  // are independently scheduled; a missing initial buffer is always populated immediately.
+  let lodZonePolicy = null, lodRenderFrame = 0;
   const refill = (camera, eye) => {
+    lodRenderFrame++;
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
-    for (const S of sets) for (const Lv of S.lods) {
+    for (const S of sets) for (let lodIndex = 0; lodIndex < S.lods.length; lodIndex++) {
+      const Lv = S.lods[lodIndex];
+      const zoneId = lodIndex + 1;
+      const zone = lodZonePolicy?.zones?.find(z => z.id === zoneId);
+      const zoneInterval = Math.max(1, Math.floor(zone?.interval || 1));
+      const zoneRadius = Math.max(1, Number(zone?.radius) || Lv.hi);
+      if (zone?.enabled === false) {
+        if (Lv.im.count !== 0 || Lv.activeChunkKeys !== null) { Lv.im.count = 0; Lv.activeChunkKeys = null; }
+        continue;
+      }
+      if (Lv.activeChunkKeys !== null && lodRenderFrame % zoneInterval !== 0) continue;
+      const effectiveHi = Math.min(Lv.hi, zoneRadius);
+      const effectiveFrom = Math.min(Lv.from, Math.max(0, zoneRadius - Math.max(3, zoneRadius * 0.1)));
       const visibleChunks = [];
-      const reach = Lv.hi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
+      const reach = effectiveHi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
         const c = S.chunkLookup.get(gx + ',' + gz); if (!c) continue;
-        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (ex * ex + ez * ez > (Lv.hi + 1) * (Lv.hi + 1)) continue;
-        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (fx * fx + fz * fz < (Lv.from - 1) * (Lv.from - 1)) continue;
+        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (ex * ex + ez * ez > (effectiveHi + 1) * (effectiveHi + 1)) continue;
+        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (fx * fx + fz * fz < (effectiveFrom - 1) * (effectiveFrom - 1)) continue;
         if (!fr.intersectsBox(c.box)) continue;
         visibleChunks.push(c);
       }
@@ -210,7 +226,7 @@ export function createFoliage(THREE, scene, plants) {
       let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
       for (const c of visibleChunks) {
         const m = c.b - c.a; M.set(S.MAT.subarray(c.a * 16, c.b * 16), cnt * 16); Cc.set(S.COL.subarray(c.a * 3, c.b * 3), cnt * 3); A.set(S.PR.subarray(c.a * 4, c.b * 4), cnt * 4);
-        for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = Lv.lo; A[q * 4 + 3] = Lv.hi; }
+        for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = effectiveFrom; A[q * 4 + 3] = effectiveHi; }
         cnt += m;
       }
       Lv.activeChunkKeys = visibleChunks.map(c => c.key);
@@ -258,6 +274,7 @@ export function createFoliage(THREE, scene, plants) {
     bake(renderer) { trees.bake(renderer); },                                                       // (once, when the map's ready: the trees' impostor pictures)
     // each frame, just before drawing: the trees to their levels, and the small plants' buffers refilled when the
     // camera has moved or turned enough (or the F8 panel hid them)
+    setLodZonePolicy(policy) { lodZonePolicy = policy || null; this.dirty = true; lastCam.x = 1e9; },
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;

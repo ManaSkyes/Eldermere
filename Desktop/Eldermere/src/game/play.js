@@ -1393,7 +1393,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       node._processStatus.textContent=p.status||'idle';
       node._processStatus.style.color=p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0';
       node._processTask.textContent=p.task||'No task assigned';
-      list.appendChild(node);
     }
     processMonitor.querySelector('[data-process-frame]').textContent=processMonitorLastFrameMs.toFixed(1)+' ms/frame';
   };

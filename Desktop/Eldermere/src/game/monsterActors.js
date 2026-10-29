@@ -28,6 +28,8 @@ import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
 import { STEALTH } from '../rpg/stealth.js';
+import { createWorkerPool } from './workers/workerPool.js';
+import { reportProcess, clearProcess } from './workers/processMonitor.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
 const KIND_TYPE = { fire: 'fire', frost: 'frost', ice: 'frost', lunar: 'lunar', holy: 'light', light: 'light', dark: 'dark', shadow: 'dark', storm: 'storm', lightning: 'storm', earth: 'earth', arcane: 'arcane' };
@@ -42,6 +44,47 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const batSwarm = createBatSwarmInstances(THREE, scene);
   const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
   let batInstancing = true, umbrafiendTwoInfluence = false;
+  // NPC presentation workers choose mesh visibility/LOD, animation cadence and effect
+  // budgets from plain snapshots. All Three.js transforms and GPU writes stay on main.
+  let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
+  let presentationGeneration = 0, presentationSequence = 0, presentationPending = false;
+  let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
+  let presentationWorkerMs = 0, nextPresentationActorId = 1;
+  let presentationPlans = new Map();
+  const PRESENTATION_WORKERS = 2;
+  const ensurePresentationPool = () => {
+    if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
+    const generation = presentationGeneration;
+    presentationPoolPromise = (async () => {
+      const pool = createWorkerPool(PRESENTATION_WORKERS);
+      await pool.ready();
+      if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
+      presentationPool = pool;
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:'Mesh LOD · animation cadence · effects' });
+      return pool;
+    })().catch(error => {
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+      return null;
+    }).finally(() => { presentationPoolPromise = null; });
+  };
+  const setPresentationMode = mode => {
+    presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
+    if (presentationMode === 'main') {
+      presentationPool?.close(); presentationPool = null; presentationPoolPromise = null;
+      clearProcess('npc-presentation-queue');
+      for (let i=1;i<=PRESENTATION_WORKERS;i++) clearProcess('npc-presentation-worker-'+i);
+    } else ensurePresentationPool();
+  };
+  const getPresentationPlan = (actor, player) => {
+    if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 12)) return null;
+    if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
+        Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
+    const plan = presentationPlans.get(actor.presentationId);
+    if (!plan || Math.hypot(actor.pos.x - plan.x, actor.pos.z - plan.z) > 2.5) return null;
+    return plan;
+  };
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   const motionOpts = { speed: 0, ik: false };   // reused for each actor's synchronous pose update
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
@@ -79,7 +122,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;
     const rk = LV ? 1 : RANK_K[rank || M.rank[0]] || 1, K = scale || {}, S = { ...B0, hp: B0.hp * (K.hp ?? 1), speed: B0.speed * (K.speed ?? 1), aggro: B0.aggro * (K.sight ?? 1) };
-    const A = { id, M, C, mo, S, group, level, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
+    const A = { id, M, C, mo, S, group, level, presentationId: nextPresentationActorId++, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
       alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, bar: bar() };
     scene.add(C.root); A.attached = true; C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
@@ -596,6 +639,33 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if (shadowBatch.instanceColor) shadowBatch.instanceColor.needsUpdate = true;
   }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
   function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
+  function dispatchPresentationPlan(snapshot, player) {
+    const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 12);
+    if (!shouldUseWorker || !snapshot.length) return;
+    if (!presentationPool) { ensurePresentationPool(); return; }
+    const now = performance.now();
+    if (presentationPending || now - presentationLastDispatch < 80) {
+      const snap = presentationPool.snapshot();
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:presentationPending?'busy':'idle', queued:snap.queued, workerMs:presentationWorkerMs, task:'Mesh LOD · animation cadence · effects' });
+      snap.workers.forEach(w => reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+      return;
+    }
+    presentationPending = true; presentationLastDispatch = now;
+    const generation = presentationGeneration, sequence = ++presentationSequence;
+    const playerAt = { x:player.pos.x, z:player.pos.z };
+    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:snapshot.length, workerMs:presentationWorkerMs, task:'Planning mesh LOD, animation cadence and effects' });
+    presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
+      if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
+      presentationWorkerMs = result.__timing?.workerMs || 0;
+      presentationPlans = new Map((result.plans || []).map(plan => [plan.id, plan]));
+      presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
+    }).catch(error => {
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+    }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
+    const snap = presentationPool.snapshot();
+    snap.workers.forEach(w => reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+  }
   function update(dt, player, hooks = {}) {
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
     // shadow bullets in flight
@@ -619,6 +689,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     }
     if ((joinT -= dt) <= 0) { joinT = 0.5; joinGroups(); }
     nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
+    const visualSnapshots = [];
     for (let i = actors.length - 1; i >= 0; i--) {
       const A = actors[i]; A.player = player; A.hooks = hooks;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
@@ -647,13 +718,17 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       //   3 off screen or past 55 m: taken out of the scene (no draw, no matrix walk, no smoke), not animated
       const d = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z), fighting = G.state === 'fight';
       sph.center.set(A.pos.x, A.pos.y + 1 + (A.alt || 0), A.pos.z); const on = !hooks.ear || frustum.intersectsSphere(sph);
-      let tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
-      // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
-      // Keep only the first 30 bat visuals while that merged swarm is idle; the remaining actors still exist and
-      // participate in AI/combat, and the full combat tower/display rules take over when the group engages.
-      if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
-      if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
-      if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
+      const presentation = getPresentationPlan(A, player);
+      let tier;
+      if (presentation) tier = presentation.tier;
+      else {
+        tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
+        // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
+        // Keep only the first 30 bat visuals while that merged swarm is idle; their AI/combat remains active.
+        if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
+        if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
+        if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);
+      }
       const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
@@ -673,17 +748,22 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
-        A.C.puffs.lod = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15); }
+        A.C.puffs.lod = presentation?.effectLod ?? (isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15)); }
       if (fighting && d < 30 && vis) { barCand.push(A); A.barD = d; }
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
-        const every = isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
-        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
+        const every = presentation?.animationEvery ?? (isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6));
+        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = presentation ? presentation.ik : (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
+      visualSnapshots.push({ id:A.presentationId, x:A.pos.x, z:A.pos.z, distance:d, inFrustum:on, visibilityDistance:VIS,
+        fighting, act:!!A.mo.actName, swarmReserve:G.kind==='swarm'&&!fighting&&A.id==='nocturianBat'&&A.slot>=30,
+        layered:!!A.layer, layer:A.layer||0, shown:A.shown, swarm:G.kind==='swarm', rank:A.rank,
+        attacking:!!A.attacking, umbrafiend:isUmbrafiend, speed });
     }
+    dispatchPresentationPlan(visualSnapshots, player);
     updateCreatureShadows(player);
     batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
@@ -694,12 +774,13 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
+    setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
     setUmbrafiendSkinningVariant(on) { umbrafiendTwoInfluence = !!on; for (const A of actors) if (A.M?.name === 'Umbrafiend') A.C.setSkinnedVariant(umbrafiendTwoInfluence); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { setPresentationMode('main'); for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

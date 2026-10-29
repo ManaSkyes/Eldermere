@@ -1134,12 +1134,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the fps, frame time, draw calls and triangles (a frame's, shadows included). F8 opens it and frees the mouse;
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
   const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
+  // Live traversal capture: bounded per-frame samples while the player explores normally.
+  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000 };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
   // renderer's own counter is left to reset itself each render, as three.js expects (it also uses it to update
   // skinned bodies and buffers once per frame: stopping it broke the drawing)
-  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => { r0(sc, cm); if (probe.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; } }; }
+  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => { r0(sc, cm); if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; } }; }
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['umbra2weight', 'Two-influence Umbrafiend skinning'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
@@ -1151,6 +1153,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
+    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Live traversal capture</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Start capture, close or leave the monitor open, then sprint across the largest terrain you can. Stop to report frame-time spikes, CPU/render timings, draw load, and distance travelled. Captures up to 5 minutes.</p><button type="button" data-traverse-start style="cursor:pointer">Start live capture</button> <button type="button" data-traverse-stop style="cursor:pointer" disabled>Stop &amp; report</button> <button type="button" data-traverse-copy style="cursor:pointer" disabled>Copy report</button><div data-traverse-status style="font-size:11px;margin-top:4px">Ready</div><pre data-traverse-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No traversal captured yet.</pre></details>` +
     `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Worker pool stress test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Runs the same deterministic CPU workload across different worker counts. Keep the camera still; results measure worker throughput, not full game speedup.</p><button type="button" data-worker-stress style="cursor:pointer">Run worker stress test</button> <span data-worker-stress-status style="font-size:11px">Ready</span><pre data-worker-stress-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No test run yet.</pre></details>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
     `<label style="display:block;cursor:pointer"><input type="checkbox" data-cycle checked> Time passes</label>` +
@@ -1253,6 +1256,55 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
   let workerStressReport = null;
+  const traversalStatus = probeEl.querySelector('[data-traverse-status]');
+  const traversalReportEl = probeEl.querySelector('[data-traverse-report]');
+  const traversalStartBtn = probeEl.querySelector('[data-traverse-start]');
+  const traversalStopBtn = probeEl.querySelector('[data-traverse-stop]');
+  const traversalCopyBtn = probeEl.querySelector('[data-traverse-copy]');
+  const traversalStats = (key) => { const a = traversalCapture.samples.map(q => q[key]).filter(Number.isFinite); return { median: sortedMedian(a), p95: percentile95(a), max: a.length ? Math.max(...a) : NaN, mean: a.length ? a.reduce((x,y)=>x+y,0)/a.length : NaN }; };
+  const finishTraversalCapture = () => {
+    if (!traversalCapture.on && !traversalCapture.samples.length) return;
+    traversalCapture.on = false;
+    const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
+    const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
+    const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
+    const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
+    const calls = traversalStats('calls'), tris = traversalStats('tris');
+    const buckets = [];
+    for (let start = 0; start < duration; start += 10) {
+      const q = a.filter(v => v.t / 1000 >= start && v.t / 1000 < start + 10);
+      if (!q.length) continue;
+      const times = q.map(v=>v.frameMs);
+      buckets.push(`${String(start).padStart(3)}–${String(Math.min(start+10,duration)).padStart(3)}s: ${q.length} frames · ${Math.round(1000 / Math.max(1, sortedMedian(times)))} median FPS · p95 ${percentile95(times).toFixed(1)} ms · ${q.filter(v=>v.frameMs>=33.3).length} frames ≥33 ms`);
+    }
+    const mem = performance.memory ? `JS heap: ${(performance.memory.usedJSHeapSize/1048576).toFixed(1)} / ${(performance.memory.jsHeapSizeLimit/1048576).toFixed(0)} MB used/limit (Chromium estimate)` : 'JS heap: browser does not expose performance.memory';
+    traversalCapture.report = [
+      'ELDERMERE LIVE TRAVERSAL CAPTURE', new Date().toLocaleString(),
+      `Duration: ${duration.toFixed(1)} s · samples: ${a.length}${traversalCapture.dropped ? ` · dropped samples: ${traversalCapture.dropped}` : ''}`,
+      `Distance travelled: ${traversalCapture.distance.toFixed(1)} m · average movement speed: ${duration > 0 ? (traversalCapture.distance/duration).toFixed(2) : '0.00'} m/s`,
+      `Frame time: median ${fmtMs(f.median)} · p95 ${fmtMs(f.p95)} · worst ${fmtMs(f.max)} · estimated median FPS ${Number.isFinite(f.median) ? Math.round(1000/Math.max(1,f.median)) : '—'}`,
+      `Hitches: ${slow33} frames ≥33.3 ms · ${slow50} frames ≥50 ms · worst at ${worst ? `${worst.elapsed.toFixed(1)} s, position (${worst.x.toFixed(1)}, ${worst.y.toFixed(1)}, ${worst.z.toFixed(1)})` : '—'}`,
+      `Game-update CPU: median ${fmtMs(logic.median)} · p95 ${fmtMs(logic.p95)} · worst ${fmtMs(logic.max)}`,
+      `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
+      `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
+      `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
+      mem, '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
+      'Interpretation: frame time includes waiting for the next refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture measures the real game while moving; it does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
+    ].join('\n');
+    traversalReportEl.textContent = traversalCapture.report;
+    traversalStatus.textContent = `Complete · ${duration.toFixed(1)} s · ${a.length} frames · ${slow50} severe hitches`;
+    traversalStartBtn.disabled = false; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = false;
+  };
+  traversalStartBtn.addEventListener('click', () => {
+    traversalCapture.on = true; traversalCapture.started = performance.now(); traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0;
+    traversalReportEl.textContent = 'Capturing… Run across the terrain, then press Stop & report.';
+    traversalStatus.textContent = 'CAPTURING · move through the world normally'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = false; traversalCopyBtn.disabled = true;
+  });
+  traversalStopBtn.addEventListener('click', finishTraversalCapture);
+  traversalCopyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(traversalCapture.report); traversalStatus.textContent = 'Report copied to clipboard.'; }
+    catch { traversalReportEl.focus?.(); traversalStatus.textContent = 'Clipboard blocked; select and copy the report text below.'; }
+  });
   probeEl.querySelector('[data-worker-stress]').addEventListener('click', async event => {
     const button = event.currentTarget, status = probeEl.querySelector('[data-worker-stress-status]'), output = probeEl.querySelector('[data-worker-stress-report]');
     button.disabled = true; status.textContent = 'Running…'; output.textContent = 'Starting workers and warming up…';
@@ -1652,7 +1704,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (TG && camera.position.distanceToSquared(mirror.mesh.getWorldPosition(mirrorAt)) < 30 * 30) mirror.render(renderer, scene, camera);   // only when you're near enough to see it           // the mirror shows your whole self, face included
     lap('Mirror');
     if (!thirdPerson) body?.showHead(false);           // your own eyes don't see your head...
-    if (probe.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
+    if (probe.on || traversalCapture.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
     if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
@@ -1743,6 +1795,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     bar.style.setProperty('--f', Math.max(0, Math.min(1, st.stamina / S.maxStamina)).toFixed(3));
     bar.classList.toggle('exhausted', st.exhausted);
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+    if (traversalCapture.on) {
+      const pos = player.state.pos, nowMs = performance.now(), t = nowMs - traversalCapture.started;
+      if (traversalCapture.lastPos) traversalCapture.distance += Math.hypot(pos.x - traversalCapture.lastPos.x, pos.z - traversalCapture.lastPos.z);
+      traversalCapture.lastPos = { x: pos.x, z: pos.z };
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
+      else { traversalCapture.dropped++; finishTraversalCapture(); }
+      if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
+      else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;
+    }
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
         probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(Number.isFinite(probeInfo.gpu) ? probeInfo.gpu : 0).toFixed(2)} ms total (median: main/postFX ${(Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0).toFixed(2)} + reflections ${(Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0).toFixed(2)}; ${probeInfo.gpuSamples.main.length}/${probeInfo.gpuSamples.reflection.length} samples)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync && !tq ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }

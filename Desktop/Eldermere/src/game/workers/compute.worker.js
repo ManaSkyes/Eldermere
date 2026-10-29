@@ -40,7 +40,7 @@ self.onmessage = ({ data }) => {
         return { id: a.id, x: a.x, z: a.z, tier, meshVisible: tier < 3, effectLod,
           animationEvery, ik: (a.speed > 0.2 || a.act) && (tier === 0 || (tier === 1 && a.distance < 15)) };
       });
-      self.postMessage({ id, type, generation, sequence, workerMs: performance.now() - workerStarted, result: { plans } });
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { generation, sequence, plans } });
     } else if (type === 'npc-ai-sense') {
       // Pure NPC perception math only: no Three.js, DOM, or game-state mutation in a worker.
       const { player, npcs } = payload;

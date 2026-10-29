@@ -38,7 +38,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationFrame = 0;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null, presentationWorkerMs = 0;
-  let presentationPlans = new Map(), nextPresentationId = 1;
+  let presentationPlans = new Map(), presentationDispatchCount = 0, presentationLastError = '', nextPresentationId = 1;
   const PRESENTATION_WORKERS = 2;
   const ensurePresentationPool = () => {
     if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
@@ -47,6 +47,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       const pool = createWorkerPool(PRESENTATION_WORKERS); await pool.ready();
       if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
       presentationPool = pool;
+      for (const w of pool.snapshot().workers) reportProcess('npc-render-worker-'+w.id, { label:'NPC presentation worker '+w.id, kind:'worker', status:'idle', task:'Ready · waiting for presentation batch' });
       reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:'Visual LOD and effect scheduling' });
       return pool;
     })().catch(error => {
@@ -283,7 +284,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     if (!presentationPool) { ensurePresentationPool(); return; }
     const now = performance.now();
     if (presentationPending || now - presentationLastDispatch < 100) return;
-    presentationPending = true; presentationLastDispatch = now;
+    presentationPending = true; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
     const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
@@ -293,9 +294,11 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     Promise.all(chunks.map(actors => presentationPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
       if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
       presentationWorkerMs = Math.max(0, ...results.map(result => result.__timing?.workerMs || 0));
+      presentationLastError = '';
       presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
       presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
     }).catch(error => {
+      presentationLastError = error?.message || 'Presentation task failed';
       reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
       if (presentationMode === 'auto') setPresentationMode('main');
     }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
@@ -526,5 +529,6 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     void kind;
   }
   return { targets, update, reset, units, noise, setAiMode, setPresentationMode, workerSnapshot,
+    presentationSnapshot() { const pool = presentationPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:units.length, pending:presentationPending, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, lastError:presentationLastError, pool }; },
     clearPresentation() { setPresentationMode('main'); } };
 }

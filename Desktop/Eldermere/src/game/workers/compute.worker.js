@@ -9,12 +9,7 @@ self.onmessage = ({ data }) => {
       if (!hidden) for (let i = 0; i < X.length; i++) {
         const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz), far = edges[edges.length - 1];
         if (d > far) continue;
-        if (d > nearShadow) {
-          const sx = X[i], sy = Y[i] + mid * Sc[i], sz = Z[i], r = radius * Sc[i] + 1.5;
-          let outside = false;
-          for (const q of planes) if (q[0] * sx + q[1] * sy + q[2] * sz + q[3] < -r) { outside = true; break; }
-          if (outside) continue;
-        }
+        // Cell-level frustum rejection happens on the main thread; avoid retesting each tree here.
         const wv = edges.map(e => Math.max(3, e * 0.1)), blend = [0, 0, 0];
         for (let b = 0; b < 2; b++) blend[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
         blend[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));

@@ -233,6 +233,9 @@ export function createFoliage(THREE, scene, plants) {
   let last = null, acc = 0;
   return {
     wind, pushers, trees,
+    // Expose the tree system's optional traversal counters to the F8 report.
+    get diagnostics() { return trees.diagnostics; },
+    resetDiagnostics() { trees.resetDiagnostics?.(); },
     bake(renderer) { trees.bake(renderer); },                                                       // (once, when the map's ready: the trees' impostor pictures)
     // each frame, just before drawing: the trees to their levels, and the small plants' buffers refilled when the
     // camera has moved or turned enough (or the F8 panel hid them)

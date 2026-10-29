@@ -341,7 +341,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       const dx = Math.max(cell.x0 - cx, 0, cx - cell.x1), dz = Math.max(cell.z0 - cz, 0, cz - cell.z1);
       if (dx * dx + dz * dz > reach * reach) continue;
       cv.set(cell.cx, cell.cy, cell.cz); sph.set(cv, cell.radius);
-      if (dx * dx + dz * dz > NEAR_SHADOW * NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
+      if (fr && dx * dx + dz * dz > NEAR_SHADOW * NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
       out.push(cell);
     }
     out.tested = tested;
@@ -457,7 +457,9 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           const baseEdges = S.edges;
           const edges = zones.map((z, i) => Math.max(1, Number(z?.radius) || baseEdges[i]));
           for (let i = 1; i < edges.length; i++) edges[i] = Math.max(edges[i], edges[i - 1] + 1);
-          return { edges, candidates: hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, edges[2]) };
+          // LOD-zone mode uses a player-centred distance sphere, not the camera frustum.
+           // Turning the camera must not evict cells or force foliage to be rebuilt.
+           return { edges, candidates: hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, null, edges[2]) };
         });
         let cellsTested = 0, cellsVisited = 0, instancesTested = 0, visibleInstances = 0;
         for (const data of zoneData) { cellsTested += data.candidates.tested; cellsVisited += data.candidates.length; }
@@ -492,14 +494,15 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           workerPending = true;
           const requestGeneration = ++workerGeneration;
           const requestPosition = camera.position.clone();
-          const requestQuaternion = camera.quaternion.clone();
+          
           workerState.status = 'queued · zone workers';
           ensureWorker(tasks.length).then(pool => {
             workerState.workerCount = workerCount;
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
             return pool.runBatch(tasks, 8).then(results => {
-              const cameraStale = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 0.5 || Math.abs(camera.quaternion.dot(requestQuaternion)) < 0.9976;
+              // Camera rotation does not invalidate sphere-based LOD results; only player movement does.
+               const cameraStale = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 0.5;
               if (requestGeneration !== workerGeneration || cameraStale) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
               workerState.lastMs = performance.now() - batchStarted;
               workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;

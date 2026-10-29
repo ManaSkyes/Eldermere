@@ -7,9 +7,12 @@ self.onmessage = ({ data }) => {
       const { X, Y, Z, Sc, cx, cy, cz, mid, edges, hidden, baked, targetLod } = payload;
       const records = [], wv = edges.map(e => Math.max(3, e * 0.1));
       if (!hidden) for (let i = 0; i < X.length; i++) {
-        const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz);
+        const dx = X[i] - cx, dy = Y[i] + mid * Sc[i] - cy, dz = Z[i] - cz;
+        const distanceSq = dx * dx + dy * dy + dz * dz;
         const far = edges[edges.length - 1];
-        if (d > far) continue;
+        // Most candidates outside the outer LOD sphere can be rejected without a square root.
+        if (distanceSq > far * far) continue;
+        const d = Math.sqrt(distanceSq);
         // Cell-level frustum rejection happens on the main thread; avoid retesting each tree here.
         const blend = [0, 0, 0];
         for (let b = 0; b < 2; b++) blend[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));

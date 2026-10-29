@@ -54,6 +54,21 @@ self.onmessage = ({ data }) => {
           animationEvery, ik: (a.speed > 0.2 || a.act) && (tier === 0 || (tier === 1 && a.distance < 15)), pose };
       });
       self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { generation, sequence, plans } });
+    } else if (type === 'creature-ai-sense') {
+      // Worker-safe creature group perception: nearest living member, distance, and alive count.
+      // LOS/occlusion and all behavior/state transitions remain authoritative on the main thread.
+      const { player, groups = [] } = payload || {};
+      const results = groups.map(g => {
+        let nearestD2 = Infinity, nearest = null, aliveCount = 0;
+        for (const m of g.members || []) {
+          if (!m.alive) continue;
+          aliveCount++;
+          const dx = player.x - m.x, dz = player.z - m.z, d2 = dx * dx + dz * dz;
+          if (d2 < nearestD2) { nearestD2 = d2; nearest = m; }
+        }
+        return { key:g.key, aliveCount, nearestD2, nearest:nearest ? { x:nearest.x, y:nearest.y, z:nearest.z, alt:nearest.alt || 0, hover:nearest.hover || 0 } : null };
+      });
+      self.postMessage({ id, ok:true, workerMs:performance.now()-workerStarted, result:{ sequence:payload.sequence, results } });
     } else if (type === 'npc-ai-sense') {
       // Pure NPC perception math only: no Three.js, DOM, or game-state mutation in a worker.
       const { player, npcs } = payload;

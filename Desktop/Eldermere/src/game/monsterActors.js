@@ -78,7 +78,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     } else ensurePresentationPool();
   };
   const getPresentationPlan = (actor, player) => {
-    if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 12)) return null;
+    if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 4)) return null;
     if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
         Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
     const plan = presentationPlans.get(actor.presentationId);
@@ -640,8 +640,12 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
   function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
   function dispatchPresentationPlan(snapshot, player) {
-    const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 12);
-    if (!shouldUseWorker || !snapshot.length) return;
+    const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 4);
+    if (!snapshot.length) return;
+    if (!shouldUseWorker) {
+      if (presentationMode === 'auto') reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:`Auto threshold not reached · ${actors.length}/4 active creatures` });
+      return;
+    }
     if (!presentationPool) { ensurePresentationPool(); return; }
     const now = performance.now();
     if (presentationPending || now - presentationLastDispatch < 80) {

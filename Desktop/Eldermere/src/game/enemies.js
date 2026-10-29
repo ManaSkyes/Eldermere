@@ -35,6 +35,43 @@ const SHOTS = {
 export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {}) {
   let aiMode = 'main', aiPool = null, aiPoolPromise = null, aiGeneration = 0, aiFrame = 0, aiPending = false, aiLastPlayer = null, aiLastDispatch = 0, aiLastWorkerMs = 0;
   const AI_WORKERS = 2;
+  let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
+  let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationFrame = 0;
+  let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null, presentationWorkerMs = 0;
+  let presentationPlans = new Map(), nextPresentationId = 1;
+  const PRESENTATION_WORKERS = 1;
+  const ensurePresentationPool = () => {
+    if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
+    const generation = presentationGeneration;
+    presentationPoolPromise = (async () => {
+      const pool = createWorkerPool(PRESENTATION_WORKERS); await pool.ready();
+      if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
+      presentationPool = pool;
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:'Visual LOD and effect scheduling' });
+      return pool;
+    })().catch(error => {
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+      return null;
+    }).finally(() => { presentationPoolPromise = null; });
+  };
+  const setPresentationMode = mode => {
+    presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
+    if (presentationMode === 'main') {
+      presentationPool?.close(); presentationPool = null; presentationPoolPromise = null;
+      clearProcess('npc-render-queue'); for (let i=1;i<=PRESENTATION_WORKERS;i++) clearProcess('npc-render-worker-'+i);
+      for (const u of units) { u.root.visible = true; }
+    } else ensurePresentationPool();
+    return presentationMode;
+  };
+  const getPresentationPlan = (unit, player) => {
+    if (presentationMode === 'main' || (presentationMode === 'auto' && units.length < 12)) return null;
+    if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
+        Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
+    const plan = presentationPlans.get(unit.presentationId);
+    return plan && Math.hypot(unit.pos.x - plan.x, unit.pos.z - plan.z) <= 2.5 ? plan : null;
+  };
   const setAiMode = mode => {
     aiMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
     aiGeneration++; aiPending = false; aiLastPlayer = null;
@@ -236,7 +273,31 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   // player.sneak: Sneak skill (how fast staying hidden makes them lose you: steeply worse at low skill)
   // returns { detection (0–1, the most any enemy has on you: up to 0.5 suspicious, above that hunting you),
   //           unaware (enemies close by who don't know you're there), escaped (enemies that just gave up on you) }
+  function dispatchPresentationPlan(snapshot, player) {
+    const useWorker = presentationMode === 'worker' || (presentationMode === 'auto' && units.length >= 12);
+    if (!useWorker || !snapshot.length) return;
+    if (!presentationPool) { ensurePresentationPool(); return; }
+    const now = performance.now();
+    if (presentationPending || now - presentationLastDispatch < 100) return;
+    presentationPending = true; presentationLastDispatch = now;
+    const generation = presentationGeneration, sequence = ++presentationSequence;
+    const playerAt = { x:player.pos.x, z:player.pos.z };
+    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:snapshot.length, workerMs:presentationWorkerMs, task:'Planning NPC visual LOD and effect budgets' });
+    presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
+      if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
+      presentationWorkerMs = result.__timing?.workerMs || 0;
+      presentationPlans = new Map((result.plans || []).map(plan => [plan.id, plan]));
+      presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
+    }).catch(error => {
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+    }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
+    const poolState = presentationPool.snapshot();
+    poolState.workers.forEach(w => reportProcess('npc-render-worker-'+w.id, { label:'NPC presentation worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+  }
   function update(dt, player, { hurt, tryBlock, pits = [] }) {
+    presentationFrame++;
+    const visualSnapshots = [];
     let detection = 0, unaware = 0, escaped = 0;
     const p = player.pos, ph = player.height, chest = { x: p.x, y: p.y + ph * 0.6, z: p.z };
     const seen = Math.min(1, Math.max(0.12, player.light ?? 1)) * (player.visibility ?? 1);
@@ -252,6 +313,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       const st = u.st, dx = p.x - u.pos.x, dz = p.z - u.pos.z;
       const cachedSense = u._workerSense, senseFresh = cachedSense && performance.now() - cachedSense.at < 180 && Math.hypot(p.x - cachedSense.px, p.z - cachedSense.pz) < 2.5;
       const dist = senseFresh ? cachedSense.dist : Math.hypot(dx, dz);
+      const visualPlan = getPresentationPlan(u, player);
       // noticing you: by sight, or by hearing (your noise carries `loudness` metres; their hearing stretches it)
       const saw = sees(u, p, ph, seen), heard = senseFresh ? cachedSense.heard : (dist < (player.loudness || 0) * (st.hearing * (st.perception ?? 1) / 14) && Math.abs(p.y - u.pos.y) < 5);
       const close = senseFresh ? cachedSense.close : Math.max(0, 1 - dist / Math.max(1, st.sight * (st.perception ?? 1)));
@@ -351,20 +413,30 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
         u.alive = false; u.fell = true; u.dead = 0.001; u.parts.bar.visible = false; break;
       }
       if (!u.alive) continue;
-      // the model: where it is, which way it faces, a walk cycle, the wind-up pose, a flash when hit
+      // The worker controls mesh visibility/LOD, animation update cadence and effect refresh
+      // from serializable state. Position and gameplay continue updating every frame on main.
       const P = u.parts, bob = Math.sin(u.step * 5);
-      const hop = u.air ? Math.sin(Math.PI * u.air.t / u.air.len) * 2.2 * Math.min(1, u.air.len) : 0;   // launched: up and back down
+      const hop = u.air ? Math.sin(Math.PI * u.air.t / u.air.len) * 2.2 * Math.min(1, u.air.len) : 0;
       u.root.position.set(u.pos.x, u.pos.y + hop + (u.v.look.shape === 'bat' ? Math.sin(performance.now() / 300 + u.home.x) * 0.15 : 0), u.pos.z); u.root.rotation.y = u.yaw;
-      u.root.rotation.x = u.down > 0 && u.arch !== 'swarm' ? -1.3 * Math.min(1, u.down / 0.25) : 0;   // knocked flat on its back
-      if (P.legL) { P.legL.rotation.x = speed ? bob * 0.6 : 0; P.legR.rotation.x = speed ? -bob * 0.6 : 0; }
-      if (P.wingL) { const f = Math.sin(performance.now() / 60); P.wingL.rotation.z = f * 0.7; P.wingR.rotation.z = -f * 0.7; }
-      if (P.arm) P.arm.rotation.x = u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2;
-      for (const m of P.mats) m.emissive?.set(u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000');
+      u.root.rotation.x = u.down > 0 && u.arch !== 'swarm' ? -1.3 * Math.min(1, u.down / 0.25) : 0;
+      const visualEvery = visualPlan?.animationEvery || 1;
+      if (!visualPlan || presentationFrame % visualEvery === 0 || u.flash > 0 || u.wind > 0) {
+        if (P.legL) { P.legL.rotation.x = speed ? bob * 0.6 : 0; P.legR.rotation.x = speed ? -bob * 0.6 : 0; }
+        if (P.wingL) { const f = Math.sin(performance.now() / 60); P.wingL.rotation.z = f * 0.7; P.wingR.rotation.z = -f * 0.7; }
+        if (P.arm) P.arm.rotation.x = u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2;
+        if (!visualPlan || visualPlan.effectLod >= 0.35 || u.flash > 0 || u.wind > 0) for (const m of P.mats) m.emissive?.set(u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000');
+        if (u.ring && (!visualPlan || visualPlan.effectLod > 0.1)) u.ring.material.opacity = 0.35 + 0.35 * Math.sin(performance.now() / 80);
+      }
+      if (visualPlan) u.root.visible = visualPlan.meshVisible;
+      else if (presentationMode === 'main') u.root.visible = true;
       u.flash = Math.max(0, u.flash - dt);
       const showBar = u.hp < st.hp || u.state === 'fight';
-      P.bar.visible = showBar; if (showBar) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }
-      if (u.ring) { u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z); u.ring.material.opacity = 0.35 + 0.35 * Math.sin(performance.now() / 80); }
+      P.bar.visible = showBar && (!visualPlan || visualPlan.meshVisible); if (showBar && P.bar.visible) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }
+      if (u.ring) u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z);
+      visualSnapshots.push({ id:u.presentationId, x:u.pos.x, z:u.pos.z, distance:Math.hypot(u.pos.x-p.x,u.pos.z-p.z), inFrustum:true, visibilityDistance:65,
+        fighting:u.state==='fight', act:u.wind>0, swarmReserve:false, layered:false, layer:0, shown:true, swarm:u.arch==='swarm', rank:null, attacking:u.wind>0, umbrafiend:false, speed });
     }
+    dispatchPresentationPlan(visualSnapshots, player);
     // missiles
     for (let i = shots.length - 1; i >= 0; i--) {
       const s = shots[i]; s.life -= dt;
@@ -444,5 +516,6 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     }
     void kind;
   }
-  return { targets, update, reset, units, noise, setAiMode, workerSnapshot };
+  return { targets, update, reset, units, noise, setAiMode, setPresentationMode, workerSnapshot,
+    clearPresentation() { setPresentationMode('main'); } };
 }

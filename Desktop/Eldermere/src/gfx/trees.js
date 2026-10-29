@@ -24,7 +24,7 @@
 
 const VIEWS = 16, TILE_PX = 128, ATLAS_COLS = 16, ATLAS_ROWS = 16;          // impostor pictures: 16 angles × up to 16 species
 const NEAR_SHADOW = 45;
-const TREE_CELL_SIZE = 64;
+const TREE_CELL_SIZE = 32;
 const LODS = { tree: [45, 130, 300], pine: [45, 130, 300], dead: [45, 120, 260], bush: [30, 80, 180] };
 
 const rng = seed => () => { seed = (seed * 16807 + 11) % 2147483647; return seed / 2147483647; };
@@ -315,7 +315,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     row++;
   }
   let baked = false;
-  const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
+  const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null, cellSignature: null };
   const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
   const visibleCells = (S, cx, cz, fr, far) => {
     const out = [], reach = far + TREE_CELL_SIZE * 0.71;
@@ -384,11 +384,15 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
     cull(camera) {
       const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
-      const hid = !!this.hidden, c0 = camera.position;
-      if (hid === last.hid && Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z) < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === last.fov) { if (timed) diag.skipped++; return; }
+      const hid = !!this.hidden, c0 = camera.position, cameraMoved = Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z), previousHid = last.hid, previousFov = last.fov;
+      if (hid === previousHid && cameraMoved < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === previousFov) { if (timed) diag.skipped++; return; }
       last.hid = hid; last.x = c0.x; last.y = c0.y; last.z = c0.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+      const cellCandidates = sets.map(S => hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]));
+      const cellSignature = cellCandidates.map((cells, si) => si + ':' + cells.map(c => c.key).join(',')).join('|');
+      if (hid === previousHid && cameraMoved < 0.5 && camera.fov === previousFov && last.cellSignature === cellSignature) { if (timed) diag.skipped++; return; }
+      last.cellSignature = cellSignature;
       const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));
       if (useWorker) {
         if (workerPending) { if (timed) diag.skipped++; return; }
@@ -400,7 +404,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         const tasks = [];
         let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
         for (let si = 0; si < sets.length; si++) {
-          const S = sets[si], candidates = this.hidden ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]);
+          const S = sets[si], candidates = cellCandidates[si];
           cellsTested += candidates.tested; cellsVisited += candidates.length;
           for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
             const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
@@ -458,12 +462,11 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       let visibleInstances = 0, cellsTested = 0, cellsVisited = 0, instancesTested = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
-        const candidates = this.hidden ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, far);
+        const candidates = cellCandidates[sets.indexOf(S)];
         cellsTested += candidates.tested; cellsVisited += candidates.length;
         for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
           instancesTested++;
           const dx = S.X[i] - cx, dz = S.Z[i] - cz, d = Math.hypot(dx, S.Y[i] + S.mid * S.Sc[i] - cy, dz); if (d > far) continue;
-          if (d > NEAR_SHADOW) { cv.set(S.X[i], S.Y[i] + S.mid * S.Sc[i], S.Z[i]); sph.set(cv, S.rad * S.Sc[i] + 1.5); if (!fr.intersectsSphere(sph)) continue; }
           // how far across each boundary this tree is (0 before it, 1 past it); the last is the fade out at the far edge
           const t = [0, 0, 0]; for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (E[b] - wv[b])) / (2 * wv[b]))); t[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
           if (!baked) { t[1] = t[2]; }                                                          // (before the pictures exist, the mid model goes all the way)

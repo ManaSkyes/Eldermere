@@ -1222,7 +1222,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   root.querySelector('.play').appendChild(probeEl);
   const assignmentEl = document.createElement('div');
   assignmentEl.hidden = true;
-  assignmentEl.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
+  assignmentEl.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(10,11,28,.99);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:hidden;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
   assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
     <p style="font-size:11px;opacity:.85">Dynamic scheduling workspace. LOD buffer uploads and WebGL scene changes remain on the main thread; worker mode is only active for systems with a worker-backed task route.</p>
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
@@ -1249,9 +1249,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerHeader.appendChild(schedulerClose);
   const schedulerNav = document.createElement('nav');
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
-  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:sticky;top:-1px;background:rgba(10,11,28,.98);z-index:2';
+  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
   const schedulerWorkspace = document.createElement('div');
-  schedulerWorkspace.style.cssText = 'min-height:0;flex:1;overflow:auto';
+  schedulerWorkspace.style.cssText = 'display:block;min-height:0;min-width:0;flex:1 1 auto;overflow:auto;width:100%;box-sizing:border-box;color:#e8e4f4';
   const schedulerLargePanel = document.createElement('section');
   schedulerLargePanel.dataset.schedulerPanel = 'largeFoliage';
   schedulerLargePanel.style.cssText = 'display:flex;flex-direction:column;gap:12px;max-width:1500px;margin:0 auto';
@@ -1348,7 +1348,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     });
     const tableScroller=document.createElement('div'); tableScroller.style.cssText='overflow-x:auto;padding:10px;background:rgba(255,255,255,.025);border:1px solid #383356;border-radius:8px'; tableScroller.appendChild(table); panel.appendChild(tableScroller);
     const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
-    status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':category.id==='ai'?'Live worker pipeline: editor-placed NPC sensory candidate math. F8-spawned creature AI remains main-thread-only (*). Monitor worker assignments with F2.':category.id==='npcs'?'Worker mode parallelizes CPU-side visibility/LOD and simple-enemy pose/effect calculations across two workers. Creature actors use worker-computed LOD, animation cadence and effect budgets; their full bone-pose math, particle simulation, procedural mesh construction and WebGL uploads remain main-thread-only (*). Auto uses workers at 12 active actors.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
+    status.textContent=category.id==='smallFoliage'?'Live renderer exists: small foliage uses the shared live LOD-zone policy configured in Large foliage. Independent worker routing * is not connected yet.':category.id==='ai'?'Live worker pipeline: editor-placed NPC sensory candidate math. F8-spawned creature AI remains main-thread-only (*). Monitor worker assignments with F2.':category.id==='npcs'?'Worker mode parallelizes CPU-side visibility/LOD and simple-enemy pose/effect calculations across two workers. Creature actors use worker-computed LOD, animation cadence and effect budgets; their full bone-pose math, particle simulation, procedural mesh construction and WebGL uploads remain main-thread-only (*). Auto uses workers at 4 active actors.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
     panel.appendChild(status);
     const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:lodZoneScheduler.snapshot().zones.map(z=>({...z}))};setSchedulerCategoryMode(category.id,'main');renderSchedulerTabs();}); panel.appendChild(reset);
     return panel;
@@ -1378,6 +1378,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       schedulerNav.appendChild(tabGroup); schedulerTabButtons.set(category.id,button);
       const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
       panel.hidden=category.id!==activeSchedulerCategory;
+      if (!panel.hidden) { panel.style.display='flex'; panel.style.visibility='visible'; }
       schedulerWorkspace.appendChild(panel);
     });
   };

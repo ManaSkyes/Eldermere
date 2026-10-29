@@ -1135,7 +1135,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
   const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
   // Live traversal capture: bounded per-frame samples while the player explores normally.
-  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
+  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, frameId: 0, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
@@ -1314,7 +1314,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
     const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };
     const hitches = a.filter(q => q.frameMs >= 25).sort((x,y) => y.frameMs - x.frameMs).slice(0, 12);
-    const hitchLines = hitches.map(q => { const glFmt = (key) => `${q.glCalls?.[key] || 0} calls/${(q.glMs?.[key] || 0).toFixed(2)}ms`; return `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · ${traversalCapture.shadowMapHook ? `shadow maps ${(q.shadowMapMs||0).toFixed(1)}` : 'shadow maps n/a'} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris · shaders compile ${glFmt('shaderCompile')} · link ${glFmt('programLink')} · tex upload ${glFmt('textureUpload')} · buffer upload ${glFmt('bufferUpload')} · programs ${q.programsBefore}→${q.programsAfter} (Δ${q.programDelta}) · geom Δ${q.geometriesDelta} · tex Δ${q.texturesDelta}`; });
+    const hitchLines = hitches.map(q => { const glFmt = (key) => `${q.glCalls?.[key] || 0} calls/${(q.glMs?.[key] || 0).toFixed(2)}ms`; return `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · ${traversalCapture.shadowMapHook ? `shadow maps ${(q.shadowMapMs||0).toFixed(1)}` : 'shadow maps n/a'} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris · GPU main ${Number.isFinite(q.gpuMainMs) ? q.gpuMainMs.toFixed(2)+'ms' : 'pending/n/a'} · GPU reflection ${Number.isFinite(q.gpuReflectionMs) ? q.gpuReflectionMs.toFixed(2)+'ms' : 'pending/n/a'} · shaders compile ${glFmt('shaderCompile')} · link ${glFmt('programLink')} · tex upload ${glFmt('textureUpload')} · buffer upload ${glFmt('bufferUpload')} · programs ${q.programsBefore}→${q.programsAfter} (Δ${q.programDelta}) · geom Δ${q.geometriesDelta} · tex Δ${q.texturesDelta}`; });
     const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
     const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
     const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
@@ -1490,9 +1490,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
   const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   const startGpuQuery = bucket => {
-    if (!probe.on || !probe.sync || !tq || tqList.length >= 8) return null;
+    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= 8) return null;
     const q = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, q);
-    return { q, bucket, mode: gpuModeKey(), benchAcc: bench.on && bench.n > 40 ? bench.acc : null };
+    return { q, bucket, mode: gpuModeKey(), captureFrameId: traversalCapture.on ? traversalCapture.frameId : null, benchAcc: bench.on && bench.n > 40 ? bench.acc : null };
   };
   const endGpuQuery = item => { if (item) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(item); } };
   // "Measure each part": each part of the scene switched off in turn for a moment, the GPU's and the CPU's time
@@ -1650,7 +1650,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!running) return;
     requestAnimationFrame(frame);
     const cpu0 = performance.now(); lapT = cpu0;
-    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; traversalCapture.frameGl = { glCalls: {}, glMs: {}, programsBefore: renderer.info.programs?.length ?? -1, geometriesBefore: renderer.info.memory.geometries, texturesBefore: renderer.info.memory.textures }; }
+    if (traversalCapture.on) { traversalCapture.frameId++; traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; traversalCapture.frameGl = { glCalls: {}, glMs: {}, programsBefore: renderer.info.programs?.length ?? -1, geometriesBefore: renderer.info.memory.geometries, texturesBefore: renderer.info.memory.textures }; }
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
     const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
@@ -1789,6 +1789,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (!glc.getParameter(tq.GPU_DISJOINT_EXT)) {
         const gv = glc.getQueryParameter(item.q, glc.QUERY_RESULT) / 1e6;
         if (item.mode === gpuModeKey()) {
+          if (item.captureFrameId != null) { const captured = traversalCapture.samples.find(q => q.frameId === item.captureFrameId); if (captured) captured[item.bucket === 'main' ? 'gpuMainMs' : 'gpuReflectionMs'] = gv; }
           const samples = probeInfo.gpuSamples[item.bucket]; samples.push(gv); if (samples.length > 30) samples.shift();
           probeInfo.gpuMain = median(probeInfo.gpuSamples.main); probeInfo.gpuReflection = median(probeInfo.gpuSamples.reflection);
           probeInfo.gpu = (Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0) + (Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0);
@@ -1869,7 +1870,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (traversalCapture.lastCameraQ) traversalCapture.lastCameraQ.copy(camera.quaternion); else traversalCapture.lastCameraQ = camera.quaternion.clone();
       const stages = traversalCapture.frameStages || {}, glf = traversalCapture.frameGl || { glCalls: {}, glMs: {}, programsBefore: -1, geometriesBefore: 0, texturesBefore: 0 };
       const programsAfter = renderer.info.programs?.length ?? -1;
-      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, x: pos.x, y: pos.y, z: pos.z });
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ frameId: traversalCapture.frameId, gpuMainMs: NaN, gpuReflectionMs: NaN, t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, x: pos.x, y: pos.y, z: pos.z });
       traversalCapture.frameGl = null;
       else { traversalCapture.dropped++; finishTraversalCapture(); }
       if (t >= 300000 && traversalCapture.on) finishTraversalCapture();

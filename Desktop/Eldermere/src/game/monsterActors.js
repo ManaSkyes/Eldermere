@@ -186,7 +186,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const rk = LV ? 1 : RANK_K[rank || M.rank[0]] || 1, K = scale || {}, S = { ...B0, hp: B0.hp * (K.hp ?? 1), speed: B0.speed * (K.speed ?? 1), aggro: B0.aggro * (K.sight ?? 1) };
     const A = { id, M, C, mo, S, group, level, presentationId: nextPresentationActorId++, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
-      alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, bar: bar() };
+      alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
     scene.add(C.root); A.attached = true; C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
     A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0;   // (a swarm starts up high) A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;
     mo.onCommit = (dx, dz) => { const c = Math.cos(A.yaw), s = Math.sin(A.yaw); A.pos.x += dx * c + dz * s; A.pos.z += -dx * s + dz * c; if (A.landDy) { A.pos.y += A.landDy; A.landDy = 0; } A.gx = 1e9; if (!M.flight && shapes.length) { const r = settle(A, A.pos.x, A.pos.z); A.pos.x = r.x; A.pos.z = r.z; } };
@@ -828,7 +828,25 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       // and distant glow sprites are reduced to make large packs affordable.
       if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
       const behaviorStartedAt = sampleActor ? performance.now() : 0;
-      const speed = memberThink(A, dt, player);
+      // Off-screen actors still participate in combat and group behavior, but their decision/movement
+      // step only needs to run at 12 Hz. Keep elapsed time so cooldowns and movement remain time-based;
+      // active moves still use the normal path and continue advancing below.
+      let speed;
+      if (tier >= 3 && !A.mo.actName) {
+        A.behaviorLodDt = (A.behaviorLodDt || 0) + dt;
+        if (A.behaviorLodDt >= 1 / 12) {
+          const behaviorDt = Math.min(A.behaviorLodDt, 0.12);
+          A.behaviorLodDt -= behaviorDt;
+          speed = memberThink(A, behaviorDt, player);
+          A.moveSpeed = speed;
+        } else {
+          speed = A.moveSpeed || 0;
+        }
+      } else {
+        A.behaviorLodDt = 0;
+        speed = memberThink(A, dt, player);
+        A.moveSpeed = speed;
+      }
       if (sampleActor) actorStageMs.behavior += performance.now() - behaviorStartedAt;
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
       // the ground under it, when it has moved: a walker every 0.35 m; a flyer only every 1.5 m (it isn't standing on it), and

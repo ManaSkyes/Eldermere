@@ -327,7 +327,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       last.hid = hid; last.x = c0.x; last.y = c0.y; last.z = c0.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
-      const scanStarted = timed ? performance.now() : 0;
+      const scanStarted = timed ? performance.now() : 0, bufferBefore = timed ? diag.bufferMs : 0;
       let visibleInstances = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
@@ -346,13 +346,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           }
         }
         visibleInstances += cnt[0] + cnt[1] + cnt[2];
-        if (timed) diag.scanMs += 0; // scan timing is recorded around the full per-species loop below
+        const bufferStarted = timed ? performance.now() : 0;
         for (let L = 0; L < 3; L++) { const m = M[L]; m.count = cnt[L]; if (cnt[L]) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aF.needsUpdate = true; m.geometry.attributes.aR.needsUpdate = true; } }
+        if (timed) diag.bufferMs += performance.now() - bufferStarted;
       }
       if (timed) {
         const elapsed = performance.now() - started;
         diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances;
-        diag.scanMs += Math.max(0, performance.now() - scanStarted);
+        diag.scanMs += Math.max(0, performance.now() - scanStarted - (diag.bufferMs - bufferBefore));
       }
     },
   };

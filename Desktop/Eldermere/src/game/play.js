@@ -1377,8 +1377,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       tabGroup.append(button,modeSelect);
       schedulerNav.appendChild(tabGroup); schedulerTabButtons.set(category.id,button);
       const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
-      panel.hidden=category.id!==activeSchedulerCategory;
-      if (!panel.hidden) { panel.style.display='flex'; panel.style.visibility='visible'; }
+      const panelActive = category.id === activeSchedulerCategory;
+      panel.hidden = !panelActive;
+      panel.style.display = panelActive ? 'flex' : 'none';
+      panel.style.visibility = panelActive ? 'visible' : 'hidden';
       schedulerWorkspace.appendChild(panel);
     });
   };

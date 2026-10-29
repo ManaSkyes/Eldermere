@@ -19,6 +19,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     worker.busy = true;
     worker.jobId = job.id;
     worker.taskType = job.type;
+    worker.lastTaskType = job.type;
     const startedAt = performance.now();
     pending.set(job.id, { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt });
     try {
@@ -32,7 +33,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
   };
 
   for (let i = 0; i < count; i++) {
-    const worker = { index: i + 1, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }), busy: false, jobId: null, taskType: '' };
+    const worker = { index: i + 1, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }), busy: false, jobId: null, taskType: '', lastTaskType: '' };
     workers.push(worker);
     worker.instance.addEventListener('message', event => {
       const message = event.data || {};
@@ -62,7 +63,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
   return {
     size: count,
     ready: () => ready,
-    snapshot() { return { size: count, queued: queue.length, workers: workers.map(w => ({ id: w.index, busy: w.busy, task: w.taskType || '', jobId: w.jobId })) }; },
+    snapshot() { return { size: count, queued: queue.length, workers: workers.map(w => ({ id: w.index, busy: w.busy, task: w.taskType || '', lastTask: w.lastTaskType || '', jobId: w.jobId })) }; },
     run(type, payload) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {

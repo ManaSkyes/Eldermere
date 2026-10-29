@@ -500,7 +500,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             workerState.workerCount = workerCount;
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
-            return pool.runBatch(tasks, 8).then(results => {
+            return pool.runBatch(tasks, 12).then(results => {
               // Apply completed work as an interim frame even if the player moved during the batch.
               // Discarding every result after only 0.5 m of movement starves LOD updates while running.
               // A larger displacement triggers an immediate follow-up refresh after this batch is applied.

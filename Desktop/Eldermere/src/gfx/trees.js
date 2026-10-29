@@ -536,7 +536,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               }
               workerState.applyMs = performance.now() - applyStarted;
               lodZoneNeedsInitialRefresh = playerMoved;
-              // Keep the request origin as the applied origin. If movement exceeded 4 m while
+              // Keep the request origin as the applied origin. If movement exceeded 1.5 m while
               // workers ran, the next render tick immediately schedules a corrected sphere scan.
               last.hid = hid; last.x = requestPosition.x; last.y = requestPosition.y; last.z = requestPosition.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
               if (timed) { const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances; }

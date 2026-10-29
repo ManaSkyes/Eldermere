@@ -653,7 +653,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     presentationPending = true; presentationLastDispatch = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Planning mesh LOD, animation cadence and effects' });
+    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets' });
     presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
       if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
       presentationWorkerMs = result.__timing?.workerMs || 0;

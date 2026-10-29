@@ -326,9 +326,9 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       tested++;
       const cell = S.cellLookup.get(gx + ',' + gz); if (!cell) continue;
       const dx = Math.max(cell.x0 - cx, 0, cx - cell.x1), dz = Math.max(cell.z0 - cz, 0, cz - cell.z1);
-      if (Math.hypot(dx, dz) > reach) continue;
+      if (dx * dx + dz * dz > reach * reach) continue;
       cv.set(cell.cx, cell.cy, cell.cz); sph.set(cv, cell.radius);
-      if (Math.hypot(dx, dz) > NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
+      if (dx * dx + dz * dz > NEAR_SHADOW * NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
       out.push(cell);
     }
     out.tested = tested;
@@ -465,7 +465,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         cellsTested += candidates.tested; cellsVisited += candidates.length;
         for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
           instancesTested++;
-          const dx = S.X[i] - cx, dz = S.Z[i] - cz, d = Math.hypot(dx, S.Y[i] + S.mid * S.Sc[i] - cy, dz); if (d > far) continue;
+          const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;\n          // Cheap spherical rejection before the square root needed for smooth LOD transitions.\n          if (dx * dx + dy * dy + dz * dz > far * far) continue;\n          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
           // how far across each boundary this tree is (0 before it, 1 past it); the last is the fade out at the far edge
           const t = [0, 0, 0]; for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (E[b] - wv[b])) / (2 * wv[b]))); t[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
           if (!baked) { t[1] = t[2]; }                                                          // (before the pictures exist, the mid model goes all the way)

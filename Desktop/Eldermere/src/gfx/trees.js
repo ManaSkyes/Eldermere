@@ -227,10 +227,17 @@ const TREE_WIND = TILE => `${windCore(TILE)}
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
-  let workerMode = 'main', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerGeneration = 0;
+  let workerMode = 'main', workerAllocationMode = 'auto', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerLimit = 12, workerGeneration = 0;
   const TREE_WORKER_CHUNK_SIZE = 1024;
-  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
-  const ensureWorker = async () => {
+  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, workerLimit, workerAllocationMode, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
+  const ensureWorker = async (queuedTasks = 1) => {
+    if (workerAllocationMode === 'auto') {
+      // Grow only when a batch has enough independent chunks to keep more workers busy.
+      // Auto mode scales up to the configured cap and stays there to avoid pool churn.
+      const desired = Math.max(workerCount, Math.min(workerLimit, Math.max(1, Math.floor(queuedTasks))));
+      workerCount = desired;
+      workerState.workerCount = workerCount;
+    }
     if (!workerPool || workerPool.size !== workerCount) {
       if (workerPool) workerPool.close();
       const { createWorkerPool } = await import('../game/workers/workerPool.js');
@@ -374,9 +381,29 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     workerState,
     get workerMode() { return workerMode; },
     get workerCount() { return workerCount; },
+    get workerAllocationMode() { return workerAllocationMode; },
+    get workerLimit() { return workerLimit; },
+    setWorkerAllocationMode(mode) {
+      workerAllocationMode = mode === 'manual' ? 'manual' : 'auto';
+      workerState.workerAllocationMode = workerAllocationMode;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · allocation change pending' : 'pool allocation updated');
+      last.x = 1e9;
+    },
+    setWorkerLimit(count) {
+      workerLimit = Math.max(1, Math.min(12, Math.floor(Number(count) || 12)));
+      workerState.workerLimit = workerLimit;
+      if (workerAllocationMode === 'auto') workerCount = Math.min(workerCount, workerLimit);
+      workerState.workerCount = workerCount;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      last.x = 1e9;
+    },
     setWorkerCount(count) {
       workerCount = Math.max(1, Math.min(12, Math.floor(Number(count) || 2)));
+      workerLimit = workerCount;
+      workerAllocationMode = 'manual';
       workerState.workerCount = workerCount;
+      workerState.workerLimit = workerLimit;
+      workerState.workerAllocationMode = workerAllocationMode;
       workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
       last.x = 1e9;
     },
@@ -406,44 +433,117 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
       if (policyActive) {
-        // Policy-driven updates stay on the main thread for now: worker results are
-        // still generation-checked, but this path needs per-LOD buffer ownership.
-        // Three.js instance-buffer writes never leave the main thread.
+        // Each live zone owns a separate LOD buffer and refresh interval. Worker tasks
+        // calculate serializable records only; instance buffers are always written here.
         const zones = [1, 2, 3].map(id => lodZonePolicy.zones.find(z => z.id === id) || null);
         const due = zones.map((z, i) => !!z && (lodZoneNeedsInitialRefresh || (lodRenderFrame % Math.max(1, Math.floor(Number(z.interval) || 1)) === 0) || (z.enabled === false && !lodZoneWasDisabled[i])));
         if (!due.some(Boolean)) { if (timed) diag.skipped++; return; }
         const policyStarted = timed ? performance.now() : 0;
-        let cellsTested = 0, cellsVisited = 0, instancesTested = 0, visibleInstances = 0;
-        for (const S of sets) {
+        const totalTrees = sets.reduce((n, S) => n + S.n, 0);
+        const useZoneWorkers = !workerFailed && workerMode !== 'main' && (workerMode === 'worker' || totalTrees >= 200);
+        const zoneData = sets.map(S => {
           const baseEdges = S.edges;
           const edges = zones.map((z, i) => Math.max(1, Number(z?.radius) || baseEdges[i]));
           for (let i = 1; i < edges.length; i++) edges[i] = Math.max(edges[i], edges[i - 1] + 1);
-          const candidates = hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, edges[2]);
-          cellsTested += candidates.tested; cellsVisited += candidates.length;
-          const wv = edges.map(e => Math.max(3, e * 0.1));
+          return { edges, candidates: hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, edges[2]) };
+        });
+        let cellsTested = 0, cellsVisited = 0, instancesTested = 0, visibleInstances = 0;
+        for (const data of zoneData) { cellsTested += data.candidates.tested; cellsVisited += data.candidates.length; }
+        if (useZoneWorkers) {
+          if (workerPending) { if (timed) diag.skipped++; return; }
+          const tasks = [];
+          for (let si = 0; si < sets.length; si++) {
+            const S = sets[si], { edges, candidates } = zoneData[si];
+            for (let L = 0; L < 3; L++) {
+              if (!due[L] || !zones[L] || zones[L].enabled === false || hid || L >= (baked ? 3 : 2)) continue;
+              for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
+                const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
+                instancesTested += end - offset;
+                tasks.push({ si, lod: L, offset, type: 'tree-cull', payload: {
+                  X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
+                  cx, cy, cz, mid: S.mid, edges, hidden: false, baked, targetLod: L
+                }});
+              }
+            }
+          }
+          for (let L = 0; L < 3; L++) if (due[L] && (!zones[L] || zones[L].enabled === false || hid || L >= (baked ? 3 : 2))) {
+            for (const S of sets) S.meshes[L].count = 0;
+            lodZoneWasDisabled[L] = true;
+          }
+          for (let L = 0; L < 3; L++) if (due[L] && zones[L]?.enabled !== false && !hid && L < (baked ? 3 : 2)) lodZoneWasDisabled[L] = false;
+          if (!tasks.length) {
+            lodZoneNeedsInitialRefresh = false;
+            workerState.status = 'zone-scheduled · no worker tasks';
+            return;
+          }
+          if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
+          workerPending = true;
+          const requestGeneration = ++workerGeneration;
+          const requestPosition = camera.position.clone();
+          const requestQuaternion = camera.quaternion.clone();
+          workerState.status = 'queued · zone workers';
+          ensureWorker(tasks.length).then(pool => {
+            workerState.workerCount = workerCount;
+            workerState.status = 'running · zone workers';
+            const batchStarted = performance.now();
+            return pool.runBatch(tasks).then(results => {
+              const cameraStale = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 0.5 || Math.abs(camera.quaternion.dot(requestQuaternion)) < 0.9976;
+              if (requestGeneration !== workerGeneration || cameraStale) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
+              workerState.lastMs = performance.now() - batchStarted;
+              workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
+              workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
+              workerState.dispatchMs = results.reduce((n, r) => n + (r.__timing?.dispatchMs || 0), 0);
+              workerState.jobs++; workerState.status = 'ready · zone workers';
+              if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
+              const applyStarted = performance.now();
+              const countsBySet = sets.map(() => [0, 0, 0]);
+              for (let ri = 0; ri < results.length; ri++) {
+                const result = results[ri], task = tasks[ri], S = sets[task.si], L = task.lod, mesh = S.meshes[L], counts = countsBySet[task.si];
+                for (const [localIndex, _lod, lo, hi] of result.records) {
+                  const i = task.offset + localIndex, j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
+                  const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
+                  a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+                  mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+                  const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+                }
+              }
+              for (let si = 0; si < sets.length; si++) for (let L = 0; L < 3; L++) {
+                if (!due[L]) continue;
+                const mesh = sets[si].meshes[L], count = countsBySet[si][L]; mesh.count = count; visibleInstances += count;
+                if (count) {
+                  const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
+                  for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+                }
+              }
+              workerState.applyMs = performance.now() - applyStarted;
+              lodZoneNeedsInitialRefresh = false;
+              last.hid = hid; last.x = cx; last.y = cy; last.z = cz; last.q.copy(camera.quaternion); last.fov = camera.fov;
+              if (timed) { const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances; }
+            });
+          }).catch(error => {
+            workerFailed = true; workerState.status = 'failed · main-thread fallback';
+            workerState.error = error?.message || String(error); diagnostics.workerError = workerState.error; workerMode = 'main'; lodZoneNeedsInitialRefresh = true;
+          }).finally(() => { workerPending = false; });
+          return;
+        }
+        for (const S of sets) {
+          const { edges, candidates } = zoneData[sets.indexOf(S)], wv = edges.map(e => Math.max(3, e * 0.1));
           for (let L = 0; L < 3; L++) {
             if (!due[L]) continue;
             const zone = zones[L], mesh = S.meshes[L];
-            if (!zone || zone.enabled === false || hid) {
-              // The instance count controls visibility; no zero-length GPU upload is needed.
-              mesh.count = 0;
-              lodZoneWasDisabled[L] = true;
-              continue;
+            if (!zone || zone.enabled === false || hid || L >= (baked ? 3 : 2)) {
+              mesh.count = 0; lodZoneWasDisabled[L] = true; continue;
             }
             lodZoneWasDisabled[L] = false;
-            const cnt = 0;
-            let count = cnt;
-            const E = edges, lodOn = baked ? 3 : 2;
+            let count = 0;
             for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
               instancesTested++;
               const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;
-              if (dx * dx + dy * dy + dz * dz > E[2] * E[2]) continue;
-              const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-              const t = [0, 0, 0];
-              for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (E[b] - wv[b])) / (2 * wv[b])));
-              t[2] = Math.min(1, Math.max(0, (d - (E[2] - wv[2])) / wv[2]));
+              if (dx * dx + dy * dy + dz * dz > edges[2] * edges[2]) continue;
+              const d = Math.sqrt(dx * dx + dy * dy + dz * dz), t = [0, 0, 0];
+              for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
+              t[2] = Math.min(1, Math.max(0, (d - (edges[2] - wv[2])) / wv[2]));
               if (!baked) t[1] = t[2];
-              if (L >= lodOn) continue;
               const lo = L === 0 ? 0 : 1 - t[L - 1], hi = 1 - t[L];
               if (lo >= hi) continue;
               const j = count++, c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i], a = mesh.instanceMatrix.array, o = j * 16;
@@ -451,8 +551,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
               const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
             }
-            mesh.count = count;
-            visibleInstances += count;
+            mesh.count = count; visibleInstances += count;
             if (count) {
               const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
               for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
@@ -465,7 +564,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; diag.instances += visibleInstances;
           const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed);
         }
-        workerState.status = workerMode === 'main' ? 'zone-scheduled · main thread' : 'zone-scheduled · main-thread buffer route';
+        workerState.status = 'zone-scheduled · main thread';
         return;
       }
       const cellCandidates = sets.map(S => hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]));

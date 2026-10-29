@@ -399,7 +399,6 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         workerPending = true;
         const queuedAt = performance.now();
         workerState.status = 'queued';
-        const planes = fr.planes.map(p => [p.normal.x, p.normal.y, p.normal.z, p.constant]);
         // Split species into bounded chunks so large species can keep workers busy.
         const tasks = [];
         let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
@@ -411,7 +410,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             instancesTested += end - offset;
             tasks.push({ si, offset, type: 'tree-cull', payload: {
               X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
-              cx, cy, cz, planes, radius: S.rad, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked, nearShadow: NEAR_SHADOW
+              cx, cy, cz, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked
             }});
           }
         }

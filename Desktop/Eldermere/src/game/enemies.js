@@ -428,7 +428,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
         if (u.ring && (!visualPlan || visualPlan.effectLod > 0.1)) u.ring.material.opacity = 0.35 + 0.35 * Math.sin(performance.now() / 80);
       }
       if (visualPlan) u.root.visible = visualPlan.meshVisible;
-      else if (presentationMode === 'main') u.root.visible = true;
+      else u.root.visible = true;
       u.flash = Math.max(0, u.flash - dt);
       const showBar = u.hp < st.hp || u.state === 'fight';
       P.bar.visible = showBar && (!visualPlan || visualPlan.meshVisible); if (showBar && P.bar.visible) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }

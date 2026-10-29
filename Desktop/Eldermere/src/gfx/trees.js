@@ -388,6 +388,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     },
     resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
     setLodZonePolicy(policy) {
+      // Invalidate any worker batch created under the previous policy before buffers switch routes.
+      workerGeneration++;
       lodZonePolicy = policy || null;
       lodZoneNeedsInitialRefresh = true;
       lodRenderFrame = 0;
@@ -423,14 +425,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             if (!due[L]) continue;
             const zone = zones[L], mesh = S.meshes[L];
             if (!zone || zone.enabled === false || hid) {
+              // The instance count controls visibility; no zero-length GPU upload is needed.
               mesh.count = 0;
-              if (mesh.count === 0) {
-                for (const attr of [mesh.instanceMatrix, mesh.instanceColor, mesh.geometry.attributes.aF, mesh.geometry.attributes.aR]) {
-                  if (attr.clearUpdateRanges) attr.clearUpdateRanges();
-                  if (attr.addUpdateRange) attr.addUpdateRange(0, 0);
-                  attr.needsUpdate = true;
-                }
-              }
               lodZoneWasDisabled[L] = true;
               continue;
             }

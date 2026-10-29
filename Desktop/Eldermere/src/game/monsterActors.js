@@ -672,7 +672,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if (presentationPending || now - presentationLastDispatch < 80) {
       const snap = sharedPool.snapshot();
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:presentationPending?'busy':'idle', queued:snap.queued, workerMs:presentationWorkerMs, task:'Mesh LOD · animation cadence · effects · CPU '+presentationWorkerMs.toFixed(2)+' ms / queue '+presentationQueueMs.toFixed(2)+' ms / transfer '+presentationDispatchMs.toFixed(2)+' ms' });
-      snap.workers.forEach(w => reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+      snap.workers.forEach(w => reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
       return;
     }
     presentationPending = true; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
@@ -681,7 +681,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
     const chunks = [];
     for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
-    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
+    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });\n    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
     Promise.all(chunks.map(actors => sharedPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
       if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
       presentationWorkerMs = results.reduce((n, result) => n + (result.__timing?.workerMs || 0), 0); presentationQueueMs = results.reduce((n, result) => n + (result.__timing?.queueMs || 0), 0); presentationDispatchMs = results.reduce((n, result) => n + (result.__timing?.dispatchMs || 0), 0);
@@ -692,9 +692,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       presentationLastError = error?.message || 'Presentation task failed';
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
       if (presentationMode === 'auto') setPresentationMode('main');
-    }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
+    }).finally(() => { if (generation === presentationGeneration) presentationPending = false; const snap=sharedPool?.snapshot?.(); if(snap){for(const w of snap.workers)reportProcess('shared-worker-'+w.id,{label:'Shared worker '+w.id,kind:'worker',status:w.busy?'busy':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for shared work')});reportProcess('shared-worker-queue',{label:'Shared worker scheduler',kind:'worker',status:snap.queued||snap.busy?'busy':'idle',queued:snap.queued,task:'Shared FIFO · '+snap.busy+'/'+snap.active+' busy · '+snap.queued+' queued'});} });
     const snap = sharedPool.snapshot();
-    snap.workers.forEach(w => reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+    snap.workers.forEach(w => reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
   }
   function update(dt, player, hooks = {}) {
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }

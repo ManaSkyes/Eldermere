@@ -66,7 +66,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     return presentationMode;
   };
   const getPresentationPlan = (unit, player) => {
-    if (presentationMode === 'main' || (presentationMode === 'auto' && units.length < 12)) return null;
+    if (presentationMode === 'main' || (presentationMode === 'auto' && units.length < 4)) return null;
     if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
         Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
     const plan = presentationPlans.get(unit.presentationId);
@@ -274,8 +274,12 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   // returns { detection (0–1, the most any enemy has on you: up to 0.5 suspicious, above that hunting you),
   //           unaware (enemies close by who don't know you're there), escaped (enemies that just gave up on you) }
   function dispatchPresentationPlan(snapshot, player) {
-    const useWorker = presentationMode === 'worker' || (presentationMode === 'auto' && units.length >= 12);
-    if (!useWorker || !snapshot.length) return;
+    const useWorker = presentationMode === 'worker' || (presentationMode === 'auto' && units.length >= 4);
+    if (!snapshot.length) return;
+    if (!useWorker) {
+      if (presentationMode === 'auto') reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:`Auto threshold not reached · ${units.length}/4 active NPCs` });
+      return;
+    }
     if (!presentationPool) { ensurePresentationPool(); return; }
     const now = performance.now();
     if (presentationPending || now - presentationLastDispatch < 100) return;

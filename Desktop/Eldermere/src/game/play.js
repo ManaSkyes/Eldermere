@@ -1611,6 +1611,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!running) return;
     requestAnimationFrame(frame);
     const cpu0 = performance.now(); lapT = cpu0;
+    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; }
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
     const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
@@ -1821,7 +1822,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     bar.classList.toggle('exhausted', st.exhausted);
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
     if (traversalCapture.on) {
-      traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0;
       const pos = player.state.pos, nowMs = performance.now(), t = nowMs - traversalCapture.started;
       if (traversalCapture.lastPos) traversalCapture.distance += Math.hypot(pos.x - traversalCapture.lastPos.x, pos.z - traversalCapture.lastPos.z);
       traversalCapture.lastPos = { x: pos.x, z: pos.z };

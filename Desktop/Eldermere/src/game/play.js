@@ -1228,7 +1228,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <label style="display:block;margin:8px 0">Worker allocation <select data-assignment-allocation><option value="auto" selected>Auto · grow with queued work</option><option value="manual">Manual · fixed count</option></select></label>
     <label style="display:block;margin:8px 0">Worker limit / manual count <select data-assignment-workers><option value="1">1 worker</option><option value="2">2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12" selected>12 workers</option></select></label>
     <div style="font-size:11px;opacity:.8">Auto starts small and grows the pool when a zone refresh creates more independent 1,024-tree chunks, up to the selected limit. Manual keeps the pool at the selected count. GPU uploads stay on the main thread.</div>
-    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure live distance bands and refresh rates for trees and bushes. Small-foliage-specific routing and zones 4–5 are not implemented yet (*). Per-zone worker assignment is a UI setting only (*).</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · vegetation LOD routing active</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
+    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure live distance bands and refresh rates for trees, bushes, and small foliage. Independent small-foliage worker execution and zones 4–5 are not implemented yet (*). Per-zone worker assignment is a UI setting only (*).</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · vegetation LOD routing active</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
     <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px;white-space:pre-wrap">Waiting for tree system…</div>
     <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
@@ -1415,6 +1415,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   });
   assignmentEl.querySelector('[data-assignment-reset]').addEventListener('click', () => {
     assignmentEl.querySelector('[data-assignment="trees"]').value = 'auto';
+    schedulerProfiles.largeFoliage.mode = 'auto';
+    largeModeSelect.value = 'auto';
     assignmentEl.querySelector('[data-assignment-allocation]').value = 'auto';
     assignmentEl.querySelector('[data-assignment-workers]').value = '12';
     dungeonLights?.foliage?.setWorkerMode('auto');
@@ -1427,7 +1429,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     assignmentRefreshAt = performance.now() + 350;
     const foliage = dungeonLights?.foliage, state = foliage?.workerState, mode = foliage?.workerMode || 'main';
     assignmentEl.querySelector('[data-assignment-tree-status]').textContent = foliage
-      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nWorkers: ${state?.workerCount || foliage?.workerCount || 2} · chunk size: ${state?.chunkSize || 1024}\nBatch wall time: ${(state?.lastMs || 0).toFixed(2)} ms · avg queue wait: ${(state?.queueMs || 0).toFixed(2)} ms\nSum worker CPU: ${(state?.workerMs || 0).toFixed(2)} ms · dispatch/clone: ${(state?.dispatchMs || 0).toFixed(2)} ms · apply buffers: ${(state?.applyMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
+      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nWorkers: ${state?.workerCount || foliage?.workerCount || 2} · allocation: ${state?.workerAllocationMode || foliage?.workerAllocationMode || 'auto'} · cap: ${state?.workerLimit || foliage?.workerLimit || 12} · chunk size: ${state?.chunkSize || 1024}\nBatch wall time: ${(state?.lastMs || 0).toFixed(2)} ms · avg queue wait: ${(state?.queueMs || 0).toFixed(2)} ms\nSum worker CPU: ${(state?.workerMs || 0).toFixed(2)} ms · dispatch/clone: ${(state?.dispatchMs || 0).toFixed(2)} ms · apply buffers: ${(state?.applyMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
       : 'No foliage/tree system on this map.';
     assignmentEl.querySelector('[data-assignment-pool]').textContent = state?.error || state?.status || 'Main thread (default)';
     const select = assignmentEl.querySelector('[data-assignment="trees"]');

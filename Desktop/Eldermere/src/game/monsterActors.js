@@ -818,7 +818,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       let tier;
       if (presentation) tier = presentation.tier;
       else {
-        tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
+        // Only nearby fighters need full-rate idle/combat pose work; active moves stay full-rate up to 30 m.
+        tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 15 ? 0 : d < 35 ? 1 : 2;
         // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
         // Keep only the first 30 bat visuals while that merged swarm is idle; their AI/combat remains active.
         if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;

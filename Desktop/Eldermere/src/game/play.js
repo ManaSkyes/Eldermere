@@ -1147,6 +1147,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (timed) { const elapsed = performance.now() - t0; traversalCapture.renderCallMs += elapsed; const key = traversalCapture.stage === 'reflections' ? 'reflectionCallsMs' : traversalCapture.stage === 'main+postFX' ? 'mainCallsMs' : 'otherCallsMs'; traversalCapture.frameStages[key] = (traversalCapture.frameStages[key] || 0) + elapsed; }
     if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; }
   }; }
+  // Time the actual shadow-map update when this Three.js build exposes its internal renderer hook.
+  if (renderer.shadowMap && typeof renderer.shadowMap.render === 'function' && !renderer.shadowMap.__eldTimed) {
+    const sm = renderer.shadowMap, renderShadows = sm.render.bind(sm); sm.__eldTimed = true;
+    sm.render = (...args) => { const timed = traversalCapture.on, t0 = timed ? performance.now() : 0; const out = renderShadows(...args); if (timed) traversalCapture.frameStages.shadowMapMs += performance.now() - t0; return out; };
+  }
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
   const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['umbra2weight', 'Two-influence Umbrafiend skinning'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
@@ -1278,7 +1283,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
     const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };
     const hitches = a.filter(q => q.frameMs >= 25).sort((x,y) => y.frameMs - x.frameMs).slice(0, 12);
-    const hitchLines = hitches.map(q => `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris`);
+    const hitchLines = hitches.map(q => `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · shadow maps ${(q.shadowMapMs||0).toFixed(1)} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris`);
     const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
     const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
     const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
@@ -1301,6 +1306,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
       foliageLine,
       `Render-stage CPU (whole stage, includes renderer submission): reflection update ${stageSummary('reflectionUpdateMs')} · main+postFX ${stageSummary('mainRenderMs')}`,
+      `Shadow-map update CPU: ${stageSummary('shadowMapMs')} (0 means no update or hook unavailable)`,
       `Renderer.render() CPU summed across calls: ${stageSummary('renderCallMs')} (main ${stageSummary('mainCallsMs')}; reflection ${stageSummary('reflectionCallsMs')}; other ${stageSummary('otherCallsMs')})`,
       `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
@@ -1611,7 +1617,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!running) return;
     requestAnimationFrame(frame);
     const cpu0 = performance.now(); lapT = cpu0;
-    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; }
+    if (traversalCapture.on) { traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; }
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
     const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
@@ -1829,7 +1835,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       const turnDeg = 2 * Math.acos(turnDot) * 180 / Math.PI;
       if (traversalCapture.lastCameraQ) traversalCapture.lastCameraQ.copy(camera.quaternion); else traversalCapture.lastCameraQ = camera.quaternion.clone();
       const stages = traversalCapture.frameStages || {};
-      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) traversalCapture.samples.push({ t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, x: pos.x, y: pos.y, z: pos.z });
       else { traversalCapture.dropped++; finishTraversalCapture(); }
       if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
       else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;

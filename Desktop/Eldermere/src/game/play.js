@@ -1227,7 +1227,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
     <label style="display:block;margin:8px 0">Worker count <select data-assignment-workers><option value="1">1 worker</option><option value="2" selected>2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12">12 workers</option></select></label>
     <div style="font-size:11px;opacity:.8">Tree culling is split into 1,024-tree chunks. Changing worker count rebuilds the pool after the current batch completes.</div>
-    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure distance bands and refresh rates for small foliage, trees, and bushes. Zones 1–3 map to the three existing LOD buffers; zones 4–5 are reserved for additional tiers.</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · vegetation LOD routing active</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
+    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure distance bands and refresh rates for small foliage, trees, and bushes. Zones 1–3 map to existing LOD buffers; zones 4–5 are reserved and not active yet (*). Per-zone worker assignment is also a UI setting only (*).</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · vegetation LOD routing active</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
     <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px;white-space:pre-wrap">Waiting for tree system…</div>
     <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
     <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
@@ -1377,7 +1377,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         const policy = lodZoneScheduler.configure(next);
         dungeonLights?.foliage?.setLodZonePolicy?.(policy);
         assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
-        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Policy applied · small foliage, trees, and bushes scheduled';
+        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Policy applied · active LOD radii/intervals updated; per-zone worker assignment is not yet routed (*)';
       } catch (error) {
         assignmentEl.querySelector('[data-lod-zone-error]').textContent = error?.message || String(error);
       }
@@ -1390,7 +1390,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const policy = lodZoneScheduler.reset();
     dungeonLights?.foliage?.setLodZonePolicy?.(policy);
     assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
-    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · all current vegetation LOD buffers scheduled';
+    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · active vegetation LOD buffers scheduled';
     renderLodZoneControls();
   });
   assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));

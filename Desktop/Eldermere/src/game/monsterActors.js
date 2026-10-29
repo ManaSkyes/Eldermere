@@ -721,7 +721,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     presentationPending = true; presentationPendingSince = now; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
+    const chunkSize = Math.max(1, Math.ceil(snapshot.length / SHARED_WORKERS));
     const chunks = [];
     for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
     reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });

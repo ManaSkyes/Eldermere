@@ -395,8 +395,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       last.cellSignature = cellSignature;
       const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));
       if (useWorker) {
-        const requestGeneration = ++workerGeneration;
         if (workerPending) { if (timed) diag.skipped++; return; }
+        const requestGeneration = ++workerGeneration;
         workerPending = true;
         const queuedAt = performance.now();
         workerState.status = 'queued';

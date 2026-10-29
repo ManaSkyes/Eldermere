@@ -195,14 +195,14 @@ export function createFoliage(THREE, scene, plants) {
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), wide = new THREE.PerspectiveCamera(), lastCam = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0 };
   // F7 policy is passed in by the play screen. The three small-foliage LOD buffers
   // are independently scheduled; a missing initial buffer is always populated immediately.
-  let lodZonePolicy = null, lodRenderFrame = 0;
+  let smallLodZonePolicy = null, lodRenderFrame = 0;
   const refill = (camera, eye) => {
     lodRenderFrame++;
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
     for (const S of sets) for (let lodIndex = 0; lodIndex < S.lods.length; lodIndex++) {
       const Lv = S.lods[lodIndex];
       const zoneId = lodIndex + 1;
-      const zone = lodZonePolicy?.zones?.find(z => z.id === zoneId);
+      const zone = smallLodZonePolicy?.zones?.find(z => z.id === zoneId);
       const zoneInterval = Math.max(1, Math.floor(zone?.interval || 1));
       const zoneRadius = Math.max(1, Number(zone?.radius) || Lv.hi);
       if (zone?.enabled === false) {
@@ -279,12 +279,13 @@ export function createFoliage(THREE, scene, plants) {
     bake(renderer) { trees.bake(renderer); },                                                       // (once, when the map's ready: the trees' impostor pictures)
     // each frame, just before drawing: the trees to their levels, and the small plants' buffers refilled when the
     // camera has moved or turned enough (or the F8 panel hid them)
-    setLodZonePolicy(policy) { lodZonePolicy = policy || null; trees.setLodZonePolicy?.(lodZonePolicy); for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
+    setLodZonePolicy(policy) { smallLodZonePolicy = policy || null; trees.setLodZonePolicy?.(policy || null); for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
+    setSmallFoliageLodZonePolicy(policy) { smallLodZonePolicy = policy || null; for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;
       if (hs) { for (const S of sets) for (const Lv of S.lods) { Lv.im.count = 0; Lv.activeChunkKeys = null; } lastCam.x = 1e9; return; }
-      const scheduledRefresh = !!lodZonePolicy?.zones?.some(z => z.enabled !== false && (lodRenderFrame + 1) % Math.max(1, Math.floor(z.interval || 1)) === 0);
+      const scheduledRefresh = !!smallLodZonePolicy?.zones?.some(z => z.enabled !== false && (lodRenderFrame + 1) % Math.max(1, Math.floor(z.interval || 1)) === 0);
       if (!this.dirty && !scheduledRefresh && Math.hypot(c.x - lastCam.x, c.y - lastCam.y, c.z - lastCam.z) < 0.5 && Math.abs(camera.quaternion.dot(lastCam.q)) > 0.9976 && camera.fov === lastCam.fov) return;
       this.dirty = false; lastCam.x = c.x; lastCam.y = c.y; lastCam.z = c.z; lastCam.q.copy(camera.quaternion); lastCam.fov = camera.fov;
       refill(camera, eye);

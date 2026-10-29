@@ -387,6 +387,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       workerAllocationMode = mode === 'manual' ? 'manual' : 'auto';
       workerState.workerAllocationMode = workerAllocationMode;
       workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · allocation change pending' : 'pool allocation updated');
+      lodZoneNeedsInitialRefresh = true;
       last.x = 1e9;
     },
     setWorkerLimit(count) {
@@ -395,6 +396,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       if (workerAllocationMode === 'auto') workerCount = Math.min(workerCount, workerLimit);
       workerState.workerCount = workerCount;
       workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      lodZoneNeedsInitialRefresh = true;
       last.x = 1e9;
     },
     setWorkerCount(count) {
@@ -405,10 +407,13 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       workerState.workerLimit = workerLimit;
       workerState.workerAllocationMode = workerAllocationMode;
       workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      lodZoneNeedsInitialRefresh = true;
       last.x = 1e9;
     },
     setWorkerMode(mode) {
       workerMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+      workerGeneration++; // invalidate any batch submitted under the previous execution mode
+      lodZoneNeedsInitialRefresh = true;
       last.x = 1e9; // force the selected route to take effect even if the camera is stationary
       if (workerMode !== 'main' && !workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
       else if (workerMode === 'main') workerState.status = 'main thread';

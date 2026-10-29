@@ -188,7 +188,7 @@ export function createFoliage(THREE, scene, plants) {
       const geo = geos[v % geos.length].clone(), aP = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aP', aP);
       const im = new THREE.InstancedMesh(geo, matSmall, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = false; im.receiveShadow = true; im.userData.noCover = true; scene.add(im);
-      lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1) }); lo = hi;
+      lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1), activeChunkKeys: null }); lo = hi;
     }
     sets.push({ k, n, MAT, COL, PR, chunks, chunkLookup, lods });
   }
@@ -196,17 +196,24 @@ export function createFoliage(THREE, scene, plants) {
   const refill = (camera, eye) => {
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
     for (const S of sets) for (const Lv of S.lods) {
-      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
+      const visibleChunks = [];
       const reach = Lv.hi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
         const c = S.chunkLookup.get(gx * 4096 + gz); if (!c) continue;
         const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (Math.hypot(ex, ez) > Lv.hi + 1) continue;
         const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (Math.hypot(fx, fz) < Lv.from - 1) continue;
         if (!fr.intersectsBox(c.box)) continue;
+        visibleChunks.push(c);
+      }
+      const sameChunks = Lv.activeChunkKeys && Lv.activeChunkKeys.length === visibleChunks.length && visibleChunks.every((c, i) => Lv.activeChunkKeys[i] === c.key);
+      if (sameChunks) continue; // camera moved/turned, but this LOD's source chunks are unchanged: reuse its GPU buffers.
+      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
+      for (const c of visibleChunks) {
         const m = c.b - c.a; M.set(S.MAT.subarray(c.a * 16, c.b * 16), cnt * 16); Cc.set(S.COL.subarray(c.a * 3, c.b * 3), cnt * 3); A.set(S.PR.subarray(c.a * 4, c.b * 4), cnt * 4);
         for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = Lv.lo; A[q * 4 + 3] = Lv.hi; }
         cnt += m;
       }
+      Lv.activeChunkKeys = visibleChunks.map(c => c.key);
       Lv.im.count = cnt;
       if (cnt) {
         const attrs = [[Lv.im.instanceMatrix, cnt * 16], [Lv.im.instanceColor, cnt * 3], [Lv.aP, cnt * 4]];

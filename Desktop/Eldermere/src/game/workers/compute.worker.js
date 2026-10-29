@@ -33,7 +33,8 @@ self.onmessage = ({ data }) => {
       // transforms, skeletal poses, material changes and GPU uploads.
       const { actors = [], generation = 0, sequence = 0 } = payload || {};
       const plans = actors.map(a => {
-        let tier = a.act && a.distance < 30 ? 0 : (!a.inFrustum || a.distance > a.visibilityDistance ? 3 : a.fighting && a.distance < 25 ? 0 : a.distance < 35 ? 1 : 2);
+        // Match the main-thread policy: active moves stay full-rate, but nearby idle fighters use a tighter radius.
+        let tier = a.act && a.distance < 30 ? 0 : (!a.inFrustum || a.distance > a.visibilityDistance ? 3 : a.fighting && a.distance < 15 ? 0 : a.distance < 35 ? 1 : 2);
         if (a.swarmReserve) tier = 3;
         if (a.fighting && a.layered && tier < 3) tier = a.shown === false ? 3 : Math.max(tier, a.layer || 0);
         if (a.fighting && !a.swarm && a.rank != null && tier < 3 && !a.act && !a.attacking) tier = Math.max(tier, a.rank < 8 ? 0 : a.rank < 16 ? 1 : 2);

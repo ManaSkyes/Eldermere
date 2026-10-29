@@ -2195,6 +2195,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     removeEventListener('beforeunload', guardClose);
     removeEventListener('keydown', probeKeyHandler);
     processMonitor.remove();
+    enemies?.setAiMode?.('main');
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

@@ -1358,7 +1358,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   const schedulerLegend = document.createElement('div');
   schedulerLegend.textContent = '* Partially implemented or not yet routed to live worker execution.';
-  schedulerLegend.style.cssText = 'font-size:11px;opacity:.72;padding:0 4px 6px';
+  schedulerLegend.style.cssText = 'font-size:11px;opacity:.72;padding:0 4px 6px;width:100%;flex-basis:100%;box-sizing:border-box';
   const renderSchedulerTabs = () => {
     schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
     schedulerNav.appendChild(schedulerLegend);

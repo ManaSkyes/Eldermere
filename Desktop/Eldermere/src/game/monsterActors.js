@@ -28,7 +28,7 @@ import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
 import { STEALTH } from '../rpg/stealth.js';
-import { createWorkerPool } from './workers/workerPool.js';
+import { getApplicationWorkerPool } from './workers/workerPool.js';
 import { reportProcess, clearProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
@@ -54,7 +54,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   let presentationWorkerMs = 0, presentationQueueMs = 0, presentationDispatchMs = 0, presentationRoundTripMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
   let aiRoundTripMs = 0;
   let presentationPlans = new Map();
-  const SHARED_WORKERS = 2;
+  const SHARED_WORKERS = 12; // Application-wide maximum; the shared pool grows only when queued demand requires it.
   let sharedPool = null, sharedPoolPromise = null;
   const syncSharedWorkerProcesses = snap => {
     clearProcessesByPrefix('shared-worker-');
@@ -66,7 +66,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const ensureSharedPool = () => {
     if (sharedPool || sharedPoolPromise || !shouldUseWorkers()) return;
     sharedPoolPromise = (async () => {
-      const pool = createWorkerPool(SHARED_WORKERS);
+      const pool = getApplicationWorkerPool();
       await pool.ready();
       if (!shouldUseWorkers()) { pool.close(); return null; }
       sharedPool = pool;
@@ -81,7 +81,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   };
   const maybeCloseSharedPool = () => {
     if (aiMode !== 'main' || presentationMode !== 'main') return;
-    sharedPool?.close(); sharedPool = null; sharedPoolPromise = null;
+    sharedPool = null; sharedPoolPromise = null; // Do not close the application pool: foliage may still be using it.
     clearProcess('shared-worker-queue'); clearProcessesByPrefix('shared-worker-');
   };
   const ensureAiPool = ensureSharedPool;

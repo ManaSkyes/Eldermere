@@ -4,7 +4,7 @@ self.onmessage = ({ data }) => {
   const workerStarted = performance.now();
   try {
     if (type === 'tree-cull') {
-      const { X, Y, Z, Sc, cx, cy, cz, planes, radius, mid, edges, hidden, baked, nearShadow } = payload;
+      const { X, Y, Z, Sc, cx, cy, cz, mid, edges, hidden, baked } = payload;
       const records = [];
       if (!hidden) for (let i = 0; i < X.length; i++) {
         const dx = X[i] - cx, dz = Z[i] - cz, d = Math.hypot(dx, Y[i] + mid * Sc[i] - cy, dz), far = edges[edges.length - 1];

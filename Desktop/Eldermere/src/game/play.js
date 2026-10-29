@@ -44,7 +44,7 @@ import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
 import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
 import { runWorkerStressTest } from './workers/stressTest.js';
-import { processSnapshot, reportProcess } from './workers/processMonitor.js';
+import { processSnapshot, reportProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -1475,13 +1475,18 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const now = performance.now();
     if (!force && now - processMonitorLastRefresh < 250) return;
     processMonitorLastRefresh = now;
-    const rows=[{id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'}];
+    // These pre-pool renderer records are legacy and never receive fresh updates.
+    clearProcessesByPrefix('npc-render-');
+    const rows=[];
     const seen=new Set();
-    for(const p of processSnapshot()){const id=p.id||p.label;if(!id||seen.has(id))continue;seen.add(id);rows.push({...p,id});}
+    const addRow = row => { if (!row?.id || seen.has(row.id)) return; seen.add(row.id); addRow(row); };
+    addRow({id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'});
+    const summaryIds = new Set(['creature-ai-queue','npc-presentation-queue','npc-simple-presentation-queue','npc-ai-queue','shared-pool-summary']);
+    for(const process of processSnapshot()) { const id=process.id||process.label; if (summaryIds.has(id)) continue; addRow({...process,id}); }
     const npcState=enemies?.workerSnapshot?.();
     if(npcState?.pool){
-      for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);rows.push({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
-      rows.push({id:'npc-ai-queue',label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});
+      for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);addRow({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
+      addRow({id:'npc-ai-queue',label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});
     }
     const timingText = state => 'workers '+(state.pool ? state.pool.busy+'/'+state.pool.active+' busy · '+state.pool.size+' max' : '0 active')+
       ' · queue '+(state.pool?.queued ?? 0)+' waiting'+
@@ -1492,28 +1497,28 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       (state.pending ? ' · pending '+((state.pendingAgeMs||0)/1000).toFixed(2)+' s' : '');
     const creatureAi=monsters?.aiSnapshot?.();
     if(creatureAi){
-      rows.push({id:'creature-ai-queue',label:'Creature AI perception',status:creatureAi.lastError?'error':creatureAi.pending?'working':'idle',
-        task:creatureAi.lastError||creatureAi.mode+' · '+creatureAi.actorCount+' creatures · '+creatureAi.groupCount+' groups · '+creatureAi.dispatchCount+' batches · '+timingText(creatureAi)+(creatureAi.pending?' · batch in flight':'')});
+      addRow({id:'creature-ai-queue',label:'Creature AI perception',status:creatureAi.lastError?'error':creatureAi.pending?'working':'idle',
+        task:creatureAi.lastError||creatureAi.mode+' · '+creatureAi.actorCount+' creatures · '+creatureAi.groupCount+' groups · '+creatureAi.dispatchCount+' batches · '+timingText(creatureAi)+(creatureAi.population?' · main update '+creatureAi.population.updateMs.toFixed(2)+' ms · awake '+creatureAi.population.awakeActors+'/'+creatureAi.population.alive+' · attached '+creatureAi.population.attached+' · in range '+creatureAi.population.withinRenderRange+' · visible '+creatureAi.population.visible:'')+(creatureAi.pending?' · batch in flight':'')});
     }
     for (const [prefix, state, label] of [['npc-presentation', monsters?.presentationSnapshot?.(), 'Creature presentation'], ['npc-simple-presentation', enemies?.presentationSnapshot?.(), 'Simple NPC presentation']]) {
       if (!state) continue;
       const queueId = prefix + '-queue';
-      rows.push({ id:queueId, label, status:state.lastError?'error':state.pending?'working':'idle',
-        task:state.lastError ? 'Error · '+state.lastError : state.mode+' · '+state.actorCount+' actors · '+state.dispatchCount+' batches · '+timingText(state)+(state.pending?' · batch in flight':'') });
+      addRow({ id:queueId, label, status:state.lastError?'error':state.pending?'working':'idle',
+        task:state.lastError ? 'Error · '+state.lastError : state.mode+' · '+state.actorCount+' actors · '+state.dispatchCount+' batches · '+timingText(state)+(state.population?' · update '+state.population.updateMs.toFixed(2)+' ms · batch '+state.population.presentationBatchSize:'')+(state.pending?' · batch in flight':'') });
     }
     // Creature AI and creature presentation share the same physical pool. Show its workers once,
     // under their scheduler IDs, rather than implying each subsystem owns a separate set.
     const sharedPool = creatureAi?.pool || monsters?.presentationSnapshot?.()?.pool;
     if(sharedPool) {
-      rows.push({id:'shared-pool-summary',label:'Shared creature pool',status:sharedPool.busy?'working':'idle',
+      addRow({id:'shared-pool-summary',label:'Shared creature pool',status:sharedPool.busy?'working':'idle',
         task:sharedPool.busy+'/'+sharedPool.active+' workers busy · '+sharedPool.queued+' queued · '+sharedPool.active+' active / '+sharedPool.size+' max'});
-      for(const w of sharedPool.workers) rows.push({id:'shared-pool-worker-'+w.id,label:'Shared worker '+w.id,status:w.busy?'working':'idle',
+      for(const w of sharedPool.workers) addRow({id:'shared-pool-worker-'+w.id,label:'Shared worker '+w.id,status:w.busy?'working':'idle',
         task:w.busy?(w.task||'Processing '+(w.jobId?'job '+w.jobId:'job')):'Idle'+(w.lastTask?' · last task: '+w.lastTask:' · waiting for work')});
     }
     const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
-    if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;rows.push({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
-    else if(treeState)rows.push({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
-    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:processSnapshot(), creatureAI:creatureAi||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
+    if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;addRow({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
+    else if(treeState)addRow({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:processSnapshot(), creatureAI:creatureAi||null, creaturePopulation:monsters?.presentationSnapshot?.()?.population||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
     const list=processMonitor.querySelector('[data-process-list]');
     const activeIds=new Set(rows.map(p=>p.id));
     for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}

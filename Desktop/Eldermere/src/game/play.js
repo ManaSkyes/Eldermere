@@ -1369,10 +1369,26 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerLegend.textContent = '* Partially implemented or not yet routed to live worker execution. Tree LOD, NPC sensory calculations, simple-enemy pose/effect calculations, and creature LOD/cadence/effect budgets use workers; creature skeletal posing, procedural mesh construction, particle simulation, and Three.js/GPU mutations remain on the main thread.';
   schedulerLegend.style.cssText = 'font-size:11px;opacity:.72;padding:0 4px 6px;width:100%;flex-basis:100%;box-sizing:border-box';
   const renderSchedulerTabs = () => {
-    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
-    schedulerCategories.forEach(category=>{
-      // Keep every category's execution mode directly visible in the tab bar. This
-      // makes the settings independent and editable without entering each tab.
+    schedulerGroupNav.innerHTML='';
+    schedulerNav.innerHTML='';
+    schedulerWorkspace.innerHTML='';
+    schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
+    schedulerGroups.forEach(group=>{
+      const button=document.createElement('button'); button.type='button'; button.textContent=group.label; styleProbeButton(button);
+      button.style.cssText+=';white-space:nowrap;flex:0 0 auto;padding:6px 12px';
+      button.style.setProperty('border-color',group.id===activeSchedulerGroup?'#d0b8ff':'#7166a8','important');
+      button.style.setProperty('background-color',group.id===activeSchedulerGroup?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)','important');
+      button.setAttribute('aria-pressed',String(group.id===activeSchedulerGroup));
+      button.addEventListener('click',()=>{
+        activeSchedulerGroup=group.id;
+        if(group.id==='Overview'||group.id==='Workers') activeSchedulerCategory='';
+        else if(schedulerGroupFor(activeSchedulerCategory)!==group.id) activeSchedulerCategory=schedulerCategories.find(c=>schedulerGroupFor(c.id)===group.id)?.id||'largeFoliage';
+        renderSchedulerTabs();
+      });
+      schedulerGroupNav.appendChild(button);
+    });
+    const visibleCategories=schedulerCategories.filter(category=>schedulerGroupFor(category.id)===activeSchedulerGroup);
+    visibleCategories.forEach(category=>{
       const tabGroup=document.createElement('div');
       tabGroup.style.cssText='display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:3px 5px;border:1px solid '+(category.id===activeSchedulerCategory?'#d0b8ff':'#383356')+';border-radius:7px;background:rgba(90,84,144,.12)';
       const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
@@ -1382,19 +1398,17 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       button.setAttribute('aria-selected',String(category.id===activeSchedulerCategory));
       button.addEventListener('click',()=>{activeSchedulerCategory=category.id;renderSchedulerTabs();});
       const modeSelect=makeSchedulerSelect(schedulerProfiles[category.id].mode,[['main','Main'],['worker','Worker'],['auto','Auto']],value=>setSchedulerCategoryMode(category.id,value));
-      modeSelect.setAttribute('aria-label',category.label+' execution mode');
-      modeSelect.title=category.label+' execution mode';
+      modeSelect.setAttribute('aria-label',category.label+' execution mode'); modeSelect.title=category.label+' execution mode';
       modeSelect.style.cssText+=';width:84px;min-width:84px;font-size:11px;padding:5px 3px';
-      schedulerNavModeSelects.set(category.id,modeSelect);
-      tabGroup.append(button,modeSelect);
-      schedulerNav.appendChild(tabGroup); schedulerTabButtons.set(category.id,button);
+      schedulerNavModeSelects.set(category.id,modeSelect); tabGroup.append(button,modeSelect); schedulerNav.appendChild(tabGroup);
+      schedulerTabButtons.set(category.id,button);
       const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
-      const panelActive = category.id === activeSchedulerCategory;
-      panel.hidden = !panelActive;
-      panel.style.display = panelActive ? 'flex' : 'none';
-      panel.style.visibility = panelActive ? 'visible' : 'hidden';
+      const panelActive=category.id===activeSchedulerCategory;
+      panel.hidden=!panelActive; panel.style.display=panelActive?'flex':'none'; panel.style.visibility=panelActive?'visible':'hidden';
       schedulerWorkspace.appendChild(panel);
     });
+    if(activeSchedulerGroup==='Overview') schedulerWorkspace.appendChild(schedulerOverview);
+    if(activeSchedulerGroup==='Workers') schedulerWorkspace.appendChild(schedulerWorkersPanel);
   };
   const schedulerOverview = document.createElement('section');
   schedulerOverview.style.cssText='display:flex;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';

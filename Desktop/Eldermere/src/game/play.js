@@ -1576,7 +1576,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       row.innerHTML = '<label style="font-size:11px"><input type="checkbox" data-enabled> LOD ' + z.id + '</label>' +
         '<label style="font-size:11px">Radius (m)<input data-radius type="number" min="1" max="10000" step="5" value="' + z.radius + '" style="width:100%;box-sizing:border-box"></label>' +
         '<label style="font-size:11px">Every N frames<input data-interval type="number" min="1" max="10000" value="' + z.interval + '" style="width:100%;box-sizing:border-box"></label>' +
-        '<label style="grid-column:2/4;font-size:11px">Worker assignment *<select data-worker style="width:100%"><option value="main">Main thread</option><option value="worker-1">Worker 1</option><option value="worker-2">Worker 2</option><option value="worker-3">Worker 3</option><option value="worker-4">Worker 4</option><option value="worker-5">Worker 5</option><option value="worker-6">Worker 6</option><option value="auto">Auto</option></select></label>';
+        '<label style="grid-column:2/4;font-size:11px">Worker assignment (not yet routed)<select data-worker disabled style="width:100%;opacity:.6"><option value="main">Main thread</option><option value="worker-1">Worker 1</option><option value="worker-2">Worker 2</option><option value="worker-3">Worker 3</option><option value="worker-4">Worker 4</option><option value="worker-5">Worker 5</option><option value="worker-6">Worker 6</option><option value="auto">Auto</option></select></label>';
       row.querySelector('[data-enabled]').checked = z.enabled;
       row.querySelector('[data-worker]').value = z.assignment;
       lodZoneContainer.appendChild(row);

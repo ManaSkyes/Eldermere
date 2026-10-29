@@ -740,7 +740,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const snap = sharedPool.snapshot();
     snap.workers.forEach(w => reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
   }
+  let lastUpdateTelemetry = { updateMs:0, total:0, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:0 };
   function update(dt, player, hooks = {}) {
+    const updateStartedAt = performance.now();
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
     // shadow bullets in flight
     for (let i = shots.length - 1; i >= 0; i--) {
@@ -839,6 +841,17 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         attacking:!!A.attacking, umbrafiend:isUmbrafiend, speed });
     }
     dispatchPresentationPlan(visualSnapshots, player);
+    const telemetry = { updateMs:0, total:actors.length, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:visualSnapshots.length };
+    for (const G of groups) if (G.awake) telemetry.awakeGroups++;
+    for (const A of actors) {
+      if (A.alive) telemetry.alive++; else telemetry.dead++;
+      if (A.group?.awake && A.alive) telemetry.awakeActors++;
+      if (A.attached) telemetry.attached++;
+      const dx = A.pos.x - player.pos.x, dz = A.pos.z - player.pos.z;
+      if (dx * dx + dz * dz <= VIS * VIS) telemetry.withinRenderRange++;
+      if (A.attached && A.C?.root?.visible !== false) telemetry.visible++;
+    }
+    lastUpdateTelemetry = telemetry;
     updateCreatureShadows(player);
     batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
@@ -846,11 +859,12 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const want = new Set(barCand.slice(0, 5));
     for (const A of barShown) if (!want.has(A)) { scene.remove(A.bar.sp); A.barOn = false; barShown.delete(A); }
     for (const A of want) { if (!barShown.has(A)) { scene.add(A.bar.sp); A.barOn = true; barShown.add(A); } A.bar.draw(A.hp / A.maxHp); }
+    lastUpdateTelemetry.updateMs = performance.now() - updateStartedAt;
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
-    presentationSnapshot() { const pool = sharedPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, pending:presentationPending, pendingAgeMs:presentationPending && presentationPendingSince ? Math.max(0, performance.now()-presentationPendingSince) : 0, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, queueMs:presentationQueueMs, dispatchMs:presentationDispatchMs, roundTripMs:presentationRoundTripMs, lastError:presentationLastError, pool }; },
-    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, queueMs:aiQueueMs, dispatchMs:aiDispatchMs, roundTripMs:aiRoundTripMs, lastError:aiLastError, pool:sharedPool?.snapshot?.()||null }; },
+    presentationSnapshot() { const pool = sharedPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, population:{...lastUpdateTelemetry}, pending:presentationPending, pendingAgeMs:presentationPending && presentationPendingSince ? Math.max(0, performance.now()-presentationPendingSince) : 0, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, queueMs:presentationQueueMs, dispatchMs:presentationDispatchMs, roundTripMs:presentationRoundTripMs, lastError:presentationLastError, pool }; },
+    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, population:{...lastUpdateTelemetry}, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, queueMs:aiQueueMs, dispatchMs:aiDispatchMs, roundTripMs:aiRoundTripMs, lastError:aiLastError, pool:sharedPool?.snapshot?.()||null }; },
     setAiMode, setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },

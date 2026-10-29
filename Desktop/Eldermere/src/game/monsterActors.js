@@ -92,6 +92,43 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if (presentationMode === 'main') clearProcess('npc-presentation-queue'); else ensureSharedPool();
     maybeCloseSharedPool();
   };
+  const dispatchCreatureSense = player => {
+    if (aiMode === 'main' || (aiMode === 'auto' && actors.length < 4)) return;
+    ensureSharedPool();
+    if (!sharedPool || aiPending || !groups.length) return;
+    const pool = sharedPool, generation = aiGeneration, sequence = ++aiSequence;
+    const snapshots = groups.map(G => {
+      let key = groupSenseKeys.get(G);
+      if (!key) { key = nextGroupSenseKey++; groupSenseKeys.set(G, key); }
+      return { key, members: G.members.map(m => ({ x:m.pos.x, y:m.pos.y, z:m.pos.z, alt:m.alt||0, hover:m.M?.hover||0, alive:!!m.alive })) };
+    });
+    aiPending = true; aiDispatchCount++;
+    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:pool.snapshot().queued+2, task:'AI perception · '+snapshots.length+' groups' });
+    reportProcess('creature-ai-queue', { label:'Creature AI perception', kind:'worker', status:'busy', queued:snapshots.length, task:'Nearest living member and distance calculations' });
+    const chunks = [snapshots.filter((_,i)=>i%2===0), snapshots.filter((_,i)=>i%2===1)].filter(a=>a.length);
+    Promise.all(chunks.map((chunk,i)=>pool.run('creature-ai-sense', { player:{x:player.pos.x,y:player.pos.y,z:player.pos.z}, groups:chunk, sequence, chunk:i })))
+      .then(results => {
+        if (generation !== aiGeneration || sequence !== aiSequence) return;
+        for (const result of results) for (const item of result.results || []) groupSenseCache.set(item.key, { ...item, at:performance.now() });
+        aiWorkerMs = results.reduce((n,r)=>n+(r.__timing?.workerMs||0),0);
+        aiQueueMs = results.reduce((n,r)=>n+(r.__timing?.queueMs||0),0);
+        aiDispatchMs = results.reduce((n,r)=>n+(r.__timing?.dispatchMs||0),0);
+        aiLastError = '';
+      })
+      .catch(error => { aiLastError=error?.message||'Creature AI perception failed'; reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'error',task:aiLastError}); })
+      .finally(() => {
+        if (generation !== aiGeneration) return;
+        aiPending = false;
+        const snap = pool.snapshot();
+        for (const w of snap.workers) reportProcess('shared-worker-'+w.id,{label:'Shared worker '+w.id,kind:'worker',status:w.busy?'busy':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for shared work')});
+        reportProcess('shared-worker-queue',{label:'Shared worker scheduler',kind:'worker',status:snap.queued||snap.busy?'busy':'idle',queued:snap.queued,task:'Shared FIFO · '+snap.busy+'/'+snap.active+' busy · '+snap.queued+' queued'});
+        reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:aiLastError?'error':'idle',task:aiLastError||aiMode+' · '+actors.length+' creatures · '+aiDispatchCount+' batches · CPU '+aiWorkerMs.toFixed(2)+' ms · queue '+aiQueueMs.toFixed(2)+' ms · transfer '+aiDispatchMs.toFixed(2)+' ms'});
+      });
+  };
+  const getCreatureSense = G => {
+    const key = groupSenseKeys.get(G), result = key ? groupSenseCache.get(key) : null;
+    return result && performance.now() - result.at < 500 ? result : null;
+  };
   const getPresentationPlan = (actor, player) => {
     if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 4)) return null;
     if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||

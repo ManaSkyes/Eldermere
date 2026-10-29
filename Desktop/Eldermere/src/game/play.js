@@ -1254,7 +1254,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
   schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:3px 0 8px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
   const schedulerWorkspace = document.createElement('div');
-  schedulerWorkspace.style.cssText = 'display:block;position:relative;align-self:stretch;flex:1 1 0%;min-height:0;min-width:0;height:0;overflow:auto;overflow-x:hidden;width:100%;box-sizing:border-box;color:#e8e4f4;padding:0 4px 20px';
+  schedulerWorkspace.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;position:relative;align-self:stretch;flex:1 1 0%;min-height:0;min-width:0;height:0;overflow:auto;overflow-x:hidden;width:100%;box-sizing:border-box;color:#e8e4f4;padding:0 4px 20px';
   const schedulerLargePanel = document.createElement('section');
   schedulerLargePanel.dataset.schedulerPanel = 'largeFoliage';
   schedulerLargePanel.style.cssText = 'display:flex;position:relative;top:auto;transform:none;align-self:flex-start;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px';
@@ -1374,6 +1374,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     schedulerGroupNav.innerHTML='';
     schedulerNav.innerHTML='';
     schedulerWorkspace.innerHTML='';
+    schedulerWorkspace.scrollTop=0;
+    schedulerWorkspace.scrollLeft=0;
     schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
     schedulerGroups.forEach(group=>{
       const button=document.createElement('button'); button.type='button'; button.textContent=group.label; styleProbeButton(button);
@@ -1406,7 +1408,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       schedulerTabButtons.set(category.id,button);
       const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
       const panelActive=category.id===activeSchedulerCategory;
-      panel.hidden=!panelActive; panel.style.display=panelActive?'flex':'none'; panel.style.visibility=panelActive?'visible':'hidden';
+      panel.hidden=!panelActive; panel.style.display=panelActive?'flex':'none'; panel.style.visibility=panelActive?'visible':'hidden'; panel.style.flex='0 0 auto';
       schedulerWorkspace.appendChild(panel);
     });
     if(activeSchedulerGroup==='Overview') schedulerWorkspace.appendChild(schedulerOverview);

@@ -47,7 +47,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   // Creature AI and presentation share one FIFO pool. Any free worker takes the next queued
   // job, regardless of which subsystem submitted it; workers start only when workload warrants it.
   let presentationMode = 'main';
-  let aiMode = 'main', aiGeneration = 0, aiSequence = 0, aiPending = false, aiDispatchCount = 0, aiWorkerMs = 0, aiQueueMs = 0, aiDispatchMs = 0, aiLastError = '';
+  let aiMode = 'main', aiGeneration = 0, aiSequence = 0, aiPending = false, aiDispatchCount = 0, aiWorkerMs = 0, aiQueueMs = 0, aiDispatchMs = 0, aiLastError = '', aiLastDispatchAt = 0;
   let nextGroupSenseKey = 1; const groupSenseKeys = new WeakMap(), groupSenseCache = new Map();
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationPendingSince = 0;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
@@ -101,7 +101,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const dispatchCreatureSense = player => {
     if (aiMode === 'main' || (aiMode === 'auto' && actors.length < 4)) return;
     ensureSharedPool();
-    if (!sharedPool || aiPending || !groups.length) return;
+    const now = performance.now();
+    // Group detection only reevaluates every 250 ms; don't serialize hundreds of member snapshots every frame.
+    if (!sharedPool || aiPending || !groups.length || now - aiLastDispatchAt < 200) return;
+    aiLastDispatchAt = now;
     const pool = sharedPool, generation = aiGeneration, sequence = ++aiSequence;
     const snapshots = groups.map(G => {
       let key = groupSenseKeys.get(G);
@@ -771,6 +774,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const groupThinkMs = performance.now() - groupStartedAt;
     const actorLoopStartedAt = performance.now();
     nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
+    // Presentation plans are rate-limited to 80 ms. Only allocate the 450-actor worker snapshot when a dispatch can actually happen.
+    const collectPresentationSnapshot = presentationMode !== 'main' && actors.length >= 4 && !presentationPending && performance.now() - presentationLastDispatch >= 80;
     const visualSnapshots = [];
     for (let i = actors.length - 1; i >= 0; i--) {
       const A = actors[i]; A.player = player; A.hooks = hooks;
@@ -840,7 +845,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
       if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
-      visualSnapshots.push({ id:A.presentationId, x:A.pos.x, z:A.pos.z, distance:d, inFrustum:on, visibilityDistance:VIS,
+      if (collectPresentationSnapshot) visualSnapshots.push({ id:A.presentationId, x:A.pos.x, z:A.pos.z, distance:d, inFrustum:on, visibilityDistance:VIS,
         fighting, act:!!A.mo.actName, swarmReserve:G.kind==='swarm'&&!fighting&&A.id==='nocturianBat'&&A.slot>=30,
         layered:!!A.layer, layer:A.layer||0, shown:A.shown, swarm:G.kind==='swarm', rank:A.rank,
         attacking:!!A.attacking, umbrafiend:isUmbrafiend, speed });

@@ -354,7 +354,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       const [n1, v1] = points[i - 1], [n2, v2] = points[i];
       if (n <= n2) return v1 + (v2 - v1) * (Math.log(n / n1) / Math.log(n2 / n1));
     }
-    return points[points.length - 1][1] * (1 + 0.1 * Math.log(n / 90) / Math.log(3));
+    // Detection bonus is capped at the largest calibrated group size. Huge swarms must not
+    // gain extra vision simply because more members were placed or merged into the group.
+    return points[points.length - 1][1];
   }
   function groupThink(G, dt, player) {
     const live = G.members, n = live.length; if (!n) return;
@@ -389,7 +391,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       G.detectDist = detectDist; G.detectSize = detectSize;
       G.open = !blocked(eye, chest);
       G.canSee = detectDist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
-      if (G.kind === 'swarm') G.seen = detectDist < range && inCone && G.open;
+      // Swarms use the same final sight test as other groups, including player visibility.
+      // Previously this bypassed the visibility multiplier applied inside G.canSee.
+      if (G.kind === 'swarm') G.seen = G.canSee;
     }
     if (M.temper === 'passive') {
       if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle';

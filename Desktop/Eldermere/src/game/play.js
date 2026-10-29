@@ -1272,7 +1272,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { id:'lighting', label:'Lighting / post *', description:'Lighting, shadows and post-processing candidates. WebGL renderer operations remain main-thread-only.' }
   ];
   const schedulerProfiles = Object.fromEntries(schedulerCategories.map((cat, index) => [cat.id, {
-    mode: cat.id === 'largeFoliage' ? 'auto' : 'main',
+    mode: ['largeFoliage', 'npcs', 'ai'].includes(cat.id) ? 'auto' : 'main',
     priority: cat.id === 'largeFoliage' ? 2 : (cat.id === 'smallFoliage' ? 3 : 5),
     zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
   }]));
@@ -1307,6 +1307,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     if (categoryId === 'ai') { enemies?.setAiMode?.(value); monsters?.setAiMode?.(value); }
   };
+  // Start the already-supported CPU-only routes in Auto mode. They remain idle below their workload thresholds.
+  setSchedulerCategoryMode('npcs', 'auto');
+  setSchedulerCategoryMode('ai', 'auto');
   const makeSchedulerSelect = (value, choices, onChange) => {
     const select = document.createElement('select');
     select.style.cssText = 'background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px;max-width:100%';

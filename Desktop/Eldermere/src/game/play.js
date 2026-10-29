@@ -1267,9 +1267,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
             interval: Number(row.querySelector('[data-interval]').value),
             assignment: row.querySelector('[data-worker]').value };
         });
-        lodZoneScheduler.configure(next);
+        const policy = lodZoneScheduler.configure(next);
+        dungeonLights?.foliage?.setLodZonePolicy?.(policy);
         assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
-        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Valid policy saved · renderer routing pending';
+        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Policy applied · small-foliage LOD buffers scheduled';
       } catch (error) {
         assignmentEl.querySelector('[data-lod-zone-error]').textContent = error?.message || String(error);
       }
@@ -1278,9 +1279,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   renderLodZoneControls();
   assignmentEl.querySelector('[data-lod-zone-reset]').addEventListener('click', () => {
-    lodZoneScheduler.reset();
+    const policy = lodZoneScheduler.reset();
+    dungeonLights?.foliage?.setLodZonePolicy?.(policy);
     assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
-    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · renderer routing pending';
+    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · small-foliage LOD buffers scheduled';
     renderLodZoneControls();
   });
   assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));

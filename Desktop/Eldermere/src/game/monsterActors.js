@@ -49,7 +49,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
-  let presentationWorkerMs = 0, nextPresentationActorId = 1;
+  let presentationWorkerMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
   let presentationPlans = new Map();
   const PRESENTATION_WORKERS = 2;
   const ensurePresentationPool = () => {
@@ -60,6 +60,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       await pool.ready();
       if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
       presentationPool = pool;
+      for (const w of pool.snapshot().workers) reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:'idle', task:'Ready · waiting for presentation batch' });
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:'Creature mesh LOD · animation cadence · effect budgets' });
       return pool;
     })().catch(error => {
@@ -654,7 +655,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       snap.workers.forEach(w => reportProcess('npc-presentation-worker-'+w.id, { label:'NPC visual worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
       return;
     }
-    presentationPending = true; presentationLastDispatch = now;
+    presentationPending = true; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
     const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
@@ -664,9 +665,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     Promise.all(chunks.map(actors => presentationPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
       if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
       presentationWorkerMs = Math.max(0, ...results.map(result => result.__timing?.workerMs || 0));
+      presentationLastError = '';
       presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
       presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
     }).catch(error => {
+      presentationLastError = error?.message || 'Presentation task failed';
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
       if (presentationMode === 'auto') setPresentationMode('main');
     }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
@@ -781,6 +784,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
+    presentationSnapshot() { const pool = presentationPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, pending:presentationPending, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, lastError:presentationLastError, pool }; },
     setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },

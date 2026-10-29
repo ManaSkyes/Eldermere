@@ -421,11 +421,12 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       u.root.rotation.x = u.down > 0 && u.arch !== 'swarm' ? -1.3 * Math.min(1, u.down / 0.25) : 0;
       const visualEvery = visualPlan?.animationEvery || 1;
       if (!visualPlan || presentationFrame % visualEvery === 0 || u.flash > 0 || u.wind > 0) {
-        if (P.legL) { P.legL.rotation.x = speed ? bob * 0.6 : 0; P.legR.rotation.x = speed ? -bob * 0.6 : 0; }
-        if (P.wingL) { const f = Math.sin(performance.now() / 60); P.wingL.rotation.z = f * 0.7; P.wingR.rotation.z = -f * 0.7; }
-        if (P.arm) P.arm.rotation.x = u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2;
-        if (!visualPlan || visualPlan.effectLod >= 0.35 || u.flash > 0 || u.wind > 0) for (const m of P.mats) m.emissive?.set(u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000');
-        if (u.ring && (!visualPlan || visualPlan.effectLod > 0.1)) u.ring.material.opacity = 0.35 + 0.35 * Math.sin(performance.now() / 80);
+        const pose = visualPlan?.pose;
+        if (P.legL) { P.legL.rotation.x = pose ? pose.legL : (speed ? bob * 0.6 : 0); P.legR.rotation.x = pose ? pose.legR : (speed ? -bob * 0.6 : 0); }
+        if (P.wingL) { const f = pose ? pose.wingL : Math.sin(performance.now() / 60) * 0.7; P.wingL.rotation.z = f; P.wingR.rotation.z = pose ? pose.wingR : -f; }
+        if (P.arm) P.arm.rotation.x = pose ? pose.arm : (u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2);
+        if (!visualPlan || visualPlan.effectLod >= 0.35 || u.flash > 0 || u.wind > 0) for (const m of P.mats) m.emissive?.set(pose ? (pose.emissive === 2 ? '#ff3a2a' : pose.emissive === 1 ? '#4a1a10' : '#000000') : (u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000'));
+        if (u.ring && (!visualPlan || visualPlan.effectLod > 0.1)) u.ring.material.opacity = pose ? pose.ringOpacity : 0.35 + 0.35 * Math.sin(performance.now() / 80);
       }
       if (visualPlan) u.root.visible = visualPlan.meshVisible;
       else u.root.visible = true;
@@ -434,7 +435,8 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       P.bar.visible = showBar && (!visualPlan || visualPlan.meshVisible); if (showBar && P.bar.visible) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }
       if (u.ring) u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z);
       visualSnapshots.push({ id:u.presentationId, x:u.pos.x, z:u.pos.z, distance:Math.hypot(u.pos.x-p.x,u.pos.z-p.z), inFrustum:true, visibilityDistance:65,
-        fighting:u.state==='fight', act:u.wind>0, swarmReserve:false, layered:false, layer:0, shown:true, swarm:u.arch==='swarm', rank:null, attacking:u.wind>0, umbrafiend:false, speed });
+        fighting:u.state==='fight', act:u.wind>0, swarmReserve:false, layered:false, layer:0, shown:true, swarm:u.arch==='swarm', rank:null, attacking:u.wind>0, umbrafiend:false, speed,
+        step:u.step, time:performance.now(), wind:u.wind, cool:u.cool, flash:u.flash, ranged:!!RANGED[u.arch] });
     }
     dispatchPresentationPlan(visualSnapshots, player);
     // missiles

@@ -36,7 +36,7 @@ self.onmessage = ({ data }) => {
           heard: dist < hearing && Math.abs(dy) < 5 };
       });
       self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { results, player: { x: player.x, y: player.y, z: player.z }, count: results.length } });
- else if (type === 'cpu-stress') {
+    } else if (type === 'cpu-stress') {
       const start = Math.max(0, payload.start | 0);
       const end = Math.max(start, payload.end | 0);
       const seed = payload.seed | 0;

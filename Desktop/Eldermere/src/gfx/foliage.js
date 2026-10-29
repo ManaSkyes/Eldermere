@@ -174,7 +174,7 @@ export function createFoliage(THREE, scene, plants) {
   for (const p of plants) { if (!L[p.k] || BIG[p.k]) continue; const v = Math.abs(p.v || 0) % L[p.k][0][0].length, key = p.k + v; (byKV.get(key) || byKV.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p); }
   const sets = [];
   for (const { k, v, list } of byKV.values()) {
-    const ck = p => Math.floor(p.x / CHUNK) * 4096 + Math.floor(p.z / CHUNK); list.sort((a, b) => ck(a) - ck(b));
+    const gx = p => Math.floor(p.x / CHUNK), gz = p => Math.floor(p.z / CHUNK), ck = p => gx(p) + ',' + gz(p); list.sort((a, b) => gx(a) - gx(b) || gz(a) - gz(b));
     const n = list.length, MAT = new Float32Array(n * 16), COL = new Float32Array(n * 3), PR = new Float32Array(n * 4), chunks = [];
     list.forEach((p, i) => { const s2 = p.s || 1, c = Math.cos(p.r || 0) * s2, sn = Math.sin(p.r || 0) * s2; MAT.set([c, 0, -sn, 0, 0, s2, 0, 0, sn, 0, c, 0, p.x, p.y, p.z, 1], i * 16); COL.set(p.c || [1, 1, 1], i * 3);
       const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; PR.set([SWAY[k], h - Math.floor(h), 0, 0], i * 4);
@@ -199,7 +199,7 @@ export function createFoliage(THREE, scene, plants) {
       const visibleChunks = [];
       const reach = Lv.hi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
-        const c = S.chunkLookup.get(gx * 4096 + gz); if (!c) continue;
+        const c = S.chunkLookup.get(gx + ',' + gz); if (!c) continue;
         const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (Math.hypot(ex, ez) > Lv.hi + 1) continue;
         const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (Math.hypot(fx, fz) < Lv.from - 1) continue;
         if (!fr.intersectsBox(c.box)) continue;

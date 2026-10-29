@@ -436,7 +436,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       if (u.ring) u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z);
       visualSnapshots.push({ id:u.presentationId, x:u.pos.x, z:u.pos.z, distance:Math.hypot(u.pos.x-p.x,u.pos.z-p.z), inFrustum:true, visibilityDistance:65,
         fighting:u.state==='fight', act:u.wind>0, swarmReserve:false, layered:false, layer:0, shown:true, swarm:u.arch==='swarm', rank:null, attacking:u.wind>0, umbrafiend:false, speed,
-        step:u.step, time:performance.now(), wind:u.wind, cool:u.cool, flash:u.flash, ranged:!!RANGED[u.arch] });
+        step:u.step, time:performance.now(), wind:u.wind, cool:u.cool, flash:u.flash, ranged:!!RANGED[u.arch], simpleAnimation:true });
     }
     dispatchPresentationPlan(visualSnapshots, player);
     // missiles

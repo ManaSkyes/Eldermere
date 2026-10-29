@@ -1221,7 +1221,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   root.querySelector('.play').appendChild(probeEl);
   const assignmentEl = document.createElement('div');
   assignmentEl.hidden = true;
-  assignmentEl.style.cssText = 'position:absolute;inset:0;z-index:100;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
+  assignmentEl.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(10,11,28,.98);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:auto;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
   assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
     <p style="font-size:11px;opacity:.85">Dynamic scheduling workspace. LOD buffer uploads and WebGL scene changes remain on the main thread; worker mode is only active for systems with a worker-backed task route.</p>
     <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
@@ -1242,6 +1242,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const schedulerHeader = assignmentEl.firstElementChild;
   schedulerHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;flex:0 0 auto';
   schedulerHeader.querySelector('b').textContent = 'Dynamic Work Scheduler (F7)';
+  const schedulerClose = document.createElement('button'); schedulerClose.type = 'button'; schedulerClose.textContent = 'Close · Esc'; styleProbeButton(schedulerClose);
+  schedulerClose.addEventListener('click', () => { assignmentEl.hidden = true; assignmentEl.style.display = 'none'; if (!probe.on) input.lock(); });
+  schedulerHeader.appendChild(schedulerClose);
   const schedulerNav = document.createElement('nav');
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
   schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:sticky;top:-1px;background:rgba(10,11,28,.98);z-index:2';

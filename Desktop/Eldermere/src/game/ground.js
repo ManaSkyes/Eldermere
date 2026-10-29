@@ -44,7 +44,7 @@ const vnoise = (x, z, k) => { const i = Math.floor(x), j = Math.floor(z), a = x 
 const smooth = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
 
 export function buildGround(d, kit, shapes, origin, lo = 0) {
-  const profileOn = !!globalThis.__ELDERMERE_PROFILE_GROUND__;
+  const profileOn = !!globalThis.__ELDERMERE_PROFILE_GROUND__ || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('profileGround'));
   const profileStart = profileOn ? performance.now() : 0;
   const profileMarks = [];
   let profileLast = profileStart; const profileMark = label => { if (profileOn) { const at = performance.now(); profileMarks.push({ phase: label, ms: +(at - profileLast).toFixed(2), at }); profileLast = at; } };

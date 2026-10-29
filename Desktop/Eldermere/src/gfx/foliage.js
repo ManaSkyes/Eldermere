@@ -210,7 +210,7 @@ export function createFoliage(THREE, scene, plants) {
         continue;
       }
       if (Lv.activeChunkKeys !== null && lodRenderFrame % zoneInterval !== 0) continue;
-      const effectiveHi = Math.min(Lv.hi, zoneRadius);
+      const effectiveHi = zoneRadius;
       const effectiveFrom = Math.min(Lv.from, Math.max(0, zoneRadius - Math.max(3, zoneRadius * 0.1)));
       const visibleChunks = [];
       const reach = effectiveHi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);

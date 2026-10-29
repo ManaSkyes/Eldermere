@@ -374,7 +374,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       if (workerMode !== 'main' && !workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
       else if (workerMode === 'main') workerState.status = 'main thread';
     },
-    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
+    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
     cull(camera) {
       const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
       const hid = !!this.hidden, c0 = camera.position;
@@ -430,7 +430,13 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             }
             for (let si = 0; si < sets.length; si++) {
               const M = sets[si].meshes, counts = countsBySet[si];
-              for (let L=0; L<3; L++) { const mesh=M[L]; mesh.count=counts[L]; if(counts[L]) { mesh.instanceMatrix.needsUpdate=true; mesh.instanceColor.needsUpdate=true; mesh.geometry.attributes.aF.needsUpdate=true; mesh.geometry.attributes.aR.needsUpdate=true; } }
+              for (let L=0; L<3; L++) {
+                const mesh = M[L], count = counts[L]; mesh.count = count;
+                if (count) {
+                  const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
+                  for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+                }
+              }
             }
             workerState.applyMs = performance.now() - applyStarted;
             last.x = 1e9;

@@ -38,7 +38,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   const setAiMode = mode => {
     aiMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
     aiGeneration++; aiPending = false; aiLastPlayer = null;
-    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); }
+    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
     else if (!aiPoolPromise) {
       aiPoolPromise = (async () => { const pool = createWorkerPool(AI_WORKERS); await pool.ready(); if (aiMode === 'main') { pool.close(); return null; } aiPool = pool; return pool; })().catch(error => { reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' }); aiPoolPromise = null; return null; });
     }
@@ -403,7 +403,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
           }
         } catch (error) {
           reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Task failed' });
-          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; }
+          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; aiPool?.close(); aiPool = null; aiPoolPromise = null; for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
         } finally {
           aiPending = false;
           if (aiMode !== 'main') reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'idle', task:`last ${aiLastWorkerMs.toFixed(2)} ms` });

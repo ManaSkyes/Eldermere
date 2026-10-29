@@ -47,6 +47,8 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   // NPC presentation workers choose mesh visibility/LOD, animation cadence and effect
   // budgets from plain snapshots. All Three.js transforms and GPU writes stay on main.
   let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
+  let aiMode = 'main', aiPool = null, aiPoolPromise = null, aiGeneration = 0, aiSequence = 0, aiPending = false, aiDispatchCount = 0, aiWorkerMs = 0, aiLastError = '';
+  let nextGroupSenseKey = 1; const groupSenseKeys = new WeakMap(), groupSenseCache = new Map();
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
   let presentationWorkerMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
@@ -69,6 +71,34 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       return null;
     }).finally(() => { presentationPoolPromise = null; });
   };
+  const setAiMode = mode => {
+    aiMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    aiGeneration++; aiPending = false; groupSenseCache.clear(); aiLastError = '';
+    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('creature-ai-queue'); for(let i=1;i<=2;i++) clearProcess('creature-ai-worker-'+i); }
+    else ensureAiPool();
+  };
+  const ensureAiPool = () => {
+    if (aiPool || aiPoolPromise || aiMode === 'main') return;
+    const generation = aiGeneration;
+    aiPoolPromise = (async()=>{ const pool=createWorkerPool(2); await pool.ready(); if(aiMode==='main'||generation!==aiGeneration){pool.close();return null;} aiPool=pool;
+      for(const w of pool.snapshot().workers) reportProcess('creature-ai-worker-'+w.id,{label:'Creature AI worker '+w.id,kind:'worker',status:'idle',task:'Ready · creature group perception'});
+      reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'idle',task:'Group member distance and nearest-threat calculations'}); return pool;
+    })().catch(error=>{aiLastError=error?.message||'Creature AI worker startup failed';reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'error',task:aiLastError});return null;}).finally(()=>{aiPoolPromise=null;});
+  };
+  const dispatchCreatureSense = player => {
+    if(aiMode==='main'||(aiMode==='auto'&&actors.length<4))return;
+    ensureAiPool(); if(!aiPool||aiPending||!groups.length)return;
+    const pool=aiPool, generation=aiGeneration, sequence=++aiSequence;
+    const snapshots=groups.map(G=>{let key=groupSenseKeys.get(G);if(!key){key=nextGroupSenseKey++;groupSenseKeys.set(G,key);}return {key,members:G.members.map(m=>({x:m.pos.x,y:m.pos.y,z:m.pos.z,alt:m.alt||0,hover:m.M?.hover||0,alive:!!m.alive}))};});
+    aiPending=true;aiDispatchCount++;
+    reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'busy',queued:snapshots.length,task:'Calculating nearest living member for '+snapshots.length+' groups'});
+    const chunks=[snapshots.filter((_,i)=>i%2===0),snapshots.filter((_,i)=>i%2===1)].filter(a=>a.length);
+    Promise.all(chunks.map((chunk,i)=>pool.run('creature-ai-sense',{player:{x:player.pos.x,y:player.pos.y,z:player.pos.z},groups:chunk,sequence,chunk:i})))
+      .then(results=>{if(generation!==aiGeneration||sequence!==aiSequence)return;for(const result of results)for(const item of result.results||[])groupSenseCache.set(item.key,{...item,at:performance.now()});aiWorkerMs=Math.max(0,...results.map(r=>r.__timing?.workerMs||0));aiLastError='';})
+      .catch(error=>{aiLastError=error?.message||'Creature AI perception failed';reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'error',task:aiLastError});})
+      .finally(()=>{if(generation===aiGeneration){aiPending=false;const snap=pool.snapshot();for(const w of snap.workers)reportProcess('creature-ai-worker-'+w.id,{label:'Creature AI worker '+w.id,kind:'worker',status:w.busy?'busy':'idle',task:w.task|| (w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for work')});reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:aiLastError?'error':'idle',task:aiLastError||aiMode+' · '+actors.length+' creatures · '+aiDispatchCount+' batches · '+aiWorkerMs.toFixed(2)+' ms worker time'});}});
+  };
+  const getCreatureSense = G => {const key=groupSenseKeys.get(G),result=key?groupSenseCache.get(key):null;return result&&performance.now()-result.at<500?result:null;};
   const setPresentationMode = mode => {
     presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
     presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
@@ -306,11 +336,17 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
       let nearest = null, nearestD2 = Infinity, aliveCount = 0;
-      for (const member of live) {
-        if (!member.alive) continue;
-        aliveCount++;
-        const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
-        if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+      const workerSense = aiMode !== 'main' ? getCreatureSense(G) : null;
+      if (workerSense) {
+        nearestD2 = workerSense.nearestD2; aliveCount = workerSense.aliveCount;
+        nearest = workerSense.nearest ? { pos:workerSense.nearest, M:{hover:workerSense.nearest.hover}, alt:workerSense.nearest.alt } : null;
+      } else {
+        for (const member of live) {
+          if (!member.alive) continue;
+          aliveCount++;
+          const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
+          if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+        }
       }
       const detectDist = nearest ? Math.sqrt(nearestD2) : dist;
       const detectSize = groupDetectionScale(aliveCount);
@@ -691,6 +727,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (gone) { s.m.parent?.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); shots.splice(i, 1); }
     }
     // the groups: who's awake, what each is doing, who joins whom
+    dispatchCreatureSense(player);
     for (const G of groups) {
       const d = Math.hypot(G.center.x - player.pos.x, G.center.z - player.pos.z);
       G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee' || G.state === 'investigate';
@@ -785,13 +822,14 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   return {
     spawn, actors, targets, nearTargets, groups, update,
     presentationSnapshot() { const pool = presentationPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, pending:presentationPending, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, lastError:presentationLastError, pool }; },
-    setPresentationMode,
+    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, lastError:aiLastError, pool:aiPool?.snapshot?.()||null }; },
+    setAiMode, setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
     setUmbrafiendSkinningVariant(on) { umbrafiendTwoInfluence = !!on; for (const A of actors) if (A.M?.name === 'Umbrafiend') A.C.setSkinnedVariant(umbrafiendTwoInfluence); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { setPresentationMode('main'); for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { setAiMode('main'); setPresentationMode('main'); for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

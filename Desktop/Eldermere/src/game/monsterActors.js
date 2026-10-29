@@ -60,7 +60,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       await pool.ready();
       if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
       presentationPool = pool;
-      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:'Mesh LOD · animation cadence · effects' });
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:'Creature mesh LOD · animation cadence · effect budgets' });
       return pool;
     })().catch(error => {
       reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' });

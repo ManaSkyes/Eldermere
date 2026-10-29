@@ -1265,6 +1265,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const finishTraversalCapture = () => {
     if (!traversalCapture.on && !traversalCapture.samples.length) return;
     traversalCapture.on = false;
+    const foliageDiag = dungeonLights?.foliage?.diagnostics;
+    if (foliageDiag) foliageDiag.enabled = false;
+    const foliageLine = foliageDiag
+      ? `Foliage culling: ${foliageDiag.calls} recalculations · ${foliageDiag.skipped} skipped checks · ${foliageDiag.calls ? (foliageDiag.totalMs / foliageDiag.calls).toFixed(2) : '0.00'} ms avg / ${foliageDiag.maxMs.toFixed(2)} ms max · ${foliageDiag.totalMs.toFixed(1)} ms total · scan ${foliageDiag.scanMs.toFixed(1)} ms · buffer prep ${foliageDiag.bufferMs.toFixed(1)} ms · ${foliageDiag.instances.toLocaleString()} visible LOD instances processed`
+      : 'Foliage culling: diagnostics unavailable';
     const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
     const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
     const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
@@ -1286,6 +1291,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       `Hitches: ${slow33} frames ≥33.3 ms · ${slow50} frames ≥50 ms · worst at ${worst ? `${worst.elapsed.toFixed(1)} s, position (${worst.x.toFixed(1)}, ${worst.y.toFixed(1)}, ${worst.z.toFixed(1)})` : '—'}`,
       `Game-update CPU: median ${fmtMs(logic.median)} · p95 ${fmtMs(logic.p95)} · worst ${fmtMs(logic.max)}`,
       `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
+      foliageLine,
       `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
       `GPU timer-query median: main + postFX ${probeInfo.gpuSamples.main.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.main)) : 'no valid samples'} (${probeInfo.gpuSamples.main.length} samples) · reflections ${probeInfo.gpuSamples.reflection.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.reflection)) : 'no valid samples'} (${probeInfo.gpuSamples.reflection.length} samples)`,
@@ -1297,6 +1303,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     traversalStartBtn.disabled = false; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = false;
   };
   traversalStartBtn.addEventListener('click', () => {
+    dungeonLights?.foliage?.resetDiagnostics?.();
+    if (dungeonLights?.foliage?.diagnostics) dungeonLights.foliage.diagnostics.enabled = true;
     traversalCapture.on = true; traversalCapture.started = performance.now(); traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0;
     traversalReportEl.textContent = 'Capturing… Run across the terrain, then press Stop & report.';
     traversalStatus.textContent = 'CAPTURING · move through the world normally'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = false; traversalCopyBtn.disabled = true;

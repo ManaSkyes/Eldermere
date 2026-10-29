@@ -1274,15 +1274,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     for (let start = 0; start < duration; start += 10) {
       const q = a.filter(v => v.t / 1000 >= start && v.t / 1000 < start + 10);
       if (!q.length) continue;
-      const times = q.map(v=>v.frameMs);
-      buckets.push(`${String(start).padStart(3)}–${String(Math.min(start+10,duration)).padStart(3)}s: ${q.length} frames · ${Math.round(1000 / Math.max(1, sortedMedian(times)))} median FPS · p95 ${percentile95(times).toFixed(1)} ms · ${q.filter(v=>v.frameMs>=33.3).length} frames ≥33 ms`);
+      const times = q.map(v=>v.frameMs), bucketDuration = Math.max(0.001, Math.min(start + 10, duration) - start);
+      buckets.push(`${String(start).padStart(3)}–${String(Math.min(start+10,duration)).padStart(3)}s: ${q.length} frames · ${(q.length / bucketDuration).toFixed(1)} observed FPS · p95 ${percentile95(times).toFixed(1)} ms · ${q.filter(v=>v.frameMs>=33.3).length} frames ≥33 ms`);
     }
     const mem = performance.memory ? `JS heap: ${(performance.memory.usedJSHeapSize/1048576).toFixed(1)} / ${(performance.memory.jsHeapSizeLimit/1048576).toFixed(0)} MB used/limit (Chromium estimate)` : 'JS heap: browser does not expose performance.memory';
     traversalCapture.report = [
       'ELDERMERE LIVE TRAVERSAL CAPTURE', new Date().toLocaleString(),
       `Duration: ${duration.toFixed(1)} s · samples: ${a.length}${traversalCapture.dropped ? ` · dropped samples: ${traversalCapture.dropped}` : ''}`,
       `Distance travelled: ${traversalCapture.distance.toFixed(1)} m · average movement speed: ${duration > 0 ? (traversalCapture.distance/duration).toFixed(2) : '0.00'} m/s`,
-      `Frame time: median ${fmtMs(f.median)} · p95 ${fmtMs(f.p95)} · worst ${fmtMs(f.max)} · estimated median FPS ${Number.isFinite(f.median) ? Math.round(1000/Math.max(1,f.median)) : '—'}`,
+      `Observed average FPS: ${duration > 0 ? (a.length / duration).toFixed(1) : '—'} · frame interval: median ${fmtMs(f.median)} · p95 ${fmtMs(f.p95)} · worst ${fmtMs(f.max)}`,
       `Hitches: ${slow33} frames ≥33.3 ms · ${slow50} frames ≥50 ms · worst at ${worst ? `${worst.elapsed.toFixed(1)} s, position (${worst.x.toFixed(1)}, ${worst.y.toFixed(1)}, ${worst.z.toFixed(1)})` : '—'}`,
       `Game-update CPU: median ${fmtMs(logic.median)} · p95 ${fmtMs(logic.p95)} · worst ${fmtMs(logic.max)}`,
       `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
@@ -1290,7 +1290,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
       `GPU timer-query median: main + postFX ${probeInfo.gpuSamples.main.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.main)) : 'no valid samples'} (${probeInfo.gpuSamples.main.length} samples) · reflections ${probeInfo.gpuSamples.reflection.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.reflection)) : 'no valid samples'} (${probeInfo.gpuSamples.reflection.length} samples)`,
       mem, '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
-      'Interpretation: frame time includes waiting for the next refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture measures the real game while moving; it does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
+      'Interpretation: observed average FPS is sample count divided by capture duration; it is more representative of sustained throughput than the reciprocal of median frame interval. Frame interval includes waiting for refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
     ].join('\n');
     traversalReportEl.textContent = traversalCapture.report;
     traversalStatus.textContent = `Complete · ${duration.toFixed(1)} s · ${a.length} frames · ${slow50} severe hitches`;

@@ -501,9 +501,11 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
             return pool.runBatch(tasks, 8).then(results => {
-              // Camera rotation does not invalidate sphere-based LOD results; only player movement does.
-               const cameraStale = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 0.5;
-              if (requestGeneration !== workerGeneration || cameraStale) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
+              // Apply completed work as an interim frame even if the player moved during the batch.
+              // Discarding every result after only 0.5 m of movement starves LOD updates while running.
+              // A larger displacement triggers an immediate follow-up refresh after this batch is applied.
+              const playerMoved = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 4;
+              if (requestGeneration !== workerGeneration) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
               workerState.lastMs = performance.now() - batchStarted;
               workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
               workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
@@ -531,8 +533,10 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
                 }
               }
               workerState.applyMs = performance.now() - applyStarted;
-              lodZoneNeedsInitialRefresh = false;
-              last.hid = hid; last.x = cx; last.y = cy; last.z = cz; last.q.copy(camera.quaternion); last.fov = camera.fov;
+              lodZoneNeedsInitialRefresh = playerMoved;
+              // Keep the request origin as the applied origin. If movement exceeded 4 m while
+              // workers ran, the next render tick immediately schedules a corrected sphere scan.
+              last.hid = hid; last.x = requestPosition.x; last.y = requestPosition.y; last.z = requestPosition.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
               if (timed) { const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances; }
             });
           }).catch(error => {

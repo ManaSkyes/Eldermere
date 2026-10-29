@@ -1278,6 +1278,19 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   }]));
   let activeSchedulerCategory = 'largeFoliage';
   const schedulerTabButtons = new Map();
+  const schedulerNavModeSelects = new Map();
+  const setSchedulerCategoryMode = (categoryId, value) => {
+    const profile = schedulerProfiles[categoryId];
+    if (!profile) return;
+    profile.mode = value;
+    const navSelect = schedulerNavModeSelects.get(categoryId);
+    if (navSelect && navSelect.value !== value) navSelect.value = value;
+    if (categoryId === 'largeFoliage') {
+      if (typeof largeModeSelect !== 'undefined' && largeModeSelect.value !== value) largeModeSelect.value = value;
+      dungeonLights?.foliage?.setWorkerMode?.(value);
+    }
+    if (categoryId === 'ai') enemies?.setAiMode?.(value);
+  };
   const makeSchedulerSelect = (value, choices, onChange) => {
     const select = document.createElement('select');
     select.style.cssText = 'background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px;max-width:100%';
@@ -1294,7 +1307,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const largeTaskControls = document.createElement('div');
   largeTaskControls.style.cssText='display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
   const largeModeLabel=document.createElement('label'); largeModeLabel.textContent='Tree / bush execution mode'; largeModeLabel.style.cssText='display:flex;flex-direction:column;gap:5px';
-  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],value=>{schedulerProfiles.largeFoliage.mode=value;dungeonLights?.foliage?.setWorkerMode?.(value);});
+  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],value=>setSchedulerCategoryMode('largeFoliage',value));
   dungeonLights?.foliage?.setWorkerMode?.(schedulerProfiles.largeFoliage.mode);
   largeModeLabel.appendChild(largeModeSelect); largeTaskControls.appendChild(largeModeLabel);
   const largePriorityLabel=document.createElement('label'); largePriorityLabel.textContent='Auto priority * (1 = highest, 10 = lowest)'; largePriorityLabel.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
@@ -1309,8 +1322,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';
     const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
     const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
-    const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode *'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
-    modeWrap.appendChild(makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],v=>{profile.mode=v;if(category.id==='ai')enemies?.setAiMode?.(v);})); settings.appendChild(modeWrap);
+    const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
+    const profileModeSelect=makeSchedulerSelect(profile.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],v=>setSchedulerCategoryMode(category.id,v));
+    modeWrap.appendChild(profileModeSelect); settings.appendChild(modeWrap);
     if(category.id==='ai'){const aiNote=document.createElement('div');aiNote.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:260px';aiNote.textContent='Worker tasks receive serializable snapshots for editor-placed NPC/enemy actors. Results are accepted only while the player position and scheduler generation remain valid. Creature/monsterActors AI is not routed yet (*); Three.js objects and gameplay side effects stay on the main thread.';settings.appendChild(aiNote);}
     const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority * (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
     priorityWrap.appendChild(makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v))); settings.appendChild(priorityWrap);
@@ -1335,15 +1349,25 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     return panel;
   };
   const renderSchedulerTabs = () => {
-    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear();
+    schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear();
     schedulerCategories.forEach(category=>{
+      // Keep every category's execution mode directly visible in the tab bar. This
+      // makes the settings independent and editable without entering each tab.
+      const tabGroup=document.createElement('div');
+      tabGroup.style.cssText='display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:3px 5px;border:1px solid '+(category.id===activeSchedulerCategory?'#d0b8ff':'#383356')+';border-radius:7px;background:rgba(90,84,144,.12)';
       const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
       button.style.cssText+=';white-space:nowrap;flex:0 0 auto';
       button.style.setProperty('border-color',category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8','important');
       button.style.setProperty('background-color',category.id===activeSchedulerCategory?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)','important');
       button.setAttribute('aria-selected',String(category.id===activeSchedulerCategory));
       button.addEventListener('click',()=>{activeSchedulerCategory=category.id;renderSchedulerTabs();});
-      schedulerNav.appendChild(button); schedulerTabButtons.set(category.id,button);
+      const modeSelect=makeSchedulerSelect(schedulerProfiles[category.id].mode,[['main','Main'],['worker','Worker'],['auto','Auto']],value=>setSchedulerCategoryMode(category.id,value));
+      modeSelect.setAttribute('aria-label',category.label+' execution mode');
+      modeSelect.title=category.label+' execution mode';
+      modeSelect.style.cssText+=';width:84px;min-width:84px;font-size:11px;padding:5px 3px';
+      schedulerNavModeSelects.set(category.id,modeSelect);
+      tabGroup.append(button,modeSelect);
+      schedulerNav.appendChild(tabGroup); schedulerTabButtons.set(category.id,button);
       const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
       panel.hidden=category.id!==activeSchedulerCategory;
       schedulerWorkspace.appendChild(panel);

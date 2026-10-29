@@ -1,5 +1,5 @@
-// Demand-scaled browser-native worker pool. Jobs share one FIFO queue, so any free worker
-// takes the next job (work stealing across task types). Keep one warm worker; retire excess idle workers.
+// Demand-scaled browser-native worker pool with fair cross-system scheduling. Creature jobs can
+// jump ahead of foliage backlog, while a bounded burst guarantees tree-cull jobs keep progressing.
 export function recommendedWorkerCount() {
   const cores = Number(globalThis.navigator?.hardwareConcurrency) || 2;
   return Math.max(1, Math.min(12, cores - 1));
@@ -14,9 +14,26 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
   const live = () => workers.filter(w => !w.retired);
   const idle = () => live().filter(w => !w.busy && w.ready);
 
+  // Creature work is latency-sensitive; foliage can be spread across frames. Prefer queued
+  // non-foliage work, but guarantee foliage progress after a small burst so neither class starves.
+  const MAX_NON_FOLIAGE_BURST = 3;
+  let consecutiveNonFoliageJobs = 0;
+  const takeNextJob = () => {
+    if (!queue.length) return null;
+    const firstTree = queue.findIndex(job => job.type === 'tree-cull');
+    const firstNonTree = queue.findIndex(job => job.type !== 'tree-cull');
+    if (firstTree < 0) { consecutiveNonFoliageJobs = 0; return queue.shift(); }
+    if (firstNonTree < 0 || consecutiveNonFoliageJobs >= MAX_NON_FOLIAGE_BURST) {
+      consecutiveNonFoliageJobs = 0;
+      return queue.splice(firstTree, 1)[0];
+    }
+    consecutiveNonFoliageJobs++;
+    return queue.splice(firstNonTree, 1)[0];
+  };
+
   const dispatch = worker => {
     if (closed || worker.retired || !worker.ready || worker.busy || !queue.length) return;
-    const job = queue.shift();
+    const job = takeNextJob();
     worker.busy = true; worker.jobId = job.id; worker.taskType = job.type; worker.lastTaskType = job.type;
     const startedAt = now();
     const record = { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt, dispatchMs: 0 };

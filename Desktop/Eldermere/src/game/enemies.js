@@ -39,7 +39,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationFrame = 0;
   let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null, presentationWorkerMs = 0;
   let presentationPlans = new Map(), nextPresentationId = 1;
-  const PRESENTATION_WORKERS = 1;
+  const PRESENTATION_WORKERS = 2;
   const ensurePresentationPool = () => {
     if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
     const generation = presentationGeneration;
@@ -282,11 +282,14 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     presentationPending = true; presentationLastDispatch = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:1, workerMs:presentationWorkerMs, task:'Computing mesh LOD, animation pose and effect parameters' });
-    presentationPool.run('npc-presentation-plan', { generation, sequence, actors:snapshot }).then(result => {
-      if (generation !== presentationGeneration || result.generation !== generation || result.sequence !== sequence) return;
-      presentationWorkerMs = result.__timing?.workerMs || 0;
-      presentationPlans = new Map((result.plans || []).map(plan => [plan.id, plan]));
+    const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
+    const chunks = [];
+    for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
+    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing mesh LOD, animation pose and effect parameters' });
+    Promise.all(chunks.map(actors => presentationPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
+      if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
+      presentationWorkerMs = Math.max(0, ...results.map(result => result.__timing?.workerMs || 0));
+      presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
       presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
     }).catch(error => {
       reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });

@@ -1444,7 +1444,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
 
   renderSchedulerTabs();
   // F2 process monitor. Reuse stable rows and refresh at 4 Hz to avoid per-frame layout churn.
-  let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastRefresh = 0;
+  let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastFrameDeltaMs = 0, processMonitorLastRefresh = 0;
+  let processCaptureStartedAt = 0, processCaptureSamples = [], processCaptureStats = null;
   let processMonitorLastReport = null;
   const processMonitorRows = new Map();
   const processMonitor = document.createElement('aside');
@@ -1472,6 +1473,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (processCaptureTimer) clearTimeout(processCaptureTimer);
     const button = processMonitor.querySelector('[data-process-capture]');
     const feedback = processMonitor.querySelector('[data-process-feedback]');
+    processCaptureStartedAt = performance.now(); processCaptureSamples = []; processCaptureStats = null;
     processMonitorOpen = false;
     processMonitor.style.display = 'none';
     input.lock();
@@ -1479,6 +1481,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     button.disabled = true;
     processCaptureTimer = setTimeout(() => {
       processCaptureTimer = null;
+      const durationMs = Math.max(1, performance.now() - processCaptureStartedAt);
+      processCaptureStartedAt = 0;
+      const sortedFrames = processCaptureSamples.map(s => s.frameMs).filter(Number.isFinite).sort((a,b)=>a-b);
+      const sortedCpu = processCaptureSamples.map(s => s.loopCpuMs).filter(Number.isFinite).sort((a,b)=>a-b);
+      const median = values => values.length ? (values.length%2 ? values[(values.length-1)/2] : (values[values.length/2-1]+values[values.length/2])/2) : 0;
+      const p95 = values => values.length ? values[Math.min(values.length-1,Math.ceil(values.length*0.95)-1)] : 0;
+      processCaptureStats = { samples:processCaptureSamples.length, durationMs, observedFps:processCaptureSamples.length/(durationMs/1000), frameMedianMs:median(sortedFrames), frameP95Ms:p95(sortedFrames), loopCpuMedianMs:median(sortedCpu) };
       refreshProcessMonitor(true);
       processMonitorOpen = true;
       processMonitor.style.display = 'block';
@@ -1512,9 +1521,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const timingText = state => 'workers '+(state.pool ? state.pool.busy+'/'+state.pool.active+' busy · '+state.pool.size+' max' : '0 active')+
       ' · queue '+(state.pool?.queued ?? 0)+' waiting'+
       ' · last CPU '+(state.workerMs||0).toFixed(2)+' ms'+
-      ' · queue wait '+(state.queueMs||0).toFixed(2)+' ms'+
-      ' · postMessage '+(state.dispatchMs||0).toFixed(3)+' ms'+
-      ' · round trip '+(state.roundTripMs||0).toFixed(2)+' ms'+
+      ' · max queue wait '+(state.queueMs||0).toFixed(2)+' ms'+
+      ' · postMessage total '+(state.dispatchMs||0).toFixed(3)+' ms'+
+      ' · slowest round trip '+(state.roundTripMs||0).toFixed(2)+' ms'+
+      ' · batch wall '+(state.batchMs||0).toFixed(2)+' ms'+
       (state.pending ? ' · pending '+((state.pendingAgeMs||0)/1000).toFixed(2)+' s' : '');
     const creatureAi=monsters?.aiSnapshot?.();
     if(creatureAi){
@@ -1545,7 +1555,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       task:'main-thread culling · '+smallFoliageActive.length+'/3 zones enabled · '+smallFoliageZones.map(z=>'Z'+z.id+' '+(z.enabled===false?'off':Math.round(Number(z.radius)||0)+' m / '+Math.max(1,Math.floor(Number(z.interval)||1))+'f')).join(' · ')+' · grass/plants buffer uploads on main'});
     const creaturePopulation=monsters?.presentationSnapshot?.()?.population||null;
     const creatureSceneCount=creaturePopulation?.attached??creaturePopulation?.total??0;
-    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi?{...creatureAi,registeredActorCount:creatureAi.actorCount,sceneActorCount:creatureAi.population?.attached??0}:null, creaturePopulation:creaturePopulation?{...creaturePopulation,registered:creaturePopulation.total,sceneCount:creatureSceneCount}:null, creatureSceneCount, creatureRegisteredCount:creaturePopulation?.total??0, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null, smallFoliagePolicy };
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processCaptureStats?.frameMedianMs ?? processMonitorLastFrameDeltaMs, frameDeltaMedianMs:processCaptureStats?.frameMedianMs ?? processMonitorLastFrameDeltaMs, frameDeltaP95Ms:processCaptureStats?.frameP95Ms ?? processMonitorLastFrameDeltaMs, observedFps:processCaptureStats?.observedFps ?? (processMonitorLastFrameDeltaMs>0?1000/processMonitorLastFrameDeltaMs:0), loopCpuMs:processCaptureStats?.loopCpuMedianMs ?? processMonitorLastFrameMs, frameSamples:processCaptureStats?.samples ?? 1, captureDurationMs:processCaptureStats?.durationMs ?? 0, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi?{...creatureAi,registeredActorCount:creatureAi.actorCount,sceneActorCount:creatureAi.population?.attached??0}:null, creaturePopulation:creaturePopulation?{...creaturePopulation,registered:creaturePopulation.total,sceneCount:creatureSceneCount}:null, creatureSceneCount, creatureRegisteredCount:creaturePopulation?.total??0, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null, smallFoliagePolicy };
     const list=processMonitor.querySelector('[data-process-list]');
     const activeIds=new Set(rows.map(p=>p.id));
     for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}
@@ -1565,7 +1575,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       node._processStatus.style.color=p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0';
       node._processTask.textContent=p.task||'No task assigned';
     }
-    processMonitor.querySelector('[data-process-frame]').textContent=processMonitorLastFrameMs.toFixed(1)+' ms/frame';
+    processMonitor.querySelector('[data-process-frame]').textContent='loop '+processMonitorLastFrameMs.toFixed(1)+' ms · Δ '+processMonitorLastFrameDeltaMs.toFixed(1)+' ms';
   };
   foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
   foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
@@ -2142,6 +2152,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
     const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
+    processMonitorLastFrameDeltaMs = rawFrameMs;
+    if (processCaptureStartedAt) processCaptureSamples.push({ frameMs:rawFrameMs, loopCpuMs:0 });
     lap('Lamps and torches');
     if (input.locked) {
       for (let i = 1; i <= 9; i++) if (input.pressed('hotbar' + i) && hotbar[i - 1]) { const id = hotbar[i - 1]; if (id.startsWith('spell:')) spells.request(id.slice(6), 'hotbar' + i); else drink(id); }
@@ -2379,7 +2391,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
         probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(Number.isFinite(probeInfo.gpu) ? probeInfo.gpu : 0).toFixed(2)} ms total (median: main/postFX ${(Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0).toFixed(2)} + reflections ${(Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0).toFixed(2)}; ${probeInfo.gpuSamples.main.length}/${probeInfo.gpuSamples.reflection.length} samples)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync && !tq ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
-    processMonitorLastFrameMs = Math.max(0, performance.now() - cpu0); if (processMonitorOpen) refreshProcessMonitor();
+    processMonitorLastFrameMs = Math.max(0, performance.now() - cpu0); if (processCaptureStartedAt && processCaptureSamples.length) processCaptureSamples[processCaptureSamples.length-1].loopCpuMs = processMonitorLastFrameMs; if (processMonitorOpen) refreshProcessMonitor();
     dbg.textContent = `${fps} fps · ${Math.hypot(st.vel.x, st.vel.z).toFixed(1)} m/s${st.sprinting ? ' · sprint' : ''}${st.crouching ? ' · crouch' : ''}${st.sitting ? ' · sitting' : ''}${st.onGround ? '' : ' · air'}${loadFactor < 1 ? ' · overloaded' : ''}`;
   }
   requestAnimationFrame(frame);

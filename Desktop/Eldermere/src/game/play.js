@@ -1490,7 +1490,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
   const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   const startGpuQuery = bucket => {
-    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= 8) return null;
+    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= (traversalCapture.on ? 48 : 8)) return null;
     const q = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, q);
     return { q, bucket, mode: gpuModeKey(), captureFrameId: traversalCapture.on ? traversalCapture.frameId : null, benchAcc: bench.on && bench.n > 40 ? bench.acc : null };
   };

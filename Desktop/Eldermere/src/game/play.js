@@ -1247,9 +1247,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const schedulerClose = document.createElement('button'); schedulerClose.type = 'button'; schedulerClose.textContent = 'Close · Esc'; styleProbeButton(schedulerClose);
   schedulerClose.addEventListener('click', () => { assignmentEl.hidden = true; assignmentEl.style.display = 'none'; if (!probe.on) input.lock(); });
   schedulerHeader.appendChild(schedulerClose);
+  const schedulerGroupNav = document.createElement('nav');
+  schedulerGroupNav.setAttribute('aria-label', 'Scheduler sections');
+  schedulerGroupNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:2px 0 5px;position:relative;z-index:2';
   const schedulerNav = document.createElement('nav');
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
-  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
+  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:3px 0 8px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
   const schedulerWorkspace = document.createElement('div');
   schedulerWorkspace.style.cssText = 'display:block;position:relative;align-self:stretch;flex:1 1 0%;min-height:0;min-width:0;height:0;overflow:auto;overflow-x:hidden;width:100%;box-sizing:border-box;color:#e8e4f4;padding:0 4px 20px';
   const schedulerLargePanel = document.createElement('section');
@@ -1274,6 +1277,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
   }]));
   let activeSchedulerCategory = 'largeFoliage';
+  let activeSchedulerGroup = 'Rendering';
+  const schedulerGroups = [
+    {id:'Overview', label:'Overview'},
+    {id:'Rendering', label:'Rendering'},
+    {id:'Simulation', label:'Simulation'},
+    {id:'World', label:'World'},
+    {id:'Workers', label:'Worker management'}
+  ];
+  const schedulerGroupFor = id => ({largeFoliage:'Rendering',smallFoliage:'Rendering',npcs:'Rendering',buildings:'Rendering',lighting:'Rendering',ai:'Simulation',weather:'Simulation',world:'World'})[id] || 'Rendering';
   const schedulerTabButtons = new Map();
   const schedulerNavModeSelects = new Map();
   const schedulerPanelModeSelects = new Map();
@@ -1362,7 +1374,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       // Keep every category's execution mode directly visible in the tab bar. This
       // makes the settings independent and editable without entering each tab.
       const tabGroup=document.createElement('div');
-      tabGroup.style.cssText='display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:3px 5px;border:1px solid '+(category.id===activeSchedulerCategory?'#d0b8ff':'#383356')+';border-radius:7px;background:rgba(90,84,144,.12)';
+      tabGroup.style.cssText='display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:3px 5px;border:1px solid '+(category.id===activeSchedulerCategory?'#d0b8ff':'#383356')+';border-radius:7px;background:rgba(90,84,144,.12)';
       const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
       button.style.cssText+=';white-space:nowrap;flex:0 0 auto';
       button.style.setProperty('border-color',category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8','important');
@@ -1384,7 +1396,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       schedulerWorkspace.appendChild(panel);
     });
   };
-  assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerLegend); assignmentEl.appendChild(schedulerWorkspace);
+  const schedulerOverview = document.createElement('section');
+  schedulerOverview.style.cssText='display:flex;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
+  schedulerOverview.innerHTML='<h2 style="font-size:20px;margin:0">Scheduler overview</h2><p style="margin:0;opacity:.8">Choose a section above to configure a subsystem. Modes are independent. Items marked * are not fully connected to live execution yet.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px"><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Rendering</b><p style="margin:5px 0 0;opacity:.8">Large and small foliage, NPC presentation, buildings, lighting and post-processing.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Simulation</b><p style="margin:5px 0 0;opacity:.8">NPC perception, creature AI, weather and other simulation jobs.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>World</b><p style="margin:5px 0 0;opacity:.8">Generation and streaming tasks as worker-safe data jobs become available.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Worker management</b><p style="margin:5px 0 0;opacity:.8">Pool sizing, queue priorities and diagnostics. Live pool diagnostics remain available in F2.</p></div></div>');
+  const schedulerWorkersPanel = document.createElement('section');
+  schedulerWorkersPanel.style.cssText='display:flex;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
+  schedulerWorkersPanel.innerHTML='<h2 style="font-size:20px;margin:0">Worker management</h2><p style="margin:0;opacity:.8">Use F2 for live worker activity, active task names, dispatch counts, errors and timings. Shared queue priorities and a global pool allocator are planned; per-category mode selectors remain independent.</p><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Current execution rules</b><ul style="margin:6px 0 0;padding-left:20px"><li>CPU-only serializable calculations may run on workers.</li><li>Three.js scene changes, bone application and GPU uploads stay on the main thread.</li><li>Auto thresholds and pool allocation are currently system-specific, not yet controlled by a shared global scheduler.</li></ul></div>';
+  assignmentEl.appendChild(schedulerGroupNav); assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerLegend); assignmentEl.appendChild(schedulerWorkspace);
+
   renderSchedulerTabs();
   // F2 process monitor. Reuse stable rows and refresh at 4 Hz to avoid per-frame layout churn.
   let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastRefresh = 0;

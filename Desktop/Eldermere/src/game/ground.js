@@ -44,6 +44,10 @@ const vnoise = (x, z, k) => { const i = Math.floor(x), j = Math.floor(z), a = x 
 const smooth = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
 
 export function buildGround(d, kit, shapes, origin, lo = 0) {
+  const profileOn = !!globalThis.__ELDERMERE_PROFILE_GROUND__;
+  const profileStart = profileOn ? performance.now() : 0;
+  const profileMarks = [];
+  let profileLast = profileStart; const profileMark = label => { if (profileOn) { const at = performance.now(); profileMarks.push({ phase: label, ms: +(at - profileLast).toFixed(2), at }); profileLast = at; } };
   const t = terrainOf(d), f = fillOf(d), gp = groundOf(d); if (!t && !f) return null;
   const W = d.w * C, H = d.h * C, N = W * H, NX = W / R, NZ = H / R, VX = NX + 1, VZ = NZ + 1, NV = VX * VZ;
   // ---- what stands where ----
@@ -91,6 +95,7 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
     return sw > 0 ? h + sd / Math.max(1, sw) : h;
   };
   const isRoadAt = (k, h) => roadTop[k] > -Infinity && Math.abs(roadTop[k] - h) < 4;
+  profileMark('occupancy + roads');
   // ---- the filler: per layer, each painted square's kind; off-terrain layers get their own ground ----
   const kinds = new Map(), sheets = [];                                                     // sheets: { heights (per grid point, NaN unused), quads (Uint8: 1 own, 2 under a road's edge), l, kind }
   const CT = carvedTerrain(d), bodies = CT?.bodies || [];                                    // the terrain with its rivers and lakes carved in (src/data/water.js)
@@ -145,6 +150,7 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
     }
     sheets.unshift({ HF, quads, l: null, terrain: true });
   }
+  profileMark('filler sheets');
   // ---- the meshes: per 20 m chunk, shared grid points, smooth normals ----
   const surfaces = [], cols = [];
   const per = CHUNK / R;
@@ -248,6 +254,7 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
     outShapes.push({ type: 'box', hidden: true, surface: fld ? 'climbStone' : 'grass', terrain: true, ...(fld ? { field: fld, cliff: true } : {}), min: [origin.x + i, origin.y + b2, origin.z + j], max: [origin.x + i1, origin.y + top, origin.z + j + 1] });   // (a cliff's columns: a climbing face)
     n = e;
   }
+  profileMark('terrain mesh');
   // ---- the water: each body's squares, merged along each row where level and flow match; wet shores ----
   const TS = sheets.find(S => S.terrain), wet = new Uint8Array(N);
   const fx2 = kit.waterFx || (kit.waterFx = { mist: [], spray: [], fleck: [] }), sounds = kit.waterSounds || (kit.waterSounds = []);
@@ -386,6 +393,7 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
       }
     }
   }
+  profileMark('water');
   // ---- the splat: surface kind, moisture, temperature, wetness per square metre ----
   const data = new Uint8Array(N * 4);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
@@ -394,12 +402,14 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
     if (ROCK?.any && ROCK.weight(x, z) > 0.35) m = 3;                                            // a cliff is rock, whatever's painted (no grass on the faces)
     data[k * 4] = m; data[k * 4 + 1] = Math.round(+groundAt(gp, 'moist', x, z) / 9 * 255); data[k * 4 + 2] = Math.round(+groundAt(gp, 'temp', x, z) / 9 * 255); data[k * 4 + 3] = wet[k];
   }
+  profileMark('splat texture data');
   // ---- plants (src/game/foliagePlace.js, drawn by src/gfx/foliage.js): painted, and growing on their own ----
   // the ground's height as drawn: a fine chunk's 1 m grid, or the coarse 2 m one
   const drawnH = (x, z) => { if (!TER) return TS.hAt(x, z); const ci = Math.floor(x / R / per), cj = Math.floor(z / R / per); if (!fine[cj * CW + ci]) return TER.hAt(x, z);
     const i = Math.max(0, Math.min(W - 1, Math.floor(x))), j = Math.max(0, Math.min(H - 1, Math.floor(z))), a = x - i, b = z - j; return (FH(i, j) * (1 - a) + FH(i + 1, j) * a) * (1 - b) + (FH(i, j + 1) * (1 - a) + FH(i + 1, j + 1) * a) * b; };
   if (TS) placeFoliage({ kit, gp, W, H, hAt: drawnH, pieceTop, roadTop, groundAt, isFill: (i, j) => { const k = j * W + i; for (const kd of kinds.values()) if (kd[k] && kd[k] !== '.') return true; return false; },
     kindAt: (i, j) => data[(j * W + i) * 4], cliffAt: (x, z) => ROCK ? ROCK.weight(x, z) : 0, wDepth, wSpeed, wSD, wLv });
+  profileMark('foliage');
   // ---- clutter on land (src/game/clutter.js): by the surface it lands on; never on water, roads or pieces ----
   if (gp?.clut && TS) {
     const inWater = (x, z) => { const k = `${Math.floor(x / R)},${Math.floor(z / R)}`; return bodies.some(B => B.has.has(k)); };
@@ -407,11 +417,20 @@ export function buildGround(d, kit, shapes, origin, lo = 0) {
       (x, z) => { const k = Math.floor(z) * W + Math.floor(x); return inWater(x, z) || roadTop[k] > -Infinity || pieceTop[k] > -Infinity; },
       (x, z) => (TER ? FH(Math.round(x), Math.round(z)) : TS.hAt(x, z)) + SINK * 0, (x, z) => data[(Math.floor(z) * W + Math.floor(x)) * 4], (x, z) => ROCK ? ROCK.weight(x, z) : 0, Math.round(origin.x * 7 + origin.z * 3));
   }
+  profileMark('land clutter');
   // ---- scenery on the filler ----
   for (const [l, kind] of kinds) {
     const own = sheets.find(S => !S.terrain && S.l === l);
     const gyAt = (i, j) => own && own.quads[Math.floor(j / R) * NX + Math.floor(i / R)] === 1 ? own.hAt(i + 0.5, j + 0.5) : TS ? TS.hAt(i + 0.5, j + 0.5) : l * C;
     buildFeatures(kit, kind, W, H, l, gyAt, k => !!pieceLayers.get(l)?.[k], k => roadTop[k] >= l * C - 1 && roadTop[k] < l * C + C);
+  }
+  profileMark('filler scenery');
+  if (profileOn) {
+    const phases = profileMarks.map(({ phase, ms }) => ({ phase, ms }));
+    const totalMs = +(performance.now() - profileStart).toFixed(2);
+    console.groupCollapsed(`[Eldermere ground] ${d.w}×${d.h} · ${totalMs} ms`);
+    console.table([...phases, { phase: 'TOTAL', ms: totalMs }]);
+    console.groupEnd();
   }
   return { surfaces, shapes: outShapes, splat: { w: W, h: H, data, x: origin.x, z: origin.z } };
 }

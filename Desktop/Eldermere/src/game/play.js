@@ -1502,7 +1502,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const addRow = row => { if (!row?.id || seen.has(row.id)) return; seen.add(row.id); rows.push(row); };
     addRow({id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'});
     const summaryIds = new Set(['creature-ai-queue','npc-presentation-queue','npc-simple-presentation-queue','npc-ai-queue','shared-pool-summary']);
-    for(const process of processSnapshot()) { const id=process.id||process.label; if (summaryIds.has(id)) continue; addRow({...process,id}); }
+    const registrySnapshot = processSnapshot().filter(process => !/^(shared-worker-|tree-worker-|shared-pool-worker-)/.test(String(process.id || '')));
+    for(const process of registrySnapshot) { const id=process.id||process.label; if (summaryIds.has(id)) continue; addRow({...process,id}); }
     const npcState=enemies?.workerSnapshot?.();
     if(npcState?.pool){
       for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);addRow({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
@@ -1528,17 +1529,16 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     // Creature AI and creature presentation share the same physical pool. Show its workers once,
     // under their scheduler IDs, rather than implying each subsystem owns a separate set.
-    const sharedPool = creatureAi?.pool || monsters?.presentationSnapshot?.()?.pool;
+    const sharedPool = dungeonLights?.foliage?.workerPoolSnapshot || creatureAi?.pool || monsters?.presentationSnapshot?.()?.pool;
     if(sharedPool) {
       addRow({id:'shared-pool-summary',label:'Shared creature pool',status:sharedPool.busy?'working':'idle',
         task:sharedPool.busy+'/'+sharedPool.active+' workers busy · '+sharedPool.queued+' queued · '+sharedPool.active+' active / '+sharedPool.size+' max'});
       for(const w of sharedPool.workers) addRow({id:'shared-pool-worker-'+w.id,label:'Shared worker '+w.id,status:w.busy?'working':'idle',
         task:w.busy?(w.task||'Processing '+(w.jobId?'job '+w.jobId:'job')):'Idle'+(w.lastTask?' · last task: '+w.lastTask:' · waiting for work')});
     }
-    const treeState=dungeonLights?.foliage?.workerState, treePool=dungeonLights?.foliage?.workerPoolSnapshot;
-    if(treePool){for(const w of treePool.workers){const id='tree-worker-'+w.id;addRow({id,label:'Tree LOD Worker '+w.id,status:w.busy?'working':'idle',task:w.busy?(w.task||'Processing task'):(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
-    else if(treeState)addRow({id:'tree-pool',label:'Tree LOD pool',status:treeState.status?.includes('running')?'working':'idle',task:treeState.status||'Not initialized'});
-    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:processSnapshot(), creatureAI:creatureAi||null, creaturePopulation:monsters?.presentationSnapshot?.()?.population||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
+    const treeState=dungeonLights?.foliage?.workerState;
+    if(treeState)addRow({id:'tree-lod-scheduler',label:'Tree LOD scheduler',status:treeState.status?.includes('running')?'working':'idle',task:(treeState.status||'Not initialized')+' · jobs '+(treeState.jobs||0)+' · last batch '+(treeState.lastMs||0).toFixed(2)+' ms · worker CPU '+(treeState.workerMs||0).toFixed(2)+' ms · queue wait avg '+(treeState.queueMs||0).toFixed(2)+' ms · apply '+(treeState.applyMs||0).toFixed(2)+' ms'});
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processMonitorLastFrameMs, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi||null, creaturePopulation:monsters?.presentationSnapshot?.()?.population||null, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null };
     const list=processMonitor.querySelector('[data-process-list]');
     const activeIds=new Set(rows.map(p=>p.id));
     for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}

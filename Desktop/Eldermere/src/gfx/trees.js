@@ -503,8 +503,10 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             return pool.runBatch(tasks, 12).then(results => {
               // Apply completed work as an interim frame even if the player moved during the batch.
               // Discarding every result after only 0.5 m of movement starves LOD updates while running.
-              // A larger displacement triggers an immediate follow-up refresh after this batch is applied.
-              const playerMoved = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 4;
+              // Fade bands are distance-dependent, so refresh all LOD buffers together after modest
+              // movement; a 4 m threshold let near and mid fade ranges drift apart and visibly snap.
+              // Results are still applied first, so movement never starves the renderer of completed work.
+              const playerMoved = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 1.5;
               if (requestGeneration !== workerGeneration) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
               workerState.lastMs = performance.now() - batchStarted;
               workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;

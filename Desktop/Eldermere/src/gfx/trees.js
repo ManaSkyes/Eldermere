@@ -418,11 +418,11 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       lodZoneNeedsInitialRefresh = true;
       last.x = 1e9; // force the selected route to take effect even if the camera is stationary
       if (workerMode === 'main') {
-        // Do not leave an idle worker pool alive or report its workers as available for tree work.
+        // The application pool is shared; switching foliage to main-thread mode must not terminate workers used by other systems.
         workerPending = false;
         workerCount = workerAllocationMode === 'manual' ? workerLimit : Math.min(12, workerLimit);
         workerState.workerCount = workerCount;
-        workerState.status = 'main thread · worker pool stopped';
+        workerState.status = 'main thread · shared pool available to other systems';
       } else if (!workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
     },
     resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },

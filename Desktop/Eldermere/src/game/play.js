@@ -1462,9 +1462,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     const timingText = state => 'workers '+(state.pool ? state.pool.busy+'/'+state.pool.active+' busy · '+state.pool.size+' max' : '0 active')+
       ' · queue '+(state.pool?.queued ?? 0)+' waiting'+
-      ' · last CPU '+state.workerMs.toFixed(2)+' ms'+
+      ' · last CPU '+(state.workerMs||0).toFixed(2)+' ms'+
       ' · queue wait '+(state.queueMs||0).toFixed(2)+' ms'+
-      ' · postMessage '+(state.dispatchMs||0).toFixed(3)+' ms';
+      ' · postMessage '+(state.dispatchMs||0).toFixed(3)+' ms'+
+      ' · round trip '+(state.roundTripMs||0).toFixed(2)+' ms'+
+      (state.pending ? ' · pending '+((state.pendingAgeMs||0)/1000).toFixed(2)+' s' : '');
     const creatureAi=monsters?.aiSnapshot?.();
     if(creatureAi){
       rows.push({id:'creature-ai-queue',label:'Creature AI perception',status:creatureAi.lastError?'error':creatureAi.pending?'working':'idle',

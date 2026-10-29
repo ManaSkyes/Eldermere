@@ -1250,9 +1250,6 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const schedulerNav = document.createElement('nav');
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
   schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:sticky;top:-1px;background:rgba(10,11,28,.98);z-index:2';
-  const schedulerLegend = document.createElement('div');
-  schedulerLegend.style.cssText = 'font-size:12px;opacity:.88;padding:7px 10px;margin:6px 0;background:rgba(255,255,255,.04);border-radius:5px';
-  schedulerLegend.textContent = '* Not implemented or not connected to live renderer/worker behavior yet. Tree LOD and the NPC sensory-calculation slice are currently routed through workers.';
   const schedulerWorkspace = document.createElement('div');
   schedulerWorkspace.style.cssText = 'min-height:0;flex:1;overflow:auto';
   const schedulerLargePanel = document.createElement('section');
@@ -1357,11 +1354,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     return panel;
   };
   const schedulerLegend = document.createElement('div');
-  schedulerLegend.textContent = '* Partially implemented or not yet routed to live worker execution.';
+  schedulerLegend.textContent = '* Partially implemented or not yet routed to live worker execution. Tree LOD, NPC sensory calculations, simple-enemy pose/effect calculations, and creature LOD/cadence/effect budgets use workers; creature skeletal posing, procedural mesh construction, particle simulation, and Three.js/GPU mutations remain on the main thread.';
   schedulerLegend.style.cssText = 'font-size:11px;opacity:.72;padding:0 4px 6px;width:100%;flex-basis:100%;box-sizing:border-box';
   const renderSchedulerTabs = () => {
     schedulerNav.innerHTML=''; schedulerWorkspace.innerHTML=''; schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
-    schedulerNav.appendChild(schedulerLegend);
     schedulerCategories.forEach(category=>{
       // Keep every category's execution mode directly visible in the tab bar. This
       // makes the settings independent and editable without entering each tab.

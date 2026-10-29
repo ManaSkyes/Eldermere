@@ -1251,10 +1251,10 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerNav.setAttribute('aria-label', 'Scheduler categories');
   schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:4px 0 10px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
   const schedulerWorkspace = document.createElement('div');
-  schedulerWorkspace.style.cssText = 'display:block;min-height:0;min-width:0;flex:1 1 auto;overflow:auto;width:100%;box-sizing:border-box;color:#e8e4f4';
+  schedulerWorkspace.style.cssText = 'display:block;position:relative;align-self:stretch;flex:1 1 0%;min-height:0;min-width:0;height:0;overflow:auto;overflow-x:hidden;width:100%;box-sizing:border-box;color:#e8e4f4;padding:0 4px 20px';
   const schedulerLargePanel = document.createElement('section');
   schedulerLargePanel.dataset.schedulerPanel = 'largeFoliage';
-  schedulerLargePanel.style.cssText = 'display:flex;flex-direction:column;gap:12px;max-width:1500px;margin:0 auto';
+  schedulerLargePanel.style.cssText = 'display:flex;position:relative;top:auto;transform:none;align-self:flex-start;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px';
   const existingSchedulerContent = Array.from(assignmentEl.children).slice(1);
   existingSchedulerContent.forEach(node => schedulerLargePanel.appendChild(node));
   schedulerWorkspace.appendChild(schedulerLargePanel);
@@ -1323,7 +1323,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   if (legacyTreeModeLabel) legacyTreeModeLabel.hidden = true; // the full-screen task-level mode control replaces this duplicate
   const renderSchedulerProfile = category => {
     const profile=schedulerProfiles[category.id], panel=document.createElement('section'); panel.dataset.schedulerPanel=category.id;
-    panel.style.cssText='display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto';
+    panel.style.cssText='display:flex;position:relative;top:auto;transform:none;align-self:flex-start;flex-direction:column;gap:14px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
     const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
     const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
     const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';

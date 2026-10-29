@@ -20,6 +20,8 @@
 // and they fall to their deaths in pits.
 import { statsOf, variantOf, OBJECTS } from '../data/objects.js';
 import { lineBlocked } from './physics.js';
+import { createWorkerPool } from './workers/workerPool.js';
+import { reportProcess, clearProcess } from './workers/processMonitor.js';
 
 const C = 10;
 const SHOTS = {
@@ -31,6 +33,18 @@ const SHOTS = {
 };
 
 export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {}) {
+  let aiMode = 'main', aiPool = null, aiPoolPromise = null, aiGeneration = 0, aiFrame = 0, aiPending = false, aiLastPlayer = null, aiLastDispatch = 0, aiLastWorkerMs = 0;
+  const AI_WORKERS = 2;
+  const setAiMode = mode => {
+    aiMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+    aiGeneration++; aiPending = false; aiLastPlayer = null;
+    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); }
+    else if (!aiPoolPromise) {
+      aiPoolPromise = (async () => { const pool = createWorkerPool(AI_WORKERS); await pool.ready(); if (aiMode === 'main') { pool.close(); return null; } aiPool = pool; return pool; })().catch(error => { reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' }); aiPoolPromise = null; return null; });
+    }
+    return aiMode;
+  };
+  const workerSnapshot = () => ({ mode: aiMode, pool: aiPool?.snapshot?.() || null, pending: aiPending, lastWorkerMs: aiLastWorkerMs, npcCount: units?.length || 0 });
   const placed = (d.objects || []).filter(o => OBJECTS[o.type]?.cat === 'enemy');
   // walls to bump into: the solid boxes near each 10 m cell, looked up by cell
   const grid = new Map(), gk = (x, z) => `${Math.floor(x / C)},${Math.floor(z / C)}`;
@@ -235,10 +249,12 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
           if (u.dead > 2.5) { u.root.visible = false; u.dead = -1; } }
         continue;
       }
-      const st = u.st, dx = p.x - u.pos.x, dz = p.z - u.pos.z, dist = Math.hypot(dx, dz);
+      const st = u.st, dx = p.x - u.pos.x, dz = p.z - u.pos.z;
+      const cachedSense = u._workerSense, senseFresh = cachedSense && performance.now() - cachedSense.at < 180 && Math.hypot(p.x - cachedSense.px, p.z - cachedSense.pz) < 2.5;
+      const dist = senseFresh ? cachedSense.dist : Math.hypot(dx, dz);
       // noticing you: by sight, or by hearing (your noise carries `loudness` metres; their hearing stretches it)
-      const saw = sees(u, p, ph, seen), heard = dist < (player.loudness || 0) * (st.hearing * (st.perception ?? 1) / 14) && Math.abs(p.y - u.pos.y) < 5;
-      const close = Math.max(0, 1 - dist / Math.max(1, st.sight * (st.perception ?? 1)));
+      const saw = sees(u, p, ph, seen), heard = senseFresh ? cachedSense.heard : (dist < (player.loudness || 0) * (st.hearing * (st.perception ?? 1) / 14) && Math.abs(p.y - u.pos.y) < 5);
+      const close = senseFresh ? cachedSense.close : Math.max(0, 1 - dist / Math.max(1, st.sight * (st.perception ?? 1)));
       // Staying hidden wears their hold on you down, much faster with real Sneak skill: (hidden)² × skill^1.6
       const conceal = 1 - seen, drain = conceal * conceal * Math.min(1.5, Math.pow(Math.max(0, player.sneak ?? 0) / 100, 1.6)) * 0.45;
       if (u.state !== 'fight') {
@@ -364,6 +380,40 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       if (s.life <= 0 || blocked(s.p, n)) { scene.remove(s.mesh); shots.splice(i, 1); continue; }
       s.p = n; s.mesh.position.set(n.x, n.y, n.z);
     }
+    // Dispatch pure sensory-distance work asynchronously. Results are consumed on later frames only
+    // while the player remains nearby; combat, collision, animation and scene mutation stay on main.
+    aiFrame++;
+    if (aiMode !== 'main' && units.length >= (aiMode === 'auto' ? 24 : 1) && !aiPending &&
+        (aiFrame % 4 === 0 || !aiLastPlayer || Math.hypot(p.x - aiLastPlayer.x, p.z - aiLastPlayer.z) > 1.25)) {
+      const generation = aiGeneration, playerSnap = { x:p.x, y:p.y, z:p.z, loudness:player.loudness || 0 };
+      const npcs = units.map((u,index)=>({ index, x:u.pos.x, y:u.pos.y, z:u.pos.z, sight:u.st.sight || 1, hearing:u.st.hearing || 14, perception:u.st.perception || 1, alive:u.alive })).filter(n=>n.alive);
+      aiLastPlayer = { ...playerSnap }; aiLastDispatch = performance.now(); aiPending = true;
+      reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'queued', task:`${npcs.length} NPC sensory candidates`, queued:1 });
+      (async () => {
+        try {
+          const pool = aiPool || await aiPoolPromise;
+          if (!pool || generation !== aiGeneration) return;
+          const result = await pool.run('npc-ai-sense', { player:playerSnap, npcs });
+          if (generation !== aiGeneration || !result || Math.hypot(p.x - playerSnap.x, p.z - playerSnap.z) > 2.5) return;
+          const at = performance.now(), timing = result.__timing || {};
+          aiLastWorkerMs = Number(timing.workerMs) || 0;
+          for (const row of result.results || []) {
+            const u = units[row.index]; if (!u || !u.alive || !Number.isFinite(row.dist)) continue;
+            u._workerSense = { dist:row.dist, close:row.close, heard:row.heard, px:playerSnap.x, pz:playerSnap.z, at };
+          }
+        } catch (error) {
+          reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Task failed' });
+          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; }
+        } finally {
+          aiPending = false;
+          if (aiMode !== 'main') reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'idle', task:`last ${aiLastWorkerMs.toFixed(2)} ms` });
+        }
+      })();
+    }
+    if (aiPool) {
+      const snap = aiPool.snapshot();
+      for (const w of snap.workers) reportProcess(`npc-worker-${w.id}`, { label:`NPC Worker ${w.id}`, kind:'worker', status:w.busy?'working':'idle', task:w.task || '', queued:snap.queued });
+    }
     return { detection, unaware, escaped };
   }
   function showRing(u) {
@@ -394,5 +444,5 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     }
     void kind;
   }
-  return { targets, update, reset, units, noise };
+  return { targets, update, reset, units, noise, setAiMode, workerSnapshot };
 }

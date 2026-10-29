@@ -18,6 +18,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     const job = queue.shift();
     worker.busy = true;
     worker.jobId = job.id;
+    worker.taskType = job.type;
     const startedAt = performance.now();
     pending.set(job.id, { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt });
     try {
@@ -25,13 +26,13 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
       worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload });
       pending.get(job.id).dispatchMs = performance.now() - dispatchStarted;
     } catch (error) {
-      pending.delete(job.id); worker.busy = false; worker.jobId = null;
+      pending.delete(job.id); worker.busy = false; worker.jobId = null; worker.taskType = '';
       job.reject(error); dispatch(worker);
     }
   };
 
   for (let i = 0; i < count; i++) {
-    const worker = { instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }), busy: false, jobId: null };
+    const worker = { index: i + 1, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }), busy: false, jobId: null, taskType: '' };
     workers.push(worker);
     worker.instance.addEventListener('message', event => {
       const message = event.data || {};
@@ -43,7 +44,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
       const job = pending.get(message.id);
       if (!job) return;
       pending.delete(message.id);
-      worker.busy = false; worker.jobId = null;
+      worker.busy = false; worker.jobId = null; worker.taskType = '';
       if (message.ok) {
         if (message.result && typeof message.result === 'object') message.result.__timing = { queueMs: Math.max(0, job.startedAt - job.queuedAt), workerMs: Number(message.workerMs) || 0, dispatchMs: job.dispatchMs || 0 };
         job.resolve(message.result);
@@ -53,7 +54,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
     worker.instance.addEventListener('error', event => {
       const job = worker.jobId == null ? null : pending.get(worker.jobId);
       if (job) { pending.delete(worker.jobId); job.reject(new Error(event.message || 'Worker crashed')); }
-      worker.busy = false; worker.jobId = null;
+      worker.busy = false; worker.jobId = null; worker.taskType = '';
       if (!closed) rejectReady(new Error(event.message || 'Worker failed to initialize'));
     });
   }
@@ -61,6 +62,7 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
   return {
     size: count,
     ready: () => ready,
+    snapshot() { return { size: count, queued: queue.length, workers: workers.map(w => ({ id: w.index, busy: w.busy, task: w.taskType || '', jobId: w.jobId })) }; },
     run(type, payload) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {

@@ -1,74 +1,111 @@
-// Small browser-native worker pool for CPU-only calculations.
-// Main-thread work (DOM, Three.js scene objects, WebGL resources) must stay outside workers.
+// Demand-scaled browser-native worker pool. Jobs share one FIFO queue, so any free worker
+// takes the next job (work stealing across task types). Keep one warm worker; retire excess idle workers.
 export function recommendedWorkerCount() {
   const cores = Number(globalThis.navigator?.hardwareConcurrency) || 2;
-  // Leave a logical processor available for the browser/game loop, and cap memory/scheduling overhead.
   return Math.max(1, Math.min(12, cores - 1));
 }
 
 export function createWorkerPool(size = recommendedWorkerCount()) {
-  const count = Math.max(1, Math.min(12, Math.floor(Number(size) || 1)));
-  let nextId = 1, closed = false;
+  const maxWorkers = Math.max(1, Math.min(12, Math.floor(Number(size) || 1)));
+  let nextId = 1, closed = false, readySettled = false, resolveReady, rejectReady;
   const workers = [], queue = [], pending = new Map();
-  let readyCount = 0, resolveReady, rejectReady;
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+  const now = () => performance.now();
+  const live = () => workers.filter(w => !w.retired);
+  const idle = () => live().filter(w => !w.busy && w.ready);
 
   const dispatch = worker => {
-    if (closed || worker.busy || !queue.length) return;
+    if (closed || worker.retired || !worker.ready || worker.busy || !queue.length) return;
     const job = queue.shift();
-    worker.busy = true;
-    worker.jobId = job.id;
-    worker.taskType = job.type;
-    worker.lastTaskType = job.type;
-    const startedAt = performance.now();
-    pending.set(job.id, { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt });
+    worker.busy = true; worker.jobId = job.id; worker.taskType = job.type; worker.lastTaskType = job.type;
+    const startedAt = now();
+    const record = { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt, dispatchMs: 0 };
+    pending.set(job.id, record);
     try {
-      const dispatchStarted = performance.now();
+      const dispatchStarted = now();
       worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload });
-      pending.get(job.id).dispatchMs = performance.now() - dispatchStarted;
+      record.dispatchMs = now() - dispatchStarted;
     } catch (error) {
       pending.delete(job.id); worker.busy = false; worker.jobId = null; worker.taskType = '';
       job.reject(error); dispatch(worker);
     }
   };
 
-  for (let i = 0; i < count; i++) {
-    const worker = { index: i + 1, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }), busy: false, jobId: null, taskType: '', lastTaskType: '' };
+  const scaleToDemand = () => {
+    if (closed) return;
+    // Fill existing idle workers first. Additional workers are created only when queued work
+    // cannot be serviced by current capacity.
+    for (const worker of idle()) { if (!queue.length) break; dispatch(worker); }
+    while (queue.length && live().length < maxWorkers) spawnWorker();
+  };
+
+  const retireExcessIdle = () => {
+    if (closed) return;
+    const idleWorkers = idle().sort((a,b) => b.index-a.index);
+    while (live().length > 1 && idleWorkers.length) {
+      const worker = idleWorkers.shift();
+      worker.retired = true; worker.instance.terminate();
+    }
+  };
+
+  function spawnWorker() {
+    if (closed || live().length >= maxWorkers) return null;
+    const worker = { index: nextId++, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }),
+      busy: false, ready: false, jobId: null, taskType: '', lastTaskType: '', retired: false };
     workers.push(worker);
     worker.instance.addEventListener('message', event => {
       const message = event.data || {};
       if (message.type === 'ready') {
-        readyCount++;
-        if (readyCount === count) resolveReady();
+        worker.ready = true;
+        if (!readySettled) { readySettled = true; resolveReady(); }
+        scaleToDemand();
         return;
       }
-      const job = pending.get(message.id);
-      if (!job) return;
+      const record = pending.get(message.id);
+      if (!record) return;
       pending.delete(message.id);
       worker.busy = false; worker.jobId = null; worker.taskType = '';
+      const endedAt = now();
       if (message.ok) {
-        if (message.result && typeof message.result === 'object') message.result.__timing = { queueMs: Math.max(0, job.startedAt - job.queuedAt), workerMs: Number(message.workerMs) || 0, dispatchMs: job.dispatchMs || 0 };
-        job.resolve(message.result);
-      } else job.reject(new Error(message.error || 'Worker task failed'));
-      dispatch(worker);
+        const result = message.result;
+        if (result && typeof result === 'object') result.__timing = {
+          queueMs: Math.max(0, record.startedAt - record.queuedAt),
+          workerMs: Math.max(0, Number(message.workerMs) || 0),
+          dispatchMs: record.dispatchMs,
+          roundTripMs: Math.max(0, endedAt - record.startedAt),
+        };
+        record.resolve(result);
+      } else record.reject(new Error(message.error || 'Worker task failed'));
+      scaleToDemand();
+      // Avoid timer-per-worker churn: each completed job checks whether the pool can shrink.
+      if (live().length > 1 && !queue.length) setTimeout(retireExcessIdle, 5000);
     });
     worker.instance.addEventListener('error', event => {
-      const job = worker.jobId == null ? null : pending.get(worker.jobId);
-      if (job) { pending.delete(worker.jobId); job.reject(new Error(event.message || 'Worker crashed')); }
-      worker.busy = false; worker.jobId = null; worker.taskType = '';
-      if (!closed) rejectReady(new Error(event.message || 'Worker failed to initialize'));
+      const record = worker.jobId == null ? null : pending.get(worker.jobId);
+      if (record) { pending.delete(worker.jobId); record.reject(new Error(event.message || 'Worker crashed')); }
+      worker.retired = true; worker.instance.terminate();
+      if (!closed && !readySettled) { readySettled = true; rejectReady(new Error(event.message || 'Worker failed to initialize')); }
+      scaleToDemand();
     });
+    return worker;
   }
 
+  // Start one worker so ready() remains useful to existing callers without eagerly creating
+  // the maximum pool. The pool scales up only when submitted jobs exceed available capacity.
+  spawnWorker();
   return {
-    size: count,
+    size: maxWorkers,
     ready: () => ready,
-    snapshot() { return { size: count, queued: queue.length, workers: workers.map(w => ({ id: w.index, busy: w.busy, task: w.taskType || '', lastTask: w.lastTaskType || '', jobId: w.jobId })) }; },
+    snapshot() {
+      const active = live();
+      return { size: maxWorkers, active: active.length, busy: active.filter(w=>w.busy).length,
+        queued: queue.length, workers: active.map(w => ({ id:w.index, busy:w.busy, task:w.taskType||'', lastTask:w.lastTaskType||'', jobId:w.jobId })) };
+    },
     run(type, payload) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {
-        queue.push({ id: nextId++, type, payload, resolve, reject, queuedAt: performance.now() });
-        for (const worker of workers) dispatch(worker);
+        queue.push({ id: nextId++, type, payload, resolve, reject, queuedAt: now() });
+        scaleToDemand();
       });
     },
     async runBatch(tasks) {
@@ -79,8 +116,8 @@ export function createWorkerPool(size = recommendedWorkerCount()) {
       if (closed) return;
       closed = true;
       for (const job of queue.splice(0)) job.reject(new Error('Worker pool closed'));
-      for (const [id, job] of pending) { job.reject(new Error('Worker pool closed')); pending.delete(id); }
-      for (const worker of workers) worker.instance.terminate();
+      for (const [id, record] of pending) { record.reject(new Error('Worker pool closed')); pending.delete(id); }
+      for (const worker of workers) { worker.retired = true; worker.instance.terminate(); }
     },
   };
 }

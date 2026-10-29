@@ -286,6 +286,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   }
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
+  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0 };
   return {
     hidden: false,
     sets,
@@ -317,12 +318,17 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     // each frame, just before drawing: every tree to its level of detail, those out of view dropped
     // (only redone when the camera has moved half a metre or turned ~8°: the view is culled a third wider than the screen
     // so turning doesn't show gaps between refills, and nothing is re-uploaded while you just look a little around)
+    diagnostics,
+    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0 }); },
     cull(camera) {
+      const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
       const hid = !!this.hidden, c0 = camera.position;
-      if (hid === last.hid && Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z) < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === last.fov) return;
+      if (hid === last.hid && Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z) < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === last.fov) { if (timed) diag.skipped++; return; }
       last.hid = hid; last.x = c0.x; last.y = c0.y; last.z = c0.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+      const scanStarted = timed ? performance.now() : 0;
+      let visibleInstances = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
         if (!this.hidden) for (let i = 0; i < S.n; i++) {
@@ -339,7 +345,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             const F = m.geometry.attributes.aF.array; F[j * 2] = lo; F[j * 2 + 1] = hi; m.geometry.attributes.aR.array[j] = S.Rn[i];
           }
         }
+        visibleInstances += cnt[0] + cnt[1] + cnt[2];
+        if (timed) diag.scanMs += 0; // scan timing is recorded around the full per-species loop below
         for (let L = 0; L < 3; L++) { const m = M[L]; m.count = cnt[L]; if (cnt[L]) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aF.needsUpdate = true; m.geometry.attributes.aR.needsUpdate = true; } }
+      }
+      if (timed) {
+        const elapsed = performance.now() - started;
+        diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances;
+        diag.scanMs += Math.max(0, performance.now() - scanStarted);
       }
     },
   };

@@ -1143,6 +1143,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // Manual F7 switch for isolating foliage culling outside the timed F8 A/B test.
   const foliageCullFreeze = { frozen: false, button: null, status: null };
   const lodZoneScheduler = createLodZoneScheduler();
+  const smallLodZoneScheduler = createLodZoneScheduler();
   const refreshFoliageFreezeControl = () => {
     if (foliageCullFreeze.button) foliageCullFreeze.button.textContent = foliageCullFreeze.frozen ? 'Resume Foliage Culling' : 'Freeze Foliage Culling';
     if (foliageCullFreeze.status) foliageCullFreeze.status.textContent = foliageCullFreeze.frozen ? 'FROZEN · retaining the last foliage layout' : 'Active · foliage visibility updates normally';
@@ -1274,7 +1275,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const schedulerProfiles = Object.fromEntries(schedulerCategories.map((cat, index) => [cat.id, {
     mode: ['largeFoliage', 'npcs', 'ai'].includes(cat.id) ? 'auto' : 'main',
     priority: cat.id === 'largeFoliage' ? 2 : (cat.id === 'smallFoliage' ? 3 : 5),
-    zones: lodZoneScheduler.snapshot().zones.map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
+    zones: (cat.id === 'smallFoliage' ? smallLodZoneScheduler.snapshot().zones : lodZoneScheduler.snapshot().zones).map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
   }]));
   let activeSchedulerCategory = 'largeFoliage';
   let activeSchedulerGroup = 'Rendering';

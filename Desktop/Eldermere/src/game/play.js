@@ -2302,7 +2302,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     processMonitor.remove();
     enemies?.setAiMode?.('main');
     enemies?.setPresentationMode?.('main');
-    monsters?.setPresentationMode?.('main');\n    monsters?.setAiMode?.('main');
+    monsters?.setPresentationMode?.('main');
+    monsters?.setAiMode?.('main');
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

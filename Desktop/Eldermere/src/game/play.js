@@ -1436,6 +1436,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const foliage = dungeonLights?.foliage;
     if (!foliage) { foliageBufferTest.status.textContent = 'Unavailable: this scene has no foliage system.'; return; }
     foliage.resetDiagnostics?.(); if (foliage.diagnostics) foliage.diagnostics.enabled = true;
+    // The automated A/B owns its own baseline/frozen phases; don't let the manual F7 toggle contaminate it.
+    foliageCullFreeze.frozen = false; refreshFoliageFreezeControl();
     foliageBufferTest.active = true; foliageBufferTest.phase = 'warmup'; foliageBufferTest.started = performance.now(); foliageBufferTest.startYaw = camera.rotation.y;
     traversalCapture.on = true; traversalCapture.started = foliageBufferTest.started; traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0; traversalCapture.lastCameraQ = camera.quaternion.clone(); traversalCapture.stage = ''; traversalCapture.renderCallMs = 0;
     foliageBufferTest.button.disabled = true; foliageBufferTest.status.textContent = 'Running · warm-up (2 s)…';

@@ -305,26 +305,33 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       c.cx = (c.x0 + c.x1) * 0.5; c.cz = (c.z0 + c.z1) * 0.5; c.cy = (c.y0 + c.y1) * 0.5 + sp.H * 0.5;
       c.radius = Math.hypot(TREE_CELL_SIZE * 0.7072, (c.y1 - c.y0) * 0.5 + Math.max(sp.H || 0, sp.R || 0) * c.maxScale + 2);
     }
+    const cellLookup = new Map(cells.map(c => [c.key, c]));
     const mesh = (geo, mat, cast) => {
       geo.setAttribute('aF', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('aR', new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
       const im = new THREE.InstancedMesh(geo, mat, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = cast; im.receiveShadow = true; if (cast) im.customDepthMaterial = depthMat; im.userData.canopy = true; scene.add(im); return im;   // (canopy: src/gfx/weathering.js lets a tenth of the snow through crowns)
     };
-    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
+    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, cellLookup, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
     row++;
   }
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
   const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
   const visibleCells = (S, cx, cz, fr, far) => {
-    const out = [];
-    for (const cell of S.cells) {
+    const out = [], reach = far + TREE_CELL_SIZE * 0.71;
+    const gx0 = Math.floor((cx - reach) / TREE_CELL_SIZE), gx1 = Math.floor((cx + reach) / TREE_CELL_SIZE);
+    const gz0 = Math.floor((cz - reach) / TREE_CELL_SIZE), gz1 = Math.floor((cz + reach) / TREE_CELL_SIZE);
+    let tested = 0;
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      tested++;
+      const cell = S.cellLookup.get(gx + ',' + gz); if (!cell) continue;
       const dx = Math.max(cell.x0 - cx, 0, cx - cell.x1), dz = Math.max(cell.z0 - cz, 0, cz - cell.z1);
-      if (Math.hypot(dx, dz) > far + TREE_CELL_SIZE * 0.71) continue;
+      if (Math.hypot(dx, dz) > reach) continue;
       cv.set(cell.cx, cell.cy, cell.cz); sph.set(cv, cell.radius);
       if (Math.hypot(dx, dz) > NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
       out.push(cell);
     }
+    out.tested = tested;
     return out;
   };
   return {
@@ -394,7 +401,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
         let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
         for (let si = 0; si < sets.length; si++) {
           const S = sets[si], candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]);
-          cellsTested += S.cells.length; cellsVisited += candidates.length;
+          cellsTested += candidates.tested; cellsVisited += candidates.length;
           for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
             const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
             instancesTested += end - offset;
@@ -452,7 +459,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
         const candidates = this.hidden ? [] : visibleCells(S, cx, cz, fr, far);
-        cellsTested += S.cells.length; cellsVisited += candidates.length;
+        cellsTested += candidates.tested; cellsVisited += candidates.length;
         for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
           instancesTested++;
           const dx = S.X[i] - cx, dz = S.Z[i] - cz, d = Math.hypot(dx, S.Y[i] + S.mid * S.Sc[i] - cy, dz); if (d > far) continue;

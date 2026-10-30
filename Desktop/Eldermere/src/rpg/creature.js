@@ -175,7 +175,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const skeleton = new THREE.Skeleton(list);
   const look = spec.look || {};
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
-  const meshes = [], smokeAuraMeshes = [], membraneMeshes = []; let smokeAuraVisible = true, membranesVisible = true, glowsVisible = true, wispsVisible = true;
+  const meshes = [], smokeAuraMeshes = [], membraneMeshes = []; let bodyVisible = true, partsVisible = true, attached = false, lodTier = 0, smokeAuraVisible = true, membranesVisible = true, glowsVisible = true, wispsVisible = true;
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
   // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
   // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
@@ -272,13 +272,26 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false; for (const m of meshes) { m.updateMatrix(); m.matrixAutoUpdate = false; }
   const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
   function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) instances.updateMany ? instances.updateMany(instancedParts) : instancedParts.forEach(h => instances.update(h)); }
+  function applyVisibility() {
+    mesh.visible = bodyVisible;
+    for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible;
+    for (const m of membraneMeshes) m.visible = membranesVisible;
+    for (const g of glows) g.visible = glowsVisible && lodTier < 2;
+    if (wispPoints) wispPoints.visible = wispsVisible;
+    if (instances) for (const h of instancedParts) instances.setVisible(h, partsVisible && attached);
+    if (puffs) { puffs.setGroupEnabled('smokeAura', smokeAuraVisible); puffs.setGroupEnabled('coreGlow', glowsVisible && lodTier < 2); puffs.setGroupEnabled('wisps', wispsVisible); }
+  }
+  applyVisibility();
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
-    setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
-    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; if (puffs) puffs.setEnabled(smokeAuraVisible); },
-    setMembranesVisible(visible) { membranesVisible = !!visible; for (const m of membraneMeshes) m.visible = membranesVisible; },
-    setGlowsVisible(visible) { glowsVisible = !!visible; for (const g of glows) g.visible = glowsVisible; if (puffs) puffs.setGroupEnabled('coreGlow', glowsVisible); },
-    setWispsVisible(visible) { wispsVisible = !!visible; if (wispPoints) wispPoints.visible = wispsVisible; },
+    setBodyVisible(visible) { bodyVisible = !!visible; applyVisibility(); },
+    setPartsVisible(visible) { partsVisible = !!visible; applyVisibility(); },
+    setAttached(visible) { attached = !!visible; applyVisibility(); },
+    setLodTier(tier) { lodTier = Number.isFinite(tier) ? tier : 0; applyVisibility(); },
+    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; applyVisibility(); },
+    setMembranesVisible(visible) { membranesVisible = !!visible; applyVisibility(); },
+    setGlowsVisible(visible) { glowsVisible = !!visible; applyVisibility(); },
+    setWispsVisible(visible) { wispsVisible = !!visible; applyVisibility(); },
     setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
@@ -286,7 +299,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } },
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
-    update(t) { uniforms.uTime.value = t; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; for (const m of membraneMeshes) m.visible = membranesVisible; for (const g of glows) g.visible = glowsVisible; if (wispPoints) wispPoints.visible = wispsVisible; if (wispsVisible) wisps?.(t); if (puffs) puffs.setEnabled(smokeAuraVisible); },
+    update(t) { uniforms.uTime.value = t; if (wispsVisible) wisps?.(t); },
     dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }

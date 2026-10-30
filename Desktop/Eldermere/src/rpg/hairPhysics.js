@@ -144,7 +144,7 @@ export function makeGuideSim(guides, head, headSurface = null) {
         }
         if (hit) { xf(WM, tmp, 0, tmp, 0); p[o] = tmp[0]; p[o + 1] = tmp[1]; p[o + 2] = tmp[2]; }
         // Neck, shoulders and torso capsules are also resolved after segment length.
-        if (cw.length) for (const c of cw) pushCap(p, o, c);
+        if (cw.length) for (const c of cw) pushCap(p, o, c, radius);
       }
     }
   }
@@ -176,4 +176,4 @@ function nearCap(p, o, c) {
   const px = p[o] - c.a[0], py = p[o + 1] - c.a[1], pz = p[o + 2] - c.a[2], t = Math.max(0, Math.min(1, (px * bx + py * by + pz * bz) / L2));
   const qx = px - bx * t, qy = py - by * t, qz = pz - bz * t; return { d: Math.hypot(qx, qy, qz), r: c.r + (c.r2 - c.r) * t, qx, qy, qz };
 }
-function pushCap(p, o, c) { const r = nearCap(p, o, c); if (r.d < r.r && r.d > 1e-6) { const f = (r.r - r.d) / r.d; p[o] += r.qx * f; p[o + 1] += r.qy * f; p[o + 2] += r.qz * f; } }
+function pushCap(p, o, c, clearance = 0) { const r = nearCap(p, o, c), target = r.r + clearance; if (r.d < target && r.d > 1e-6) { const f = (target - r.d) / r.d; p[o] += r.qx * f; p[o + 1] += r.qy * f; p[o + 2] += r.qz * f; } }

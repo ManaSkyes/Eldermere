@@ -174,15 +174,25 @@ function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
 
 function makeDrapeGuide(root, style, head, seed, underlayer = false) {
   const side = Math.sign(root.p[0] - head.C[0]) || 1;
-  const frontBack = root.p[2] >= head.C[2] ? 1 : -1;
+  const region = root.region || 'back';
   const p0 = add(root.p, root.n, underlayer ? 0.022 : 0.04);
   const length = style.len * (underlayer ? 0.965 : 1);
-  // Lift clear of the scalp first, then let the mass fall. The lower control points
-  // stay close to the root's vertical column instead of fanning outward like a lampshade.
-  const p1 = add(p0, root.n, underlayer ? 0.11 : 0.17);
-  p1[1] -= length * 0.035;
-  const p2 = [p0[0] + side * 0.035, p0[1] - length * 0.62, p0[2] + frontBack * 0.075];
-  const p3 = [p0[0] + side * 0.055, p0[1] - length, p0[2] + frontBack * 0.12];
+  // Long hair must first travel over the skull before gravity takes over.
+  // Each scalp region gets its own authored route; a shared vertical drop
+  // makes the crown balloon outward and leaves the scalp visually uncovered.
+  const p1 = add(p0, root.n, underlayer ? 0.10 : 0.15);
+  let p2, p3;
+  if (region === 'crown' || region === 'hairline') {
+    p2 = [p0[0] + side * 0.035, p0[1] - length * 0.24, p0[2] - 0.24];
+    p3 = [p0[0] + side * 0.055, p0[1] - length, p0[2] - 0.34];
+  } else if (region === 'sides' || region === 'temples') {
+    p2 = [p0[0] + side * 0.12, p0[1] - length * 0.52, p0[2] - 0.06];
+    p3 = [p0[0] + side * 0.16, p0[1] - length, p0[2] - 0.12];
+  } else {
+    p2 = [p0[0] + side * 0.025, p0[1] - length * 0.58, p0[2] - 0.045];
+    p3 = [p0[0] + side * 0.04, p0[1] - length, p0[2] - 0.08];
+  }
+  p1[1] -= length * 0.025;
   const phase = seed * Math.PI * 2, points = [];
   for (let i = 0; i <= SEG; i++) {
     const t = i / SEG, v = 1 - t;
@@ -195,9 +205,8 @@ function makeDrapeGuide(root, style, head, seed, underlayer = false) {
     points.push(add(p, root.n, wave));
   }
   return { points, center: head.C, width: underlayer ? 0.17 : style.width, tone: underlayer ? 0.91 : style.tone,
-    loose: 1, dynamic: false, mass: underlayer, region: root.region || 'back' };
+    loose: 1, dynamic: false, mass: underlayer, region };
 }
-
 function makeFaceFrameGuide(root, style, head, seed) {
   // Side-panel roots sweep outward around the cheek, then fall beside the face.
   // This is authored hairstyle flow, not a stronger collision shove or a bang.

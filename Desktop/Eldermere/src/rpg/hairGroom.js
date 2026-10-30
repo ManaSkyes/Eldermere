@@ -102,7 +102,9 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     let seed = 31;
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const volume = look.volume ?? 1;
-    const combined = true; // The combined treatment is now the production groom foundation.\n    U.uHairSoftness.value = 1;\n    U.uHairRootStrength.value = 1;
+    const combined = true; // The combined treatment is now the production groom foundation.
+    U.uHairSoftness.value = 1;
+    U.uHairRootStrength.value = 1;
 
     // Layer ordering lets distance LOD omit complete strands without rebuilding the groom.
     for (let layer = 0; layer < 3; layer++) {
@@ -203,8 +205,12 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const phase = strand.seed * Math.PI * 2;
         const baseAngle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2;
         const clumpCount = Math.max(2, Math.ceil(strand.strandTotal / 3));
-        const clumpAngle = Math.floor(strand.strandIndex / 3) / clumpCount * Math.PI * 2;
-        const angle = baseAngle + phase * 0.12;
+        const clumpIndex = Math.floor(strand.strandIndex / 3);
+        const clumpAngle = clumpIndex / clumpCount * Math.PI * 2;
+        const withinClump = (strand.strandIndex % 3) - 1;
+        // Keep three-strand micro-bundles together instead of distributing every
+        // follower evenly around the guide's entire circumference.
+        const angle = clumpAngle + withinClump * 0.19 + phase * 0.08;
         const volumeBoost = 1.22;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
         const layerLift = (layer === 0 ? 0.025 : layer === 1 ? 0.065 : 0.12) * [0.75, 1.08, 1.28][layer];

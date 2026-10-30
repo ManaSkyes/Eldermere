@@ -89,7 +89,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
   function build(guides, head, look = {}) {
     guideCount = guides.length;
     const strandLayers = [[], [], []];
-    const strandCounts = [1, 2, 3]; // cumulative detail: 1 / 3 / 6 strands per guide
+    const density = Math.max(0, Math.min(1, look.density ?? 1));
     let seed = 31;
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const volume = look.volume ?? 1;
@@ -99,7 +99,8 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
       for (let gi = 0; gi < guideCount; gi++) {
         const guide = guides[gi];
         if (!guide || !guide.points || guide.points.length !== SEG + 1) continue;
-        for (let j = 0; j < strandCounts[layer]; j++) {
+        const count = layer === 0 ? 1 : layer === 1 ? (random() < 0.35 + 0.65 * density ? 2 : 0) : (random() < 0.3 * density ? 3 : random() < 0.35 * density ? 1 : 0);
+        for (let j = 0; j < count; j++) {
           const strandIndex = layer === 0 ? 0 : layer === 1 ? j + 1 : j + 3;
           strandLayers[layer].push({ gi, strandIndex, width: guide.width || 0.08, tone: guide.tone || 1, center: guide.center || head.C, seed: random() });
         }

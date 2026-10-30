@@ -153,8 +153,12 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     if (index === 5 || index === 6) len *= 0.94 + 0.12 * Math.sin(p[0] * 23 + p[2] * 17);
     len *= lengths.main ?? 1;
   }
-  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose,
-    width, tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+  const tone = 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11);
+  if (zone !== 'bangs' && [2, 3, 4, 7, 8, 9].includes(index)) {
+    return { len, dir: norm(dir), startDir: null, gravity, curl, gather: false, fringe: false, loose,
+      width, tone, flow: 'drape' };
+  }
+  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose, width, tone };
 }
 function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
   let d = add(direction, normal, -dot(direction, normal));

@@ -249,11 +249,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     floatText?.('Slain', { x: A.target.pos.x, y: A.target.pos.y + A.target.height + 0.4, z: A.target.pos.z }, '#c8a8ff');
   }
   // the body where the actor is, facing its way; the target follows the body (a lunge carries what you can hit)
-  function placeBody(A) {
+  function placeBody(A, synchronize = true) {
     const C = A.C, M = A.M;
     const act = A.mo.action, land = act && A.landDy ? A.landDy * Math.min(1, Math.max(0, (act.u - 0.25) / 0.5)) : 0;   // (a leap's landing height, eased in over its flight)
     C.root.position.set(A.pos.x, A.pos.y + (M.hover || 0) + (A.alt || 0) + land, A.pos.z); C.root.rotation.order = 'YXZ'; C.root.rotation.y = A.yaw; C.root.rotation.x = act && A.landDy ? 0 : (A.pitch || 0);
-    C.sync();
+    if (synchronize) C.sync();
     // a flyer's dive can't go through the ground: during a move, the body is held a little above the ground under
     // where its root motion has carried it (sampled ~12 times a second, from nearby shapes only)
     if (M.flight && A.mo.action && shapes.length && C.bones.root.position.y < -0.2) {   // (only while it's diving)
@@ -789,7 +789,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (sampleActor) actorStageMs.sampledActors++;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
         const K = A.corpse; K.t += dt; attach(A, true);
-        if (K.t < 1.2) { const f = Math.min(1, K.t / 0.9), e = f * f * (3 - 2 * f); A.mo.update(dt, { speed: 0, ik: false }); placeBody(A); A.C.root.rotation.z = K.side * e * Math.PI / 2; A.C.root.position.y += e * (A.M.stats.radius || 0.5) * 0.42; A.C.sync(); }   // (lifted by its girth, so it lies on the ground, not in it)
+        if (K.t < 1.2) { const f = Math.min(1, K.t / 0.9), e = f * f * (3 - 2 * f); A.mo.update(dt, { speed: 0, ik: false }); placeBody(A, false); A.C.root.rotation.z = K.side * e * Math.PI / 2; A.C.root.position.y += e * (A.M.stats.radius || 0.5) * 0.42; A.C.sync(); }   // (lifted by its girth, so it lies on the ground, not in it)
         const far = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z) > VIS + 10;
         if (K.harvested || far) { attach(A, false); if (A.barOn) scene.remove(A.bar.sp); A.C.dispose(); actors.splice(i, 1); targets.splice(targets.indexOf(A.target), 1); const G = A.group; if (G) G.members.splice(G.members.indexOf(A), 1); }
         continue;

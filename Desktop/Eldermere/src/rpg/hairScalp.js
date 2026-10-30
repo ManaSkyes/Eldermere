@@ -2,7 +2,7 @@
 // The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
 const SEG = 14;
 const STYLE_NAMES = {
-  main: ['High ponytail', 'Low ponytail', 'Long hair'],
+  main: ['High ponytail', 'Low ponytail', 'Long straight', 'Long wavy', 'Long curly', 'Wolf cut', 'Shag cut', 'Layered cut', 'Bob', 'Lob', 'Pixie', 'Pigtails', 'Half-up', 'Top bun'],
   bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'None'],
 };
 export const GROOM_STYLE_NAMES = STYLE_NAMES;
@@ -98,8 +98,8 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
   const side = Math.sign(p[0] - head.C[0]) || 1;
   const y = (p[1] - head.C[1]) / head.Rad[1];
   const curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
-  let len, dir, gravity, gather = false, loose = 1;
-
+  let len = 2.9, dir = [side * 0.12, -0.88, -0.18], gravity = 0.62;
+  let gather = false, loose = 1, width = 0.055 + 0.012 * (1 - Math.abs(y));
   if (zone === 'bangs') {
     if (index === STYLE_NAMES.bangs.length - 1) return null;
     if (index === 0) { len = 0.22; dir = [0, 0.18, -1]; gravity = 0.12; }
@@ -108,24 +108,50 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     if (index === 3) { len = 0.32; dir = [side * 0.55, -0.62, 0.58]; gravity = 0.48; }
     if (index === 4) { len = 0.23; dir = [side * 0.2, -0.5, 0.82]; gravity = 0.32; }
     len *= lengths.bangs ?? 1;
-  } else if (index === 2) {
-    // Loose long hair: falls from every scalp region instead of converging on a tie.
-    len = 3.15;
-    dir = [side * 0.12, -0.88, -0.18];
-    gravity = 0.62;
-    gather = false;
-    len *= lengths.main ?? 1;
   } else {
-    // Existing ponytail flow remains unchanged.
-    len = 0.68;
-    dir = [side * 0.04, -0.12, -1];
-    gravity = 0.12;
-    gather = !!tie;
+    switch (index) {
+      case 0: case 1: // Established ponytail shapes and gathering behavior.
+        len = 0.68; dir = [side * 0.04, -0.12, -1]; gravity = 0.12; gather = !!tie; break;
+      case 2: // Long straight.
+        len = 3.05; break;
+      case 3: // Long wavy: broader, slower wave.
+        len = 3.0; break;
+      case 4: // Long curly: tighter curl and a little more volume.
+        len = 2.75; break;
+      case 5: // Wolf cut: short crown layers, long tapered nape and side layers.
+        len = (zone === 'crown' || zone === 'hairline' ? 0.95 : zone === 'nape' || zone === 'back' ? 2.35 : 1.35);
+        gravity = 0.48; dir = [side * 0.2, -0.82, -0.28]; break;
+      case 6: // Shag: irregular feathered layers with a longer back.
+        len = (zone === 'crown' ? 1.05 : zone === 'nape' || zone === 'back' ? 2.0 : 1.42) * (0.88 + 0.22 * Math.abs(Math.sin(p[0] * 19 + p[2] * 13)));
+        gravity = 0.52; dir = [side * 0.24, -0.84, -0.12]; break;
+      case 7: // Layered cut: graduated lengths, longer toward the back.
+        len = (zone === 'hairline' ? 1.55 : zone === 'crown' ? 1.8 : 2.55);
+        gravity = 0.58; break;
+      case 8: // Bob.
+        len = 0.92; gravity = 0.58; break;
+      case 9: // Lob.
+        len = 1.38; gravity = 0.60; break;
+      case 10: // Pixie: close crown, swept side fringe and nape.
+        len = zone === 'crown' ? 0.38 : zone === 'hairline' ? 0.52 : 0.62;
+        gravity = 0.32; dir = [side * 0.34, -0.35, -0.22]; break;
+      case 11: // Twin pigtails; each side gathers to its own tie.
+        len = 0.72; dir = [side * 0.08, -0.2, -0.92]; gravity = 0.16; gather = !!tie; break;
+      case 12: // Half-up: crown and upper sides gather, lower hair stays loose.
+        if (zone === 'crown' || zone === 'hairline' || zone === 'temples') {
+          len = 0.62; dir = [side * 0.03, -0.1, -1]; gravity = 0.12; gather = !!tie;
+        } else { len = 2.65; }
+        break;
+      case 13: // Top bun: gather the crown into a compact knot.
+        len = 0.52; dir = [side * 0.03, -0.1, -1]; gravity = 0.1; gather = !!tie; break;
+    }
+    if (index === 3) look = { ...look, wave: Math.max(look.wave ?? 0, 0.85) };
+    if (index === 4) look = { ...look, curl: Math.max(look.curl ?? 1, 2.0) };
+    if (index === 5 || index === 6) len *= 0.94 + 0.12 * Math.sin(p[0] * 23 + p[2] * 17);
     len *= lengths.main ?? 1;
   }
-  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose,
+    width, tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
-
 function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
   let d = add(direction, normal, -dot(direction, normal));
   if (Math.hypot(...d) < 1e-4) d = add(fallback, normal, -dot(fallback, normal));
@@ -213,9 +239,13 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const mainStyle = selection.main ?? 0;
   // Rear-facing skull surface is negative Z in this rig. Place the elastic outside
   // the head bounds rather than inside the ellipsoid used for scalp-relative shaping.
-  const tie = mainStyle === 0 || mainStyle === 1
-    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : -0.34), head.C[2] - head.Rad[2] * 1.12]
-    : null;
+  const ties = mainStyle === 11
+    ? [[head.C[0] - head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82],
+       [head.C[0] + head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82]]
+    : (mainStyle === 0 || mainStyle === 1 || mainStyle === 12 || mainStyle === 13)
+      ? [[head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : mainStyle === 1 ? -0.34 : 0.48), head.C[2] - head.Rad[2] * 1.12]]
+      : [];
+  const tieForRoot = root => ties.length > 1 ? ties[root.p[0] < head.C[0] ? 0 : 1] : ties[0] || null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
   const coverage = clamp(Number(look.coverage ?? 1), 0, 1);
@@ -240,26 +270,44 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
       if (fringeStyle) guides.push(makeGuide(root, fringeStyle, head, null, random()));
     }
   }
-  if (tie) {
-    const high = mainStyle === 0;
-    const tailLength = 1.25 * (lengths.main ?? 1), tailDrop = high ? 1.0 : 1.18;
-    for (let i = 0; i < 150; i++) {
-      const a = random() * Math.PI * 2, phase = random();
-      const rootRadius = 0.035 + random() * 0.045, points = [];
-      for (let s = 0; s <= SEG; s++) {
-        const t = s / SEG;
-        const envelope = 0.58 + 0.62 * Math.sin(Math.PI * Math.min(1, t * 0.82));
-        const taper = 1 - 0.88 * Math.pow(t, 1.45), radius = rootRadius * envelope * taper;
-        const lift = high ? 0.13 * Math.sin(Math.PI * t) : 0.018 * Math.sin(Math.PI * t);
-        const drop = tailLength * tailDrop * t * t, sweep = high ? -0.10 * t : -0.035 * t;
-        points.push([
-          tie[0] + Math.cos(a) * radius + sweep * t,
-          tie[1] + lift - drop,
-          tie[2] + Math.sin(a) * radius * 0.72 - (high ? 0.28 : 0.10) * t
-        ]);
+  if (ties.length) {
+    for (let ti = 0; ti < ties.length; ti++) {
+      const tie = ties[ti], high = mainStyle === 0 || mainStyle === 12 || mainStyle === 13;
+      if (mainStyle === 13) {
+        // A compact spiral knot built from a small bundle of short curved guides.
+        for (let i = 0; i < 42; i++) {
+          const a = i / 42 * Math.PI * 2, points = [];
+          for (let s = 0; s <= SEG; s++) {
+            const t = s / SEG, r = 0.055 * (1 - t * 0.35);
+            points.push([tie[0] + Math.cos(a + t * Math.PI * 2) * r, tie[1] + Math.sin(a + t * Math.PI * 2) * r * 0.62 + t * 0.035, tie[2] + Math.sin(a + t * Math.PI * 2) * r]);
+          }
+          guides.push({ points, center: tie, width: 0.042, tone: 0.98, loose: 0.2, dynamic: false, region: 'crown' });
+        }
+      } else {
+        const tailLength = (mainStyle === 11 ? 1.05 : mainStyle === 12 ? 0.9 : 1.25) * (lengths.main ?? 1);
+        for (let i = 0; i < (mainStyle === 11 ? 100 : 150); i++) {
+          const a = random() * Math.PI * 2, phase = random(), rootRadius = 0.035 + random() * 0.045, points = [];
+          for (let s = 0; s <= SEG; s++) {
+            const t = s / SEG, envelope = 0.58 + 0.62 * Math.sin(Math.PI * Math.min(1, t * 0.82));
+            const taper = 1 - 0.88 * Math.pow(t, 1.45), radius = rootRadius * envelope * taper;
+            const lift = high ? 0.13 * Math.sin(Math.PI * t) : 0.018 * Math.sin(Math.PI * t);
+            const drop = tailLength * (high ? 0.82 : 1.0) * t * t;
+            points.push([tie[0] + Math.cos(a) * radius, tie[1] + lift - drop, tie[2] + Math.sin(a) * radius * 0.72 - (high ? 0.22 : 0.10) * t]);
+          }
+          guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.42, tie[2] + 0.18], width: 0.052 + phase * 0.008, tone: 0.96, loose: 1, dynamic: true, region: 'back' });
+        }
       }
-      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.42, tie[2] + 0.25], width: 0.052 + phase * 0.008, tone: 0.96, loose: 1, dynamic: true });
+      // A small overlapping wrap at the gather point. The wrap is intentionally hair-toned
+      // for now; the accessory pass will add selectable fabric/leather colors and bow shapes.
+      for (let i = 0; i < 10; i++) {
+        const a = i / 10 * Math.PI * 2, points = [];
+        for (let s = 0; s <= SEG; s++) {
+          const t = s / SEG, ang = a + t * Math.PI * 2;
+          points.push([tie[0] + Math.cos(ang) * 0.052, tie[1] + Math.sin(ang) * 0.052, tie[2] + Math.sin(ang) * 0.052]);
+        }
+        guides.push({ points, center: tie, width: 0.022, tone: 0.72, loose: 0.25, dynamic: false, region: 'crown' });
+      }
     }
   }
-  return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };
+  return { guides, head, tie: ties[0] || null, ties, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };
 }

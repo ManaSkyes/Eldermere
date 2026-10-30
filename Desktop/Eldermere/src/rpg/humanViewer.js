@@ -13,7 +13,7 @@ import { makeTail, makeCape } from './tailCape.js';
 import { WEAPONS, weaponMaterials } from './weapons.js';
 import { ITEMS, SLOTS, OUTFIT_PRESETS, createEquipment, traitsOf } from './equipment.js';
 import { PARTS, placePart, partAnchors, partOptions, featherTexture, tube } from './attachments.js';
-import { createHairGroom, HAIR_TREATMENT_NAMES } from './hairGroom.js';
+import { createHairGroom } from './hairGroom.js';
 import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
@@ -294,7 +294,7 @@ export function startViewer(THREE, human, ui) {
   let hairWind = [0, 0, 0];
   // the Hair lab (in the creator's hair section): the look (volume, density, curl, wave: the hair is grown again) and the
   // feel (follow, inertia, stiffness, damping, gravity: live)
-  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0, treatment: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
+  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
   let skinGlow = 1, labCombo = null;
   let labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
   const hairLen = { main: 0, bangs: 0 };       // independent main hairstyle and fringe lengths (-1..1)
@@ -383,7 +383,7 @@ export function startViewer(THREE, human, ui) {
     const hairShown = hairOn && gearRules.hair !== 'hide';
     groomMesh.visible = hairShown;
     if (hairShown) {
-      // Keep the fitted scalp as a sampling surface; only the undercoat comparison style renders it.
+      // The fitted scalp is a sampling surface for every groom; it is never rendered as a cap.
       fitGarment(hairData.scalp, P, Nrm);
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
       if (key !== hairBuilt.key) {

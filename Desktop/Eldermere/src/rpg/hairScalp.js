@@ -271,7 +271,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     const baseStyle = styleFor('main', selection.main, root.p, head, lengths, look, rootTie);
     if (baseStyle) guides.push(makeGuide(root, baseStyle, head, rootTie, random()));
     if (region === 'hairline') {
-      const fringeStyle = styleFor('bangs', selection.bangs, root.p, head, lengths, look, tie);
+      const fringeStyle = styleFor('bangs', selection.bangs, root.p, head, lengths, look, null);
       if (fringeStyle) guides.push(makeGuide(root, fringeStyle, head, null, random()));
     }
   }

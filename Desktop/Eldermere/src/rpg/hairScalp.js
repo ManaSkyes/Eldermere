@@ -81,14 +81,18 @@ function sampleScalp(scalp, P, N, spacing = 0.045, maxRoots = 10000) {
       }
     }
     const nl = Math.hypot(...n) || 1; for (let c = 0; c < 3; c++) n[c] /= nl;
-    const cellKey = key(...p), [gx, gy, gz] = cellKey.split(',').map(Number);
+    const gx = Math.floor(p[0] / cell), gy = Math.floor(p[1] / cell), gz = Math.floor(p[2] / cell);
     let near = false;
     for (let x = -1; x <= 1 && !near; x++) for (let y = -1; y <= 1 && !near; y++) for (let z = -1; z <= 1 && !near; z++) {
       const list = grid.get(`${gx + x},${gy + y},${gz + z}`);
-      if (list) for (const q of list) if ((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + (q[2] - p[2]) ** 2 < spacing * spacing) { near = true; break; }
+      if (list) for (const q of list) {
+        const dx = q[0] - p[0], dy = q[1] - p[1], dz = q[2] - p[2];
+        if (dx * dx + dy * dy + dz * dz < spacing * spacing) { near = true; break; }
+      }
     }
     if (near) continue;
     const root = { p, n: norm(n) }; roots.push(root);
+    const cellKey = `${gx},${gy},${gz}`;
     (grid.get(cellKey) || grid.set(cellKey, []).get(cellKey)).push(p);
   }
   return { roots, area: areaTotal, spacing };

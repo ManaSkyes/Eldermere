@@ -7,13 +7,13 @@ import { makeGuideSim } from './hairPhysics.js';
 const SEG = 14;
 
 export const HAIR_TREATMENT_NAMES = ['Natural strands', 'Scalp undercoat', 'Soft diffuse', 'Layered volume', 'Root shading', 'Clumped locks', 'Adaptive allocation'];
-const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide;
+const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide; attribute float hairEdge;
   uniform sampler2D uHairOff; uniform vec2 uHairOffSize; uniform float uHairWiden;
   varying vec3 vHairT; varying float vHairN; varying float vHairAlong; varying float vHairEdge;
   vec3 hairOffAt(float s) { return texture2D(uHairOff, (vec2(s, hairRef.x) + 0.5) / uHairOffSize).xyz; }`;
 const VERT_BEGIN = `#include <begin_vertex>
   { float hs = hairRef.y; vec3 o0 = hairOffAt(hs), o1 = hairOffAt(min(hs + 1.0, ${SEG}.0));
-    transformed += o0 + hairSide * (uHairWiden - 1.0); vHairAlong = 1.0 - hs / ${SEG}.0; vHairEdge = uv.x;
+    transformed += o0 + hairSide * (uHairWiden - 1.0); vHairAlong = 1.0 - hs / ${SEG}.0; vHairEdge = hairEdge;
     hairTan = hairT + (hs < ${SEG}.0 ? o1 - o0 : vec3(0.0)); }`;
 
 export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }) {
@@ -148,6 +148,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     const colors = new Float32Array(vertexCount * 3);
     const refs = new Float32Array(vertexCount * 2);
     const tangents = new Float32Array(vertexCount * 3);
+    const hairEdges = new Float32Array(vertexCount);
     const sides = new Float32Array(vertexCount * 3);
     const indices = [];
     let vertex = 0;
@@ -221,6 +222,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
             tangents.set(tangent, vertex * 3);
             refs[vertex * 2] = strand.gi;
             refs[vertex * 2 + 1] = s;
+            hairEdges[vertex] = edge;
             uvs[vertex * 2] = edge;
             uvs[vertex * 2 + 1] = 1 - f;
             const shade = strand.tone * (0.88 + 0.12 * strand.seed) * (1 - 0.08 * f);
@@ -244,6 +246,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     geometry.setAttribute('hairRef', new THREE.BufferAttribute(refs, 2));
     geometry.setAttribute('hairT', new THREE.BufferAttribute(tangents, 3));
     geometry.setAttribute('hairSide', new THREE.BufferAttribute(sides, 3));
+    geometry.setAttribute('hairEdge', new THREE.BufferAttribute(hairEdges, 1));
     const skinIndex = new Uint16Array(vertexCount * 4), skinWeight = new Float32Array(vertexCount * 4);
     for (let i = 0; i < vertexCount; i++) { skinIndex[i * 4] = headBone; skinWeight[i * 4] = 1; }
     geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));

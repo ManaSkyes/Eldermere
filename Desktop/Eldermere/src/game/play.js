@@ -405,7 +405,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     body.load(save.appearance);
     body.drive({ pose: 'idle' });
     weathering?.lampLitScene(body.root);   // (the lamps light you too)
-    body.root.traverse(o => { if (o.isMesh) { o.castShadow = !o.userData.hairCards; o.frustumCulled = false; if (o.userData.hairCards) o.userData.noReflect = true; } });   // (the hair cards: no shadow — the scalp casts it — and not in the puddles' mirror)
+    body.root.traverse(o => { if (o.isMesh) { o.castShadow = !(o.userData.hairCards || o.userData.playerHairGroom); o.frustumCulled = false; if (o.userData.hairCards || o.userData.playerHairGroom) o.userData.noReflect = true; } });   // (the hair cards: no shadow — the scalp casts it — and not in the puddles' mirror)
     scene.add(body.root);
     setTimeout(() => { if (body) player.setHeight(Math.max(1.3, Math.min(2.4, body.eyeHeight() / 0.93))); }, 400);   // the camera at the model's eyes
     note.textContent = ''; updateLoad();
@@ -2016,7 +2016,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { name: 'Lamp light on surfaces', off: () => { if (weathering) weathering.lampsOff = true; }, on: () => { if (weathering) weathering.lampsOff = false; } },
     { name: 'Your character', off: () => { bench.hideBody = true; }, on: () => { bench.hideBody = false; } },
     { name: '· its hair', off: () => { bench.hideHair = true; }, on: () => { bench.hideHair = false; } },
-    { name: '· its shadow', off: () => { bench.noBodyShadow = true; }, on: () => { bench.noBodyShadow = false; body?.root.traverse(o => { if (o.isMesh) o.castShadow = !o.userData.hairCards; }); } },
+    { name: '· its shadow', off: () => { bench.noBodyShadow = true; }, on: () => { bench.noBodyShadow = false; body?.root.traverse(o => { if (o.isMesh) o.castShadow = !(o.userData.hairCards || o.userData.playerHairGroom); }); } },
     { name: 'Far shadows', off: () => { bench.farOff = true; }, on: () => { bench.farOff = false; } },
   ];
   const benchEl = () => probeEl.querySelector('.pp-bench');
@@ -2247,7 +2247,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     // the swing's ghost: laid down while the blow is live (a little before its hit window to a little after)
     { const A = body?.combat?.action, live = A && A.type === 'attack' && !A.hold && (!A.hit || (A.u >= A.hit[0] - 0.14 && A.u <= A.hit[1] + 0.08));
       swingTrail.update(dt, live && settings.swingTrails !== false && body.combat.blade(trailB, trailT) ? { base: trailB, tip: trailT } : null, combat.swingType); }
-    if (body && (bench.hideHair || bench.noBodyShadow)) body.root.traverse(o => { if (!o.isMesh) return; if (bench.hideHair && o.userData.hairCards) o.visible = false; if (bench.noBodyShadow) o.castShadow = false; });
+    if (body && (bench.hideHair || bench.noBodyShadow)) body.root.traverse(o => { if (!o.isMesh) return; if (bench.hideHair && (o.userData.hairCards || o.userData.playerHairGroom)) o.visible = false; if (bench.noBodyShadow) o.castShadow = false; });
     lap('Your body (pose)');
     player.applyCamera(camera, settings.headBob ?? 1);
     tpDt = dt; if (thirdPerson) placeThirdPerson();

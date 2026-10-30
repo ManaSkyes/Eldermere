@@ -21,11 +21,10 @@ function regionOf(p, n, head) {
   const front = z > 0.18 || n[2] > 0.18;
   const rear = z < -0.34 || n[2] < -0.32;
   if (rear && y < -0.48) return 'nape';
-  // Reserve a broad central frontal scalp band for bangs before assigning crown roots.
-  // This prevents the crown threshold from swallowing almost the entire fringe region.
-  if (front && y < 0.78 && Math.abs(x) < 0.72) return 'hairline';
-  if (front && y < 0.72 && Math.abs(x) >= 0.72) return 'temples';
-  if (y > 0.42 || n[1] > 0.62) return 'crown';
+  // Only the lower frontal scalp is bangs. The crown always belongs to the main groom.
+  if (front && y < 0.30 && Math.abs(x) < 0.78) return 'hairline';
+  if (front && y < 0.34 && Math.abs(x) >= 0.78) return 'temples';
+  if (y > 0.24 || n[1] > 0.48) return 'crown';
   if (Math.abs(x) > 0.52 || Math.abs(n[0]) > 0.52) return 'sides';
   if (rear) return 'back';
   return y > 0 ? 'crown' : 'back';
@@ -102,20 +101,20 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
 
   if (zone === 'bangs') {
     if (index === STYLE_NAMES.bangs.length - 1) return null;
-    if (index === 0) { len = 0.28; dir = [0, 0.2, -1]; gravity = 0.12; }
-    if (index === 1) { len = 0.34; dir = [0, -0.72, 0.72]; gravity = 0.65; }
-    if (index === 2) { len = 0.38; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
-    if (index === 3) { len = 0.42; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
-    if (index === 4) { len = 0.24; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
-    len *= Math.exp((lengths.bangs || 0) * 0.35);
+    if (index === 0) { len = 0.075; dir = [0, 0.2, -1]; gravity = 0.12; }
+    if (index === 1) { len = 0.105; dir = [0, -0.72, 0.72]; gravity = 0.65; }
+    if (index === 2) { len = 0.12; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
+    if (index === 3) { len = 0.14; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
+    if (index === 4) { len = 0.085; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
+    len *= lengths.bangs ?? 1;
   } else {
     // All non-fringe scalp regions share one calm backward flow into the selected ponytail.
     // There is deliberately no mirrored/crossing crown start direction.
-    len = 0.58;
-    dir = [side * 0.04, -0.18, -1];
-    gravity = 0.2;
+    len = 0.68;
+    dir = [side * 0.04, -0.12, -1];
+    gravity = 0.12;
     gather = !!tie;
-    len *= Math.exp((lengths.main || 0) * 0.35);
+    len *= lengths.main ?? 1;
   }
   return { len, dir: norm(dir), startDir: null, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
@@ -138,6 +137,9 @@ function makeGuide(root, style, head, tie, seed) {
   d = tangentFlow(d, root.n);
   const endDir = tangentFlow(style.dir, root.n);
   const phase = seed * Math.PI * 2;
+  let gatherStart = null;
+  const gatherAt = 0.32;
+  const tailDir = [0, -1, -0.24];
   for (let s = 1; s <= SEG; s++) {
     const t = s / SEG;
     if (style.startDir && t < 0.3) {
@@ -148,9 +150,23 @@ function makeGuide(root, style, head, tie, seed) {
         style.startDir[2] * (1 - blend) + style.dir[2] * blend
       ], root.n);
     } else if (style.startDir) d = endDir.slice();
-    if (style.gather && tie && t > 0.2) {
-      const u = (t - 0.2) / 0.8, target = add(tie, root.n, 0.025 * (1 - u));
-      p = [p[0] + (target[0] - p[0]) * 0.22, p[1] + (target[1] - p[1]) * 0.22, p[2] + (target[2] - p[2]) * 0.22];
+
+    if (style.gather && tie && t < gatherAt) {
+      const gravity = style.gravity * (0.25 + 0.75 * t);
+      d = norm([d[0] * (1 - gravity * 0.18), d[1] * (1 - gravity * 0.18) - gravity * 0.28, d[2] * (1 - gravity * 0.18)]);
+      p = add(p, d, style.len / SEG);
+      if (s === Math.floor(SEG * gatherAt)) gatherStart = p.slice();
+    } else if (style.gather && tie) {
+      if (!gatherStart) gatherStart = p.slice();
+      const u = clamp((t - gatherAt) / (1 - gatherAt), 0, 1), v = 1 - u;
+      const p0 = gatherStart, approach = tangentFlow(style.dir, root.n);
+      const p1 = add(p0, approach, 0.20), p2 = add(tie, tailDir, -0.20);
+      const target = add(tie, root.n, 0.018 * (1 - u));
+      p = [
+        v*v*v*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u*u*u*target[0],
+        v*v*v*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u*u*u*target[1],
+        v*v*v*p0[2] + 3*v*v*u*p1[2] + 3*v*u*u*p2[2] + u*u*u*target[2]
+      ];
     } else {
       const gravity = style.gravity * (0.25 + 0.75 * t);
       d = norm([d[0] * (1 - gravity * 0.22), d[1] * (1 - gravity * 0.22) - gravity * 0.45, d[2] * (1 - gravity * 0.22)]);
@@ -168,7 +184,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const map = sampleScalp(scalp, P, N);
   const mainStyle = selection.main ?? 0;
   const tie = mainStyle === 0 || mainStyle === 1
-    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.12 : -0.30), head.C[2] - head.Rad[2] * 0.68]
+    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : -0.34), head.C[2] - head.Rad[2] * 0.76]
     : null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
@@ -190,22 +206,23 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   }
   if (tie) {
     const high = mainStyle === 0;
-    const tailLength = 1.15 * Math.exp((lengths.main || 0) * 0.35);
-    for (let i = 0; i < 110; i++) {
-      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075;
-      const points = [];
+    const tailLength = 1.25 * (lengths.main ?? 1), tailDrop = high ? 1.0 : 1.18;
+    for (let i = 0; i < 150; i++) {
+      const a = random() * Math.PI * 2, phase = random();
+      const rootRadius = 0.035 + random() * 0.045, points = [];
       for (let s = 0; s <= SEG; s++) {
         const t = s / SEG;
-        const lift = high ? 0.16 * Math.sin(Math.PI * t) : 0.025 * Math.sin(Math.PI * t);
-        const drop = tailLength * t * t;
-        const sweep = high ? -0.12 * t : -0.06 * t;
+        const envelope = 0.58 + 0.62 * Math.sin(Math.PI * Math.min(1, t * 0.82));
+        const taper = 1 - 0.88 * Math.pow(t, 1.45), radius = rootRadius * envelope * taper;
+        const lift = high ? 0.13 * Math.sin(Math.PI * t) : 0.018 * Math.sin(Math.PI * t);
+        const drop = tailLength * tailDrop * t * t, sweep = high ? -0.10 * t : -0.035 * t;
         points.push([
-          tie[0] + Math.cos(a) * radius * (1 + t) + sweep * t,
+          tie[0] + Math.cos(a) * radius + sweep * t,
           tie[1] + lift - drop,
-          tie[2] + Math.sin(a) * radius * 0.6 - (high ? 0.38 : 0.12) * t
+          tie[2] + Math.sin(a) * radius * 0.72 - (high ? 0.28 : 0.10) * t
         ]);
       }
-      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.45, tie[2] + 0.4], width: 0.06, tone: 0.96, loose: 1 });
+      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.42, tie[2] + 0.25], width: 0.052 + phase * 0.008, tone: 0.96, loose: 1 });
     }
   }
   return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };

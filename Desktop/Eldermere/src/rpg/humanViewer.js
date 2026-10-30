@@ -282,14 +282,10 @@ export function startViewer(THREE, human, ui) {
 
   // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
   const hairData = makeHair(meta);
-  let hairOn = true, hairCapOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
+  let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
   const hairSel = { main: 0, bangs: 0 };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
-  const scalpPiece = skinnedPiece(hairData.scalp.positions, hairData.scalp.tris, hairData.scalp.skinIndex, hairData.scalp.skinWeight, hairColor);
-  // The scalp cap is a quiet, dark base under the strand groom; root placement is generated
-  // independently from its fitted surface triangles in hairScalp.js.
-  scalpPiece.mesh.material.roughness = 0.62;
   // detail levels for the body and clothes by distance (src/rpg/meshLod.js: fewer triangles over the same vertices)
   const lods = createLods(THREE, () => skinned.filter(m => m.visible && !m.userData.noLod), [{ dist: 7, cell: 0.2 }, { dist: 18, cell: 0.42 }]);
   // the player strand groom: guide curves are simulated on the CPU; fine individual strands are moved on the GPU.
@@ -385,9 +381,10 @@ export function startViewer(THREE, human, ui) {
   function fitHair(P, Nrm, busy = false) {
     const eyesC = ['left', 'right'].map(sd => { const ids = meta.eyes[sd]; return [0, 1, 2].map(a => ids.reduce((t, i) => t + P[i * 3 + a], 0) / ids.length); });
     const hairShown = hairOn && gearRules.hair !== 'hide';
-    scalpPiece.mesh.visible = hairShown && hairCapOn; groomMesh.visible = hairShown;
+    groomMesh.visible = hairShown;
     if (hairShown) {
-      fitGarment(hairData.scalp, P, Nrm); scalpPiece.attr.needsUpdate = true; scalpPiece.geo.computeVertexNormals();
+      // Keep the fitted scalp as a sampling surface only; no scalp cap is rendered.
+      fitGarment(hairData.scalp, P, Nrm);
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
       if (key !== hairBuilt.key) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
@@ -430,7 +427,6 @@ export function startViewer(THREE, human, ui) {
     hairColor = root; hairTip = tip;
     hairU.uHairRoot.value.copy(lin(root)); hairU.uHairTip.value.copy(lin(tip));
     if (!browColor) browMat.color.copy(lin(root)).multiplyScalar(0.6);
-    scalpPiece.mesh.material.color.copy(lin(root)).multiplyScalar(0.75);     // the base layer, a little darker than the hair over it
     if (pickers.root) { pickers.root.value = root; pickers.tip.value = tip; }
   }
   const pickers = {};
@@ -1476,7 +1472,6 @@ export function startViewer(THREE, human, ui) {
   };
   const label = (parent, text) => { const l = document.createElement('div'); l.textContent = text; l.style.cssText = 'color:var(--muted);margin:0.4rem 0 0.2rem'; parent.appendChild(l); };
   pressRow(hairSec, ['Hair', 'Bald'], 0, i => { hairOn = i === 0; update(); });
-  pressRow(hairSec, ['Hair cap on', 'Hair cap off'], 0, i => { hairCapOn = i === 0; update(); });
   label(hairSec, 'Main hairstyle');
   pressRow(hairSec, GROOM_STYLE_NAMES.main, hairSel.main, i => { hairSel.main = i; update(); });
   makeRow(hairSec, 'Main hair length', -1, 1, () => hairLen.main, v => { hairLen.main = v; });
@@ -1694,7 +1689,7 @@ export function startViewer(THREE, human, ui) {
   }
   perfSec.appendChild(tg);
   function applyPerfToggles() {
-    for (const m of [groomMesh, scalpPiece.mesh]) m.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
+    groomMesh.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
     if (renderer) renderer.shadowMap.enabled = !perf.off.shadows;
     scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
     for (const m of Object.values(partMeshes)) m.visible = m.visible && !perf.off.parts;
@@ -2018,7 +2013,7 @@ export function startViewer(THREE, human, ui) {
           coverSize: race.coverSize, coverA: race.coverA, coverB: race.coverB, pupil: race.pupil, eyeColor: race.eyeColor, furPattern: race.furPattern, furDark: race.furDark,
           noseColor: race.noseColor, luster: race.luster, furLength: race.furLength },
         skin: '#' + skinMat.color.clone().convertLinearToSRGB().getHexString(), skinGlow,
-        hair: { on: hairOn, cap: hairCapOn, sel: { ...hairSel }, len: { ...hairLen }, look: { ...hairLook }, phys: { ...hairPhys }, color: hairColor, tip: hairTip, blend: hairBlend, brow: { ...brow }, browColor },
+        hair: { on: hairOn, sel: { ...hairSel }, len: { ...hairLen }, look: { ...hairLook }, phys: { ...hairPhys }, color: hairColor, tip: hairTip, blend: hairBlend, brow: { ...brow }, browColor },
         gear: gear.equipped(),
       };
     },
@@ -2039,7 +2034,7 @@ export function startViewer(THREE, human, ui) {
     showHead(on) {
       const h = rig.byName.head; if (!h) return;
       h.scale.setScalar(on ? 1 : 0.001); h.updateMatrixWorld(true);
-      groomMesh.visible = on && hairOn && gearRules.hair !== 'hide'; scalpPiece.mesh.visible = groomMesh.visible;
+      groomMesh.visible = on && hairOn && gearRules.hair !== 'hide';
     },
     // game mode: the pose ('idle', 'walk', ...), its clock (advance it with stride for walking), and
     // whether the head is hidden for a first-person camera
@@ -2101,7 +2096,7 @@ export function startViewer(THREE, human, ui) {
         if (a.skin) skinMat.color.copy(lin(a.skin));
         if (a.skinGlow != null) { skinGlow = a.skinGlow; skinDetail.setTranslucency(skinGlow); }
         if (a.hair) {
-          hairOn = a.hair.on ?? hairOn; hairCapOn = a.hair.cap ?? hairCapOn;
+          hairOn = a.hair.on ?? hairOn;
           const savedSel = a.hair.sel || {};
           if (savedSel.main != null || savedSel.bangs != null) Object.assign(hairSel, savedSel);
           else { hairSel.main = savedSel.back === 3 ? 0 : 1; hairSel.bangs = savedSel.bangs ?? 0; }

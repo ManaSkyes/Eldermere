@@ -95,7 +95,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
   let lodNow = -1, lodForce = null;
   const drawCounts = [0, 0, 0];
 
-  function build(guides, head, look = {}) {
+  function build(guides, head, look = {}, headSurface = null) {
     guideCount = guides.length;
     const strandLayers = [[], [], []];
     const density = Math.max(0.1, Math.min(100, Number(look.density ?? 1) || 0.1));
@@ -296,7 +296,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     offTexture.needsUpdate = true;
     U.uHairOff.value = offTexture;
     U.uHairOffSize.value.set(SEG + 1, Math.max(1, guideCount));
-    sim = makeGuideSim(guides, head);
+    sim = makeGuideSim(guides, head, headSurface);
     lod(0);
     info = {
       guides: guideCount,

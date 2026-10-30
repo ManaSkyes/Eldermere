@@ -2,7 +2,40 @@
 // Kept separate from the retired card renderer so the groom can evolve independently.
 const SEG = 14;
 
-export function makeGuideSim(guides, head) {
+function makeSurfaceIndex(surface, cell = 0.075) {
+  if (!surface || !surface.positions || !surface.normals || !surface.ids?.length) return null;
+  const { positions, normals, ids } = surface, grid = new Map();
+  const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+  for (const id of ids) {
+    const o = id * 3, p = [positions[o], positions[o + 1], positions[o + 2]];
+    const k = key(...p); (grid.get(k) || grid.set(k, []).get(k)).push({ p, n: [normals[o], normals[o + 1], normals[o + 2]] });
+  }
+  return { grid, cell };
+}
+function collideSurface(point, surface, radius) {
+  if (!surface) return false;
+  const { grid, cell } = surface, x = point[0], y = point[1], z = point[2];
+  const gx = Math.floor(x / cell), gy = Math.floor(y / cell), gz = Math.floor(z / cell);
+  let best = null, bestD = Infinity;
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+    const list = grid.get(`${gx+a},${gy+b},${gz+c}`);
+    if (!list) continue;
+    for (const v of list) {
+      const dx=x-v.p[0], dy=y-v.p[1], dz=z-v.p[2], d=dx*dx+dy*dy+dz*dz;
+      if (d < bestD) { bestD=d; best=v; }
+    }
+  }
+  if (!best) return false;
+  const dx=x-best.p[0], dy=y-best.p[1], dz=z-best.p[2];
+  const signed=dx*best.n[0]+dy*best.n[1]+dz*best.n[2];
+  if (signed >= radius) return false;
+  // Project along the skinned surface normal, not toward an approximate head centre.
+  const push=radius-signed;
+  point[0]+=best.n[0]*push; point[1]+=best.n[1]*push; point[2]+=best.n[2]*push;
+  return true;
+}
+
+export function makeGuideSim(guides, head, headSurface = null) {
   const n = SEG + 1, G = guides.length;
   const rest = new Float32Array(G * n * 3), p = new Float32Array(G * n * 3), prev = new Float32Array(G * n * 3), seg = new Float32Array(G * n);
   const bend = new Float32Array(G * n), pull = new Float32Array(G * n), dampK = new Float32Array(G * n), tied = new Uint8Array(G), activeFrom = new Uint8Array(G);
@@ -11,7 +44,7 @@ export function makeGuideSim(guides, head) {
   // for points that are intentionally embedded in the scalp/face.
   // the feel, live-tunable (the creator's Hair lab): follow — how much of the head's turning the hair turns with at once
   // (the rest becomes swing); inertia — how much speeding up and slowing down throws it; stiffness, damping, gravity
-  const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
+  const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1, collision: 1 };\n  const surface = makeSurfaceIndex(headSurface);\n  const guideRadius = Float32Array.from(guides, gd => Math.max(0.018, (gd.width || 0.055) * 0.42));
   guides.forEach((gd, k) => {
     tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;
     gd.points.forEach((q, s) => { const i = k * n + s; rest.set(q, i * 3); if (s) { const a = gd.points[s - 1]; seg[i] = Math.hypot(q[0] - a[0], q[1] - a[1], q[2] - a[2]); L += seg[i]; }
@@ -96,14 +129,20 @@ export function makeGuideSim(guides, head) {
         // authored rest pose began inside the approximate skull. Use a small clearance
         // so ribbons do not sit exactly on the collision surface.
         tmp[0] = p[o]; tmp[1] = p[o + 1]; tmp[2] = p[o + 2]; xf(WMi, tmp, 0, tmp, 0);
-        const ex = (tmp[0] - head.C[0]) / (head.Rad[0] * 0.94), ey = (tmp[1] - head.C[1]) / (head.Rad[1] * 0.94), ez = (tmp[2] - head.C[2]) / (head.Rad[2] * 0.94), ed = Math.hypot(ex, ey, ez);
-        if (ed < 1.015 && ed > 1e-4) {
-          const push = 1.015 / ed;
-          tmp[0] = head.C[0] + (tmp[0] - head.C[0]) * push;
-          tmp[1] = head.C[1] + (tmp[1] - head.C[1]) * push;
-          tmp[2] = head.C[2] + (tmp[2] - head.C[2]) * push;
-          xf(WM, tmp, 0, tmp, 0); p[o] = tmp[0]; p[o + 1] = tmp[1]; p[o + 2] = tmp[2];
+        const radius = guideRadius[k] * params.collision;
+        let hit = collideSurface(tmp, surface, radius);
+        // Keep the ellipsoid as a conservative fallback for missing surface samples.
+        if (!hit) {
+          const ex = (tmp[0] - head.C[0]) / (head.Rad[0] * 0.94), ey = (tmp[1] - head.C[1]) / (head.Rad[1] * 0.94), ez = (tmp[2] - head.C[2]) / (head.Rad[2] * 0.94), ed = Math.hypot(ex, ey, ez);
+          if (ed < 1.015 && ed > 1e-4) {
+            const push = 1.015 / ed;
+            tmp[0] = head.C[0] + (tmp[0] - head.C[0]) * push;
+            tmp[1] = head.C[1] + (tmp[1] - head.C[1]) * push;
+            tmp[2] = head.C[2] + (tmp[2] - head.C[2]) * push;
+            hit = true;
+          }
         }
+        if (hit) { xf(WM, tmp, 0, tmp, 0); p[o] = tmp[0]; p[o + 1] = tmp[1]; p[o + 2] = tmp[2]; }
         // Neck, shoulders and torso capsules are also resolved after segment length.
         if (cw.length) for (const c of cw) pushCap(p, o, c);
       }

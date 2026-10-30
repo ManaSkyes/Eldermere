@@ -2,7 +2,7 @@
 // The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
 const SEG = 14;
 const STYLE_NAMES = {
-  main: ['High ponytail', 'Low ponytail', 'Long straight', 'Long wavy', 'Long curly', 'Wolf cut', 'Shag cut', 'Layered cut', 'Bob', 'Lob', 'Pixie', 'Pigtails', 'Half-up', 'Top bun'],
+  main: ['High ponytail', 'Low ponytail', 'Long straight', 'Long wavy', 'Long curly', 'Wolf cut', 'Shag cut', 'Layered cut', 'Bob', 'Lob', 'Pixie', 'Pigtails', 'Half-up', 'Top bun', 'Single braid', 'Braided pigtails'],
   bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'None'],
 };
 export const GROOM_STYLE_NAMES = STYLE_NAMES;
@@ -97,7 +97,7 @@ function sampleScalp(scalp, P, N, spacing = 0.045, maxRoots = 10000) {
 function styleFor(zone, index, p, head, lengths, look, tie) {
   const side = Math.sign(p[0] - head.C[0]) || 1;
   const y = (p[1] - head.C[1]) / head.Rad[1];
-  const curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
+  let curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
   let len = 2.9, dir = [side * 0.12, -0.88, -0.18], gravity = 0.62;
   let gather = false, loose = 1, width = 0.055 + 0.012 * (1 - Math.abs(y));
   if (zone === 'bangs') {
@@ -143,9 +143,13 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
         break;
       case 13: // Top bun: gather the crown into a compact knot.
         len = 0.52; dir = [side * 0.03, -0.1, -1]; gravity = 0.1; gather = !!tie; break;
+      case 14: // Single braid: gather the full length to a low rear anchor.
+        len = 0.78; dir = [side * 0.04, -0.12, -1]; gravity = 0.12; gather = !!tie; break;
+      case 15: // Braided pigtails.
+        len = 0.72; dir = [side * 0.08, -0.2, -0.92]; gravity = 0.16; gather = !!tie; break;
     }
-    if (index === 3) look = { ...look, wave: Math.max(look.wave ?? 0, 0.85) };
-    if (index === 4) look = { ...look, curl: Math.max(look.curl ?? 1, 2.0) };
+    if (index === 3) curl = Math.max(curl, 0.075);
+    if (index === 4) curl = Math.max(curl, 0.15);
     if (index === 5 || index === 6) len *= 0.94 + 0.12 * Math.sin(p[0] * 23 + p[2] * 17);
     len *= lengths.main ?? 1;
   }
@@ -239,10 +243,10 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const mainStyle = selection.main ?? 0;
   // Rear-facing skull surface is negative Z in this rig. Place the elastic outside
   // the head bounds rather than inside the ellipsoid used for scalp-relative shaping.
-  const ties = mainStyle === 11
+  const ties = mainStyle === 11 || mainStyle === 15
     ? [[head.C[0] - head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82],
        [head.C[0] + head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82]]
-    : (mainStyle === 0 || mainStyle === 1 || mainStyle === 12 || mainStyle === 13)
+    : (mainStyle === 0 || mainStyle === 1 || mainStyle === 12 || mainStyle === 13 || mainStyle === 14)
       ? [[head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : mainStyle === 1 ? -0.34 : 0.48), head.C[2] - head.Rad[2] * 1.12]]
       : [];
   const tieForRoot = root => ties.length > 1 ? ties[root.p[0] < head.C[0] ? 0 : 1] : ties[0] || null;
@@ -283,6 +287,25 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
             points.push([tie[0] + Math.cos(a + t * Math.PI * 2) * r, tie[1] + Math.sin(a + t * Math.PI * 2) * r * 0.62 + t * 0.035, tie[2] + Math.sin(a + t * Math.PI * 2) * r]);
           }
           guides.push({ points, center: tie, width: 0.042, tone: 0.98, loose: 0.2, dynamic: false, region: 'crown' });
+        }
+      } else if (mainStyle === 14 || mainStyle === 15) {
+        // Three substantial, interwoven guide bundles form the braid silhouette.
+        // Their phase offsets create the over-under rhythm; the surrounding hair is gathered
+        // into the braid root and a wrap conceals the transition.
+        const braidLength = (mainStyle === 15 ? 0.92 : 1.22) * (lengths.main ?? 1);
+        const phaseSide = ti === 0 ? -1 : 1;
+        for (let strand = 0; strand < 3; strand++) {
+          const points = [], phase = strand * Math.PI * 2 / 3;
+          for (let step = 0; step <= SEG; step++) {
+            const t = step / SEG, a = phase + t * Math.PI * 2 * 3.2;
+            const radius = 0.038 * (1 - 0.32 * t);
+            points.push([
+              tie[0] + Math.cos(a) * radius,
+              tie[1] - braidLength * t,
+              tie[2] + Math.sin(a) * radius + (mainStyle === 15 ? phaseSide * 0.025 * t : 0)
+            ]);
+          }
+          guides.push({ points, center: tie, width: 0.095, tone: 0.96 + strand * 0.015, loose: 0.28, dynamic: true, region: 'back' });
         }
       } else {
         const tailLength = (mainStyle === 11 ? 1.05 : mainStyle === 12 ? 0.9 : 1.25) * (lengths.main ?? 1);

@@ -1,0 +1,171 @@
+// src/rpg/hairScalp.js — scalp-surface sampling and groom-native hairstyle guides.
+// The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
+const SEG = 14;
+const STYLE_NAMES = {
+  bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy'],
+  top: ['Cropped', 'Swept back', 'Center part', 'Side part', 'Messy'],
+  sides: ['Shaved', 'Short', 'Chin', 'Shoulder', 'Long'],
+  back: ['Short', 'Shoulder', 'Long', 'Ponytail', 'Bun'],
+};
+export const GROOM_STYLE_NAMES = STYLE_NAMES;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const norm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return v.map(x => x / l); };
+const add = (a, b, s = 1) => [a[0] + b[0] * s, a[1] + b[1] * s, a[2] + b[2] * s];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+function regionOf(p, n, head) {
+  const x = (p[0] - head.C[0]) / head.Rad[0], y = (p[1] - head.C[1]) / head.Rad[1], z = (p[2] - head.C[2]) / head.Rad[2];
+  if (n[1] > 0.62 || y > 0.62) return 'top';
+  if (n[2] > 0.48 || z > 0.48) return 'bangs';
+  if (Math.abs(n[0]) > 0.5 || Math.abs(x) > 0.55) return 'sides';
+  return 'back';
+}
+
+function makeHead(headIds, P, eyeY) {
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const i of headIds) if (P[i * 3 + 1] > eyeY) for (let a = 0; a < 3; a++) {
+    mn[a] = Math.min(mn[a], P[i * 3 + a]); mx[a] = Math.max(mx[a], P[i * 3 + a]);
+  }
+  const C = [0, eyeY + 0.1, (mn[2] + mx[2]) * 0.5];
+  return { C, Rad: [(mx[0] - mn[0]) * 0.5, mx[1] - eyeY - 0.1, (mx[2] - mn[2]) * 0.5] };
+}
+
+// Even-area dart sampling over the fitted scalp triangles, with a minimum root spacing.
+// This makes coverage a property of the scalp map, not of hairstyle card placement.
+function sampleScalp(scalp, P, N, spacing = 0.125, maxRoots = 900) {
+  const V = scalp.verts, T = scalp.tris, positions = scalp.positions;
+  const faces = [], cumulative = [];
+  let areaTotal = 0;
+  for (let t = 0; t < T.length; t += 3) {
+    const ia = T[t], ib = T[t + 1], ic = T[t + 2], a = V[ia], b = V[ib], c = V[ic];
+    if (!a || !b || !c || a.inner || b.inner || c.inner) continue;
+    const A = [positions[ia * 3], positions[ia * 3 + 1], positions[ia * 3 + 2]];
+    const B = [positions[ib * 3], positions[ib * 3 + 1], positions[ib * 3 + 2]];
+    const C = [positions[ic * 3], positions[ic * 3 + 1], positions[ic * 3 + 2]];
+    const area = Math.hypot(...cross(sub(B, A), sub(C, A))) * 0.5;
+    if (area < 1e-7) continue;
+    areaTotal += area; faces.push({ ia, ib, ic, area }); cumulative.push(areaTotal);
+  }
+  if (!faces.length) return { roots: [], area: 0, spacing };
+  let seed = 9127;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const cell = spacing, grid = new Map(), roots = [];
+  const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+  const target = Math.min(maxRoots, Math.max(220, Math.ceil(areaTotal / (spacing * spacing * 0.78))));
+  const attempts = Math.max(12000, target * 100);
+  for (let attempt = 0; attempt < attempts && roots.length < target; attempt++) {
+    const r = random() * areaTotal;
+    let lo = 0, hi = cumulative.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (cumulative[mid] < r) lo = mid + 1; else hi = mid; }
+    const f = faces[lo];
+    let u = random(), v = random();
+    if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    const w = 1 - u - v, ids = [f.ia, f.ib, f.ic], weights = [w, u, v];
+    const p = [0, 0, 0], n = [0, 0, 0];
+    for (let k = 0; k < 3; k++) {
+      const vert = V[ids[k]], srcA = vert.a * 3, srcB = vert.b * 3, wt = weights[k], q = vert.t;
+      for (let c = 0; c < 3; c++) {
+        p[c] += positions[ids[k] * 3 + c] * wt;
+        n[c] += (N[srcA + c] + (N[srcB + c] - N[srcA + c]) * q) * wt;
+      }
+    }
+    const nl = Math.hypot(...n) || 1; for (let c = 0; c < 3; c++) n[c] /= nl;
+    const cellKey = key(...p), [gx, gy, gz] = cellKey.split(',').map(Number);
+    let near = false;
+    for (let x = -1; x <= 1 && !near; x++) for (let y = -1; y <= 1 && !near; y++) for (let z = -1; z <= 1 && !near; z++) {
+      const list = grid.get(`${gx + x},${gy + y},${gz + z}`);
+      if (list) for (const q of list) if ((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + (q[2] - p[2]) ** 2 < spacing * spacing) { near = true; break; }
+    }
+    if (near) continue;
+    const root = { p, n: norm(n) }; roots.push(root);
+    (grid.get(cellKey) || grid.set(cellKey, []).get(cellKey)).push(p);
+  }
+  return { roots, area: areaTotal, spacing };
+}
+
+function styleFor(zone, index, p, head, lengths, look, tie) {
+  const side = Math.sign(p[0] - head.C[0]) || 1;
+  const y = (p[1] - head.C[1]) / head.Rad[1], front = (p[2] - head.C[2]) / head.Rad[2];
+  const curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
+  let len = 0.8, dir = [0, -0.25, -1], gravity = 0.4, gather = false, loose = 1;
+  if (zone === 'bangs') {
+    if (index === 0) { len = 1.25; dir = [0, 0.15, -1]; gravity = 0.12; }
+    if (index === 1) { len = Math.max(0.48, 0.92 + y * 0.25); dir = [0, -0.65, 1]; gravity = 0.7; }
+    if (index === 2) { len = 1.35; dir = [side, -0.35, 0.25]; gravity = 0.42; }
+    if (index === 3) { len = 1.55; dir = [side * 0.75, -0.65, 0.25]; gravity = 0.55; gather = true; }
+    if (index === 4) { len = 0.82; dir = [side * 0.25, -0.5, 0.65]; gravity = 0.38; }
+  } else if (zone === 'top') {
+    if (index === 0) { len = 0.48; dir = [0, 0.25, -1]; gravity = 0.05; }
+    if (index === 1) { len = 1.6; dir = [0, 0.1, -1]; gravity = 0.22; gather = true; }
+    if (index === 2) { len = 1.8; dir = [side, -0.25, -0.25]; gravity = 0.4; gather = true; }
+    if (index === 3) { len = 1.8; dir = [side * 0.8, -0.2, -0.2]; gravity = 0.4; gather = true; }
+    if (index === 4) { len = 0.95; dir = [Math.sin(p[0] * 9) * 0.5, 0.6, Math.cos(p[2] * 7) * 0.5 - 0.3]; gravity = 0.12; }
+  } else if (zone === 'sides') {
+    if (index === 0) return null;
+    len = index === 1 ? 0.48 : index === 2 ? 1.05 : index === 3 ? 1.8 : 2.7;
+    dir = [side * 0.35, -0.9, -0.12]; gravity = 0.55;
+  } else {
+    if (index === 3 || index === 4) { len = index === 3 ? 2.8 : 0.9; gather = true; loose = index === 3 ? 1 : 0; }
+    else { len = index === 0 ? 0.55 : index === 1 ? 1.8 : 2.8; dir = [side * 0.15, -1, -0.2]; gravity = 0.58; }
+  }
+  len *= Math.exp((lengths[zone] || 0) * 0.69);
+  return { len, dir: norm(dir), gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+}
+
+function makeGuide(root, style, head, tie, seed) {
+  const pts = [add(root.p, root.n, 0.025)];
+  let p = pts[0].slice(), d = style.dir.slice();
+  const radial = norm(sub(p, head.C));
+  // Comb direction is projected onto the scalp tangent plane at the root.
+  d = norm(sub(d, root.n, dot(d, root.n)));
+  const phase = seed * Math.PI * 2;
+  for (let s = 1; s <= SEG; s++) {
+    const t = s / SEG;
+    if (style.gather && tie && t > 0.2) {
+      const u = (t - 0.2) / 0.8, target = add(tie, root.n, 0.025 * (1 - u));
+      p = [p[0] + (target[0] - p[0]) * 0.22, p[1] + (target[1] - p[1]) * 0.22, p[2] + (target[2] - p[2]) * 0.22];
+    } else {
+      const gravity = style.gravity * (0.25 + 0.75 * t);
+      d = norm([d[0] * (1 - gravity * 0.22), d[1] * (1 - gravity * 0.22) - gravity * 0.45, d[2] * (1 - gravity * 0.22)]);
+      p = add(p, d, style.len / SEG);
+    }
+    const wave = Math.sin(phase + t * Math.PI * 4) * style.curl * t;
+    p = add(p, radial, wave);
+    pts.push(p.slice());
+  }
+  return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose };
+}
+
+export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths = {}, look = {}) {
+  const head = makeHead(headIds, P, eyeY);
+  const map = sampleScalp(scalp, P, N);
+  const backStyle = selection.back;
+  const tie = backStyle >= 3 ? [head.C[0], head.C[1] + (backStyle === 4 ? head.Rad[1] * 0.55 : head.Rad[1] * 0.08), head.C[2] - head.Rad[2] * 0.72] : null;
+  const guides = [];
+  let seed = 17;
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (const root of map.roots) {
+    const zone = regionOf(root.p, root.n, head);
+    const style = styleFor(zone, selection[zone], root.p, head, lengths, look, tie);
+    if (!style) continue;
+    guides.push(makeGuide(root, style, head, tie, random()));
+  }
+  if (tie && backStyle === 3) {
+    for (let i = 0; i < 110; i++) {
+      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075, len = 2.8 * Math.exp((lengths.back || 0) * 0.69);
+      const points = [];
+      for (let s = 0; s <= SEG; s++) { const t = s / SEG; points.push([tie[0] + Math.cos(a) * radius * (1 + t), tie[1] - len * t * t, tie[2] + Math.sin(a) * radius * 0.6 - 0.25 * Math.sin(Math.PI * t)]); }
+      guides.push({ points, center: [tie[0], tie[1] - 1.2, tie[2] + 0.8], width: 0.06, tone: 0.96, loose: 1 });
+    }
+  } else if (tie && backStyle === 4) {
+    for (let i = 0; i < 60; i++) {
+      const lat = (random() - 0.5) * 2.2, radius = 0.28 * Math.cos(lat * 0.7), y0 = 0.22 * Math.sin(lat * 0.7), phase = random() * Math.PI * 2, points = [];
+      for (let s = 0; s <= SEG; s++) { const a = phase + s / SEG * Math.PI * 1.6; points.push([tie[0] + Math.cos(a) * radius, tie[1] + y0 + Math.sin(lat) * 0.12 + Math.sin(a) * radius * 0.25, tie[2] + Math.sin(a) * radius * 0.8]); }
+      guides.push({ points, center: tie, width: 0.06, tone: 0.96, loose: 0 });
+    }
+  }
+  return { guides, head, tie, coverage: { area: map.area, roots: map.roots.length, guides: guides.length, spacing: map.spacing } };
+}

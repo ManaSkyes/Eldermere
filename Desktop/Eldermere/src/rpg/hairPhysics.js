@@ -44,7 +44,9 @@ export function makeGuideSim(guides, head, headSurface = null) {
   // for points that are intentionally embedded in the scalp/face.
   // the feel, live-tunable (the creator's Hair lab): follow — how much of the head's turning the hair turns with at once
   // (the rest becomes swing); inertia — how much speeding up and slowing down throws it; stiffness, damping, gravity
-  const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1, collision: 1 };\n  const surface = makeSurfaceIndex(headSurface);\n  const guideRadius = Float32Array.from(guides, gd => Math.max(0.018, (gd.width || 0.055) * 0.42));
+  const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1, collision: 1 };
+  const surface = makeSurfaceIndex(headSurface);
+  const guideRadius = Float32Array.from(guides, gd => Math.max(0.018, (gd.width || 0.055) * 0.42));
   guides.forEach((gd, k) => {
     tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;
     gd.points.forEach((q, s) => { const i = k * n + s; rest.set(q, i * 3); if (s) { const a = gd.points[s - 1]; seg[i] = Math.hypot(q[0] - a[0], q[1] - a[1], q[2] - a[2]); L += seg[i]; }

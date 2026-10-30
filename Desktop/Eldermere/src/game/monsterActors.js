@@ -179,7 +179,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
     const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
-    if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.mesh.visible = umbrafiendBodiesVisible; C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
+    if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.setBodyVisible(umbrafiendBodiesVisible); C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;
@@ -710,7 +710,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     shadowBatch.instanceMatrix.needsUpdate = true;
     if (shadowBatch.instanceColor) shadowBatch.instanceColor.needsUpdate = true;
   }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
-  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
+  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setAttached?.(on); if (on) A.C.sync(); }
   function dispatchPresentationPlan(snapshot, player) {
     const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 4);
     if (!snapshot.length) return;
@@ -831,7 +831,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
       // and distant glow sprites are reduced to make large packs affordable.
-      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = umbrafiendGlowsVisible && tier < 2;
+      if (isUmbrafiend) A.C.setLodTier?.(tier);
       const behaviorStartedAt = sampleActor ? performance.now() : 0;
       // Off-screen actors still participate in combat and group behavior, but their decision/movement
       // step only needs to run at 12 Hz. Keep elapsed time so cooldowns and movement remain time-based;
@@ -920,7 +920,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     setAiMode, setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
-    setUmbrafiendBodiesVisible(on) { umbrafiendBodiesVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend' && A.C?.mesh) A.C.mesh.visible = umbrafiendBodiesVisible; },
+    setUmbrafiendBodiesVisible(on) { umbrafiendBodiesVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C?.setBodyVisible?.(umbrafiendBodiesVisible); },
     setUmbrafiendSmokeAuraVisible(on) { umbrafiendSmokeAuraVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend' && A.C?.setSmokeAuraVisible) A.C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); },
     setUmbrafiendMembranesVisible(on) { umbrafiendMembranesVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setMembranesVisible(umbrafiendMembranesVisible); },
     setUmbrafiendGlowsVisible(on) { umbrafiendGlowsVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setGlowsVisible(umbrafiendGlowsVisible); },

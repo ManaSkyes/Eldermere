@@ -166,6 +166,32 @@ function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
   return norm(d);
 }
 
+function makeDrapeGuide(root, style, head, seed, underlayer = false) {
+  const side = Math.sign(root.p[0] - head.C[0]) || 1;
+  const frontBack = root.p[2] >= head.C[2] ? 1 : -1;
+  const p0 = add(root.p, root.n, underlayer ? 0.022 : 0.04);
+  const length = style.len * (underlayer ? 0.965 : 1);
+  // Lift clear of the scalp first, then let the mass fall. The lower control points
+  // stay close to the root's vertical column instead of fanning outward like a lampshade.
+  const p1 = add(p0, root.n, underlayer ? 0.11 : 0.17);
+  p1[1] -= length * 0.035;
+  const p2 = [p0[0] + side * 0.035, p0[1] - length * 0.62, p0[2] + frontBack * 0.075];
+  const p3 = [p0[0] + side * 0.055, p0[1] - length, p0[2] + frontBack * 0.12];
+  const phase = seed * Math.PI * 2, points = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG, v = 1 - t;
+    const p = [
+      v*v*v*p0[0] + 3*v*v*t*p1[0] + 3*v*t*t*p2[0] + t*t*t*p3[0],
+      v*v*v*p0[1] + 3*v*v*t*p1[1] + 3*v*t*t*p2[1] + t*t*t*p3[1],
+      v*v*v*p0[2] + 3*v*v*t*p1[2] + 3*v*t*t*p2[2] + t*t*t*p3[2]
+    ];
+    const wave = Math.sin(phase + t * Math.PI * 3) * style.curl * (underlayer ? 0.35 : 1) * t;
+    points.push(add(p, root.n, wave));
+  }
+  return { points, center: head.C, width: underlayer ? 0.17 : style.width, tone: underlayer ? 0.91 : style.tone,
+    loose: 1, dynamic: false, mass: underlayer, region: root.region || 'back' };
+}
+
 function makeGuide(root, style, head, tie, seed) {
   const pts = [add(root.p, root.n, 0.035)];
   // Fringe leaves the forehead first; tangent projection had flattened it into the face.
@@ -269,6 +295,9 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     // front layer, never a replacement for the underlying hairline/crown coverage.
     const rootTie = tieForRoot(root);
     const baseStyle = styleFor('main', selection.main, root.p, head, lengths, look, rootTie);
+    // Loose cuts get a real inner hair mass. These broad, low-detail ribbons sit
+    // beneath the outer strand groom and keep the scalp/underlayer from showing through.
+    if (baseStyle && baseStyle.flow === 'drape') guides.push(makeDrapeGuide(root, baseStyle, head, random(), true));
     if (baseStyle) guides.push(makeGuide(root, baseStyle, head, rootTie, random()));
     if (region === 'hairline') {
       const fringeStyle = styleFor('bangs', selection.bangs, root.p, head, lengths, look, null);

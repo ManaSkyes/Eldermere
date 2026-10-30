@@ -13,7 +13,7 @@ import { makeTail, makeCape } from './tailCape.js';
 import { WEAPONS, weaponMaterials } from './weapons.js';
 import { ITEMS, SLOTS, OUTFIT_PRESETS, createEquipment, traitsOf } from './equipment.js';
 import { PARTS, placePart, partAnchors, partOptions, featherTexture, tube } from './attachments.js';
-import { createHairRenderer } from './hairCards.js';
+import { createHairGroom } from './hairGroom.js';
 import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
@@ -308,8 +308,8 @@ export function startViewer(THREE, human, ui) {
   };
   // detail levels for the body and clothes by distance (src/rpg/meshLod.js: fewer triangles over the same vertices)
   const lods = createLods(THREE, () => skinned.filter(m => m.visible && !m.userData.noLod), [{ dist: 7, cell: 0.2 }, { dist: 18, cell: 0.42 }]);
-  // the hair cards: src/rpg/hairCards.js (guides simulated on the CPU, cards moved on the GPU, detail levels)
-  const hairR = createHairRenderer(THREE, { headBone, skeleton: rig.skeleton, bindMatrix: () => body.bindMatrix });
+  // the player strand groom: guide curves are simulated on the CPU; fine individual strands are moved on the GPU.
+  const hairR = createHairGroom(THREE, { headBone, skeleton: rig.skeleton, bindMatrix: () => body.bindMatrix });
   const hairU = hairR.U;                                   // (uHairRoot, uHairTip, uHairBlend: the colour rows set them)
   let hairWind = [0, 0, 0];
   // the Hair lab (in the creator's hair section): the look (volume, density, curl, wave: the hair is grown again) and the

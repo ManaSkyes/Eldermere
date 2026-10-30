@@ -408,7 +408,7 @@ export function startViewer(THREE, human, ui) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
         const groomData = buildHairCards(hairData, hairSel, P, Nrm, eyesC[0][1], lengths, { copies: 1, tailN: 30, bunN: 18, curl: hairLook.curl, wave: hairLook.wave });   // (one authored guide per scalp root; the groom interpolates multiple fine strands around each guide)
-        flowAttr.array.set(capFlow(hairData, hairSel, P, Nrm, eyesC[0][1], cards.tie)); flowAttr.needsUpdate = true;
+        flowAttr.array.set(capFlow(hairData, hairSel, P, Nrm, eyesC[0][1], groomData.tie)); flowAttr.needsUpdate = true;
         groomMesh.updateMatrixWorld(true); hairR.build(groomData.cards, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {

@@ -325,6 +325,10 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
       : [];
   const tieForRoot = root => ties.length > 1 ? ties[root.p[0] < head.C[0] ? 0 : 1] : ties[0] || null;
   const guides = [];
+  // Keep the raw scalp distribution separate from the roots that survive coverage
+  // masks. This makes a sparse scalp map distinguishable from an intentionally
+  // reduced hairline/coverage setting in the Hair lab diagnostics.
+  const sampledRegions = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
   const coverage = clamp(Number(look.coverage ?? 1), 0, 1);
   const hairlineCoverage = clamp(Number(look.hairlineCoverage ?? 1), 0, 1);
@@ -334,6 +338,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     if (dot(root.n, sub(root.p, head.C)) < 0) root.n = root.n.map(v => -v);
     const region = regionOf(root.p, root.n, head);
     root.region = region;
+    sampledRegions[region]++;
     const keep = coverage * (region === 'hairline' ? hairlineCoverage : 1);
     const hash = Math.abs(Math.sin(root.p[0] * 127.1 + root.p[1] * 311.7 + root.p[2] * 74.7) * 43758.5453) % 1;
     if (hash > keep) continue;
@@ -409,5 +414,13 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
       }
     }
   }
-  return { guides, head, tie: ties[0] || null, ties, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };
+  const regionCoverage = {};
+  for (const region of Object.keys(regionCounts)) {
+    const sampled = sampledRegions[region], kept = regionCounts[region];
+    regionCoverage[region] = { sampled, kept, retained: sampled ? kept / sampled : 0 };
+  }
+  return { guides, head, tie: ties[0] || null, ties, coverage: {
+    area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length,
+    spacing: map.spacing, regions: regionCounts, sampledRegions, regionCoverage, coverage, hairlineCoverage
+  } };
 }

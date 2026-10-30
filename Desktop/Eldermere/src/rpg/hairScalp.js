@@ -154,7 +154,7 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     len *= lengths.main ?? 1;
   }
   const tone = 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11);
-  if (zone !== 'bangs' && [2, 3, 4, 7, 8, 9].includes(index)) {
+  if (zone !== 'bangs' && [2, 3, 4, 5, 6, 7, 8, 9].includes(index)) {
     return { len, dir: norm(dir), startDir: null, gravity, curl, gather: false, fringe: false, loose,
       width, tone, flow: 'drape' };
   }

@@ -21,9 +21,10 @@ function regionOf(p, n, head) {
   const front = z > 0.18 || n[2] > 0.18;
   const rear = z < -0.34 || n[2] < -0.32;
   if (rear && y < -0.48) return 'nape';
-  // Only the lower frontal scalp is bangs. The crown always belongs to the main groom.
-  if (front && y < 0.30 && Math.abs(x) < 0.78) return 'hairline';
-  if (front && y < 0.34 && Math.abs(x) >= 0.78) return 'temples';
+  // This is a broad frontal overlay mask, not an exclusive scalp region.
+  // Main hair is generated for every root, so extending the mask cannot expose the crown.
+  if (front && y < 0.82 && Math.abs(x) < 0.92) return 'hairline';
+  if (front && y < 0.82 && Math.abs(x) >= 0.92) return 'temples';
   if (y > 0.24 || n[1] > 0.48) return 'crown';
   if (Math.abs(x) > 0.52 || Math.abs(n[0]) > 0.52) return 'sides';
   if (rear) return 'back';
@@ -160,8 +161,9 @@ function makeGuide(root, style, head, tie, seed) {
       if (!gatherStart) gatherStart = p.slice();
       const u = clamp((t - gatherAt) / (1 - gatherAt), 0, 1), v = 1 - u;
       const p0 = gatherStart, approach = tangentFlow(style.dir, root.n);
-      const p1 = add(p0, approach, 0.20), p2 = add(tie, tailDir, -0.20);
-      const target = add(tie, root.n, 0.018 * (1 - u));
+      const p1 = add(p0, approach, 0.20), p2 = add(tie, tailDir, 0.20);
+      // Keep the last part of the gathering curve on the outside/back of the skull.
+      const target = add(tie, [0, 0, -1], 0.035 * (1 - u));
       p = [
         v*v*v*p0[0] + 3*v*v*u*p1[0] + 3*v*u*u*p2[0] + u*u*u*target[0],
         v*v*v*p0[1] + 3*v*v*u*p1[1] + 3*v*u*u*p2[1] + u*u*u*target[1],
@@ -183,8 +185,10 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const head = makeHead(headIds, P, eyeY);
   const map = sampleScalp(scalp, P, N);
   const mainStyle = selection.main ?? 0;
+  // Rear-facing skull surface is negative Z in this rig. Place the elastic outside
+  // the head bounds rather than inside the ellipsoid used for scalp-relative shaping.
   const tie = mainStyle === 0 || mainStyle === 1
-    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : -0.34), head.C[2] - head.Rad[2] * 0.76]
+    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : -0.34), head.C[2] - head.Rad[2] * 1.12]
     : null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };

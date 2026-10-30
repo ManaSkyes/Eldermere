@@ -400,7 +400,7 @@ export function startViewer(THREE, human, ui) {
   function fitHair(P, Nrm, busy = false) {
     const eyesC = ['left', 'right'].map(sd => { const ids = meta.eyes[sd]; return [0, 1, 2].map(a => ids.reduce((t, i) => t + P[i * 3 + a], 0) / ids.length); });
     const hairShown = hairOn && gearRules.hair !== 'hide';
-    scalpPiece.mesh.visible = hairShown; cardsMesh.visible = hairShown;
+    scalpPiece.mesh.visible = hairShown; groomMesh.visible = hairShown;
     if (hairShown) {
       fitGarment(hairData.scalp, P, Nrm); scalpPiece.attr.needsUpdate = true; scalpPiece.geo.computeVertexNormals();
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
@@ -409,7 +409,7 @@ export function startViewer(THREE, human, ui) {
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
         const groomData = buildHairCards(hairData, hairSel, P, Nrm, eyesC[0][1], lengths, { copies: 1, tailN: 30, bunN: 18, curl: hairLook.curl, wave: hairLook.wave });   // (one authored guide per scalp root; the groom interpolates multiple fine strands around each guide)
         flowAttr.array.set(capFlow(hairData, hairSel, P, Nrm, eyesC[0][1], cards.tie)); flowAttr.needsUpdate = true;
-        cardsMesh.updateMatrixWorld(true); hairR.build(groomData.cards, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
+        groomMesh.updateMatrixWorld(true); hairR.build(groomData.cards, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {
         // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)
@@ -434,12 +434,12 @@ export function startViewer(THREE, human, ui) {
   const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
   let hairSimulationEnabled = true; // game camera can pause simulation independently of temporary render visibility
   function simulateHair(dt) {
-    if (!hairSimulationEnabled || !hairOn || gearRules.hair === 'hide' || !hairR.sim || !cardsMesh.visible) return;   // hidden hair is paused and resets safely when shown again
+    if (!hairSimulationEnabled || !hairOn || gearRules.hair === 'hide' || !hairR.sim || !groomMesh.visible) return;   // hidden hair is paused and resets safely when shown again
     root.updateMatrixWorld(true);
     const bone = rig.skeleton.bones[headBone];
-    meshInv.copy(cardsMesh.matrixWorld).invert();
-    headM.multiplyMatrices(meshInv, bone.matrixWorld).multiply(rig.skeleton.boneInverses[headBone]).multiply(cardsMesh.bindMatrix);
-    hairR.step(dt, cardsMesh.matrixWorld, headM, capsules().filter(c => c.hair || c.torso), { wind: game ? hairWind : [labWind * 8, 0, labWind * 3], time: clock.elapsedTime });   // (neck, shoulders and back: arms and legs don't reach the hair)
+    meshInv.copy(groomMesh.matrixWorld).invert();
+    headM.multiplyMatrices(meshInv, bone.matrixWorld).multiply(rig.skeleton.boneInverses[headBone]).multiply(groomMesh.bindMatrix);
+    hairR.step(dt, groomMesh.matrixWorld, headM, capsules().filter(c => c.hair || c.torso), { wind: game ? hairWind : [labWind * 8, 0, labWind * 3], time: clock.elapsedTime });   // (neck, shoulders and back: arms and legs don't reach the hair)
   }
   // root and tip colors; brows follow the root color unless given their own
   function setHairColor(root, tip = root) {
@@ -1339,8 +1339,8 @@ export function startViewer(THREE, human, ui) {
     rig.fit(P);
     root.updateMatrixWorld(true);
     rig.skeleton.calculateInverses();
-    { const moved = !cardsMesh.bindMatrix.equals(cardsMesh.matrixWorld);
-      for (const m of [...skinned, cardsMesh]) { m.bindMatrix.copy(m.matrixWorld); m.bindMatrixInverse.copy(m.matrixWorld).invert(); }   // (the hair too: a stale bind put it a body-length off the head)
+    { const moved = !groomMesh.bindMatrix.equals(groomMesh.matrixWorld);
+      for (const m of [...skinned, groomMesh]) { m.bindMatrix.copy(m.matrixWorld); m.bindMatrixInverse.copy(m.matrixWorld).invert(); }   // (the hair too: a stale bind put it a body-length off the head)
       if (moved) hairR.reset(); }   // (its physics starts again from the style only when the binding really moved)
     ['left', 'right'].forEach((side, n) => {
       const ids = meta.eyes[side];
@@ -1694,7 +1694,7 @@ export function startViewer(THREE, human, ui) {
   }
   perfSec.appendChild(tg);
   function applyPerfToggles() {
-    for (const m of [cardsMesh, scalpPiece.mesh]) m.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
+    for (const m of [groomMesh, scalpPiece.mesh]) m.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
     if (renderer) renderer.shadowMap.enabled = !perf.off.shadows;
     scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
     for (const m of Object.values(partMeshes)) m.visible = m.visible && !perf.off.parts;
@@ -2035,11 +2035,11 @@ export function startViewer(THREE, human, ui) {
     setTurn(a) { rotY = a; },
     act(name, opts = {}) { return startAction('move', { move: name, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
-    hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
+    hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: groomMesh.visible, sim: hairR.sim?.dbg?.(), parent: groomMesh.parent?.type, draw: groomMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {
       const h = rig.byName.head; if (!h) return;
       h.scale.setScalar(on ? 1 : 0.001); h.updateMatrixWorld(true);
-      cardsMesh.visible = on && hairOn && gearRules.hair !== 'hide'; scalpPiece.mesh.visible = cardsMesh.visible;
+      groomMesh.visible = on && hairOn && gearRules.hair !== 'hide'; scalpPiece.mesh.visible = groomMesh.visible;
     },
     // game mode: the pose ('idle', 'walk', ...), its clock (advance it with stride for walking), and
     // whether the head is hidden for a first-person camera

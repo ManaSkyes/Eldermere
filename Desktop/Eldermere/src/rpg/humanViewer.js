@@ -1478,8 +1478,6 @@ export function startViewer(THREE, human, ui) {
   label(hairSec, 'Bangs style');
   pressRow(hairSec, GROOM_STYLE_NAMES.bangs, hairSel.bangs, i => { hairSel.bangs = i; update(); });
   makeRow(hairSec, 'Bangs length', -1, 1, () => hairLen.bangs, v => { hairLen.bangs = v; });
-  label(hairSec, 'Long-hair rendering style');
-  pressRow(hairSec, HAIR_TREATMENT_NAMES, hairLook.treatment, i => { hairLook.treatment = i; update(); });
   label(hairSec, 'Color');
   const hc = document.createElement('div'); hc.className = 'sw'; hc.style.marginTop = '0.5rem';
   for (const c of ['#e6e1ea', '#e8d6a8', '#b07a3e', '#8a3b24', '#5a3a26', '#2a1d18', '#121012']) {

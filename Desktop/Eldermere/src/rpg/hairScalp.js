@@ -175,24 +175,28 @@ function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
 function makeDrapeGuide(root, style, head, seed, underlayer = false) {
   const side = Math.sign(root.p[0] - head.C[0]) || 1;
   const region = root.region || 'back';
-  const p0 = add(root.p, root.n, underlayer ? 0.022 : 0.04);
+  const lift = underlayer ? 0.022 : 0.032;
+  const p0 = add(root.p, root.n, lift);
   const length = style.len * (underlayer ? 0.965 : 1);
-  // Long hair must first travel over the skull before gravity takes over.
-  // Each scalp region gets its own authored route; a shared vertical drop
-  // makes the crown balloon outward and leaves the scalp visually uncovered.
-  const p1 = add(p0, root.n, underlayer ? 0.10 : 0.15);
+  // The first control points follow the scalp tangent. A large normal lift here
+  // creates the familiar "lampshade" silhouette before gravity even begins.
+  const back = tangentFlow([0, 0, -1], root.n, [side * 0.2, 0, -1]);
+  const downBack = tangentFlow([side * 0.12, -0.72, -0.24], root.n, back);
+  const p1 = add(add(p0, root.n, 0.018), back, region === 'crown' || region === 'hairline' ? 0.24 : 0.10);
   let p2, p3;
   if (region === 'crown' || region === 'hairline') {
-    p2 = [p0[0] + side * 0.035, p0[1] - length * 0.24, p0[2] - 0.24];
-    p3 = [p0[0] + side * 0.055, p0[1] - length, p0[2] - 0.34];
+    // Sweep over the crown first, then let the length fall behind the shoulders.
+    p2 = add(add(p0, back, 0.48), [side * 0.025, -length * 0.30, 0]);
+    p3 = [p0[0] + side * 0.045, p0[1] - length, p0[2] - 0.38];
   } else if (region === 'sides' || region === 'temples') {
-    p2 = [p0[0] + side * 0.12, p0[1] - length * 0.52, p0[2] - 0.06];
-    p3 = [p0[0] + side * 0.16, p0[1] - length, p0[2] - 0.12];
+    // Side panels follow the skull/temple contour before dropping beside the body.
+    p2 = add(add(p0, downBack, length * 0.30), [side * 0.055, 0, 0]);
+    p3 = [p0[0] + side * 0.10, p0[1] - length, p0[2] - 0.10];
   } else {
-    p2 = [p0[0] + side * 0.025, p0[1] - length * 0.58, p0[2] - 0.045];
-    p3 = [p0[0] + side * 0.04, p0[1] - length, p0[2] - 0.08];
+    // Rear and nape roots already sit behind the skull; avoid pushing them outward.
+    p2 = [p0[0] + side * 0.015, p0[1] - length * 0.58, p0[2] - 0.055];
+    p3 = [p0[0] + side * 0.025, p0[1] - length, p0[2] - 0.08];
   }
-  p1[1] -= length * 0.025;
   const phase = seed * Math.PI * 2, points = [];
   for (let i = 0; i <= SEG; i++) {
     const t = i / SEG, v = 1 - t;

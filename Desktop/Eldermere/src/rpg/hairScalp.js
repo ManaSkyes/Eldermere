@@ -42,7 +42,7 @@ function makeHead(headIds, P, eyeY) {
 // Dense even-area dart sampling over the fitted scalp triangles. Visual coverage takes priority here;
 // roots are spaced closely enough to support overlapping guide bundles and a continuous groom.
 // This makes coverage a property of the scalp map, not of hairstyle card placement.
-function sampleScalp(scalp, P, N, spacing = 0.06, maxRoots = 6000) {
+function sampleScalp(scalp, P, N, spacing = 0.045, maxRoots = 10000) {
   const V = scalp.verts, T = scalp.tris, positions = scalp.positions;
   const faces = [], cumulative = [];
   let areaTotal = 0;
@@ -61,8 +61,8 @@ function sampleScalp(scalp, P, N, spacing = 0.06, maxRoots = 6000) {
   const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const cell = spacing, grid = new Map(), roots = [];
   const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-  const target = Math.min(maxRoots, Math.max(1800, Math.ceil(areaTotal / (spacing * spacing * 0.78))));
-  const attempts = Math.max(30000, target * 120);
+  const target = Math.min(maxRoots, Math.max(2400, Math.ceil(areaTotal / (spacing * spacing * 0.72))));
+  const attempts = Math.max(60000, target * 140);
   for (let attempt = 0; attempt < attempts && roots.length < target; attempt++) {
     const r = random() * areaTotal;
     let lo = 0, hi = cumulative.length - 1;

@@ -1385,6 +1385,21 @@ export function startViewer(THREE, human, ui) {
     resetters.push({ el: row, fn: reset });
     return r;
   };
+  // A range control paired with a precise numeric field: drag for broad changes, type for exact values.
+  const makeNumberRow = (parent, label, mn, mx, step, get, set, defFn) => {
+    const row = document.createElement('label'); row.className = 'row'; row.innerHTML = `<span>${label}</span>`;
+    const r = document.createElement('input'); r.type = 'range'; r.min = mn; r.max = mx; r.step = step; r.value = get();
+    const n = document.createElement('input'); n.type = 'number'; n.min = mn; n.max = mx; n.step = step; n.value = get();
+    n.style.cssText = 'width:5.5rem;min-width:5.5rem;margin-left:0.45rem';
+    const apply = value => { const v = Number(value); if (!Number.isFinite(v)) return; const clamped = Math.max(mn, Math.min(mx, v)); r.value = n.value = clamped; set(clamped); request(); };
+    r.oninput = () => apply(r.value);
+    n.onchange = () => apply(n.value);
+    const reset = () => { const v = defFn ? defFn() : parseFloat(r.defaultValue); r.value = n.value = v; set(v); };
+    r.ondblclick = n.ondblclick = () => { reset(); request(); };
+    row.appendChild(r); row.appendChild(n); parent.appendChild(row); rows.push({ row, r, label: label.toLowerCase(), reset });
+    resetters.push({ el: row, fn: reset });
+    return { range: r, number: n };
+  };
   const colorRow = (parent, label, get, set) => {
     const row = document.createElement('label'); row.className = 'row'; row.innerHTML = `<span>${label}</span>`;
     const c = document.createElement('input'); c.type = 'color'; c.value = get(); c.className = 'pick';
@@ -1483,7 +1498,7 @@ export function startViewer(THREE, human, ui) {
   label(hairSec, 'Hair lab — look');
   makeRow(hairSec, 'Scalp coverage', 0, 1, () => hairLook.coverage, v => { hairLook.coverage = v; });
   makeRow(hairSec, 'Hairline coverage', 0, 1, () => hairLook.hairlineCoverage, v => { hairLook.hairlineCoverage = v; });
-  makeRow(hairSec, 'Strand density (×)', 0.1, 100, () => hairLook.density, v => { hairLook.density = v; });
+  makeNumberRow(hairSec, 'Strand density (×)', 0.1, 100, 0.1, () => hairLook.density, v => { hairLook.density = v; });
   makeRow(hairSec, 'Volume', 0.6, 1.6, () => hairLook.volume, v => { hairLook.volume = v; });
   makeRow(hairSec, 'Curl', 0, 3, () => hairLook.curl, v => { hairLook.curl = v; });
   makeRow(hairSec, 'Wave', 0, 1, () => hairLook.wave, v => { hairLook.wave = v; });

@@ -175,7 +175,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const skeleton = new THREE.Skeleton(list);
   const look = spec.look || {};
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
-  const meshes = [], smokeAuraMeshes = []; let smokeAuraVisible = true;
+  const meshes = [], smokeAuraMeshes = [], membraneMeshes = []; let smokeAuraVisible = true, membranesVisible = true, glowsVisible = true, wispsVisible = true;
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
   // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
   // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
@@ -218,7 +218,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     }
   }
   // wisps: dark smoke rising off a shade's body (points that start at random bones and drift up and away)
-  let wisps = null, puffs = null;
+  let wisps = null, wispPoints = null, puffs = null;
   if (look.shade && P) puffs = shadePuffs(THREE, P, chains, byChain, look);
   if (look.shade && !P) {
     const N = 70, P = new Float32Array(N * 3), A = new Float32Array(N), seeds = Array.from({ length: N }, (_, i) => ({ b: list[1 + Math.floor(Math.random() * (list.length - 1))], o: V((Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.25), ph: Math.random(), sp: 0.5 + Math.random() * 0.7 }));
@@ -226,7 +226,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uCol: { value: new THREE.Color(look.smokeColor || '#140a22') }, uSize: { value: 260 * (look.wispSize ?? 1) } },
       vertexShader: 'attribute float aA; varying float vA; uniform float uSize; void main() { vA = aA; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize * (0.4 + 0.6 * aA) / -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: 'uniform vec3 uCol; varying float vA; void main() { vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard; gl_FragColor = vec4(uCol, (1.0 - r * 2.0) * (1.0 - r * 2.0) * vA * 0.45); }' });
-    const pts = new THREE.Points(g, m); pts.frustumCulled = false; pts.renderOrder = 4; pts.userData.noReflect = true; root.add(pts);
+    const pts = new THREE.Points(g, m); wispPoints = pts; pts.frustumCulled = false; pts.renderOrder = 4; pts.userData.noReflect = true; pts.visible = wispsVisible; root.add(pts);
     const wv = V(0, 0, 0), inv = new THREE.Matrix4();
     wisps = t => {
       sync(); inv.copy(root.matrixWorld).invert();
@@ -238,7 +238,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const webMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0.94, skinning: true, emissive: new THREE.Color(look.webGlow || '#000000') });
   const smokeWebMat = look.shade ? smokeWebMaterial(THREE, uniforms, look) : null;
   // (all the membranes of one kind are one mesh: a bat's eight wing panels were eight skinned draws)
-  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
+  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; m.visible = membranesVisible; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); membraneMeshes.push(m); }
   // off screen, not drawn: the bind-pose bounds grown to cover what its moves can do (a swoop, a pounce, a rear-up)
   for (const m of meshes) m.frustumCulled = true;
   // ---- parts ----
@@ -276,6 +276,9 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
     setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
+    setMembranesVisible(visible) { membranesVisible = !!visible; for (const m of membraneMeshes) m.visible = membranesVisible; },
+    setGlowsVisible(visible) { glowsVisible = !!visible; for (const g of glows) g.visible = glowsVisible; },
+    setWispsVisible(visible) { wispsVisible = !!visible; if (wispPoints) wispPoints.visible = wispsVisible; },
     setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
@@ -283,7 +286,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } },
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
-    update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
+    update(t) { uniforms.uTime.value = t; if (wispsVisible) wisps?.(t); if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
     dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }

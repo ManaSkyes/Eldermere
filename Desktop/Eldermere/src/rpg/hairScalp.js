@@ -120,7 +120,7 @@ function makeGuide(root, style, head, tie, seed) {
   let p = pts[0].slice(), d = style.dir.slice();
   const radial = norm(sub(p, head.C));
   // Comb direction is projected onto the scalp tangent plane at the root.
-  d = norm(sub(d, root.n, dot(d, root.n)));
+  d = norm(add(d, root.n, -dot(d, root.n)));
   const phase = seed * Math.PI * 2;
   for (let s = 1; s <= SEG; s++) {
     const t = s / SEG;

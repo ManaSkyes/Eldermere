@@ -35,7 +35,7 @@ function makeHead(headIds, P, eyeY) {
 
 // Even-area dart sampling over the fitted scalp triangles, with a minimum root spacing.
 // This makes coverage a property of the scalp map, not of hairstyle card placement.
-function sampleScalp(scalp, P, N, spacing = 0.125, maxRoots = 900) {
+function sampleScalp(scalp, P, N, spacing = 0.17, maxRoots = 450) {
   const V = scalp.verts, T = scalp.tris, positions = scalp.positions;
   const faces = [], cumulative = [];
   let areaTotal = 0;

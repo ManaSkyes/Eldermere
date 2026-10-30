@@ -189,8 +189,8 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
       }
       // fewer puffs far away and off screen: nobody sees the difference, and 50 monsters cost little more than 5
       if (camera && n && !h.extLod) { sph.center.set(cx / n, cy / n, cz / n); sph.radius = 2.5; const d = sph.center.distanceTo(camPos); h.lod = (frustum.intersectsSphere(sph) ? 1 : 0.15) * (d < 15 ? 1 : d < 35 ? 0.55 : d < 70 ? 0.25 : 0.08); }
-      const k = Math.max(0, h.scale) * h.lod;
-      for (const p of h.puffs) { p.acc += p.rate * k * dt; const m = Math.floor(p.acc); if (m > 0) { p.acc -= m; emit(h, p, Math.min(m, 64)); } }
+      const k = h.enabled ? Math.max(0, h.scale) * h.lod : 0;
+      for (const p of h.puffs) { if (!h.enabled || p.enabled === false) continue; p.acc += p.rate * k * dt; const m = Math.floor(p.acc); if (m > 0) { p.acc -= m; emit(h, p, Math.min(m, 64)); } }
     }
     anchorTex.needsUpdate = bodies.length > 0 || anchorTex.needsUpdate;
     // upload only what was written this frame

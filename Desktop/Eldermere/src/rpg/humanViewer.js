@@ -298,7 +298,7 @@ export function startViewer(THREE, human, ui) {
   let hairWind = [0, 0, 0];
   // the Hair lab (in the creator's hair section): the look (volume, density, curl, wave: the hair is grown again) and the
   // feel (follow, inertia, stiffness, damping, gravity: live)
-  const hairLook = { volume: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
+  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
   let skinGlow = 1, labCombo = null;
   let labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
   const hairLen = { bangs: 0, top: 0, sides: 0, back: 0 };       // slider values -1..1 (half to double length)
@@ -1481,8 +1481,10 @@ export function startViewer(THREE, human, ui) {
 
   // ---- Hair lab: look, feel, motion tests, detail levels ----
   label(hairSec, 'Hair lab — look');
-  makeRow(hairSec, 'Volume', 0.6, 1.6, () => hairLook.volume, v => { hairLook.volume = v; });
+  makeRow(hairSec, 'Scalp coverage', 0, 1, () => hairLook.coverage, v => { hairLook.coverage = v; });
+  makeRow(hairSec, 'Hairline coverage', 0, 1, () => hairLook.hairlineCoverage, v => { hairLook.hairlineCoverage = v; });
   makeRow(hairSec, 'Strand density (×)', 0.1, 100, () => hairLook.density, v => { hairLook.density = v; });
+  makeRow(hairSec, 'Volume', 0.6, 1.6, () => hairLook.volume, v => { hairLook.volume = v; });
   makeRow(hairSec, 'Curl', 0, 3, () => hairLook.curl, v => { hairLook.curl = v; });
   makeRow(hairSec, 'Wave', 0, 1, () => hairLook.wave, v => { hairLook.wave = v; });
   label(hairSec, 'Hair lab — movement');

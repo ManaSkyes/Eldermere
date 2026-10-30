@@ -17,11 +17,17 @@ const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
 function regionOf(p, n, head) {
-  const x = (p[0] - head.C[0]) / head.Rad[0], y = (p[1] - head.C[1]) / head.Rad[1], z = (p[2] - head.C[2]) / head.Rad[2];
-  if (n[1] > 0.62 || y > 0.62) return 'top';
-  if (n[2] > 0.48 || z > 0.48) return 'bangs';
-  if (Math.abs(n[0]) > 0.5 || Math.abs(x) > 0.55) return 'sides';
-  return 'back';
+  const x = (p[0] - head.C[0]) / head.Rad[0];
+  const y = (p[1] - head.C[1]) / head.Rad[1];
+  const z = (p[2] - head.C[2]) / head.Rad[2];
+  const front = z > 0.34 || n[2] > 0.32;
+  const rear = z < -0.34 || n[2] < -0.32;
+  if (rear && y < -0.48) return 'nape';
+  if (y > 0.42 || n[1] > 0.62) return 'crown';
+  if (front && y < 0.48) return Math.abs(x) > 0.48 ? 'temples' : 'hairline';
+  if (Math.abs(x) > 0.52 || Math.abs(n[0]) > 0.52) return 'sides';
+  if (rear) return 'back';
+  return y > 0 ? 'crown' : 'back';
 }
 
 function makeHead(headIds, P, eyeY) {
@@ -35,7 +41,7 @@ function makeHead(headIds, P, eyeY) {
 
 // Even-area dart sampling over the fitted scalp triangles, with a minimum root spacing.
 // This makes coverage a property of the scalp map, not of hairstyle card placement.
-function sampleScalp(scalp, P, N, spacing = 0.17, maxRoots = 450) {
+function sampleScalp(scalp, P, N, spacing = 0.11, maxRoots = 1800) {
   const V = scalp.verts, T = scalp.tris, positions = scalp.positions;
   const faces = [], cumulative = [];
   let areaTotal = 0;
@@ -54,7 +60,7 @@ function sampleScalp(scalp, P, N, spacing = 0.17, maxRoots = 450) {
   const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const cell = spacing, grid = new Map(), roots = [];
   const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-  const target = Math.min(maxRoots, Math.max(220, Math.ceil(areaTotal / (spacing * spacing * 0.78))));
+  const target = Math.min(maxRoots, Math.max(900, Math.ceil(areaTotal / (spacing * spacing * 0.78))));
   const attempts = Math.max(12000, target * 100);
   for (let attempt = 0; attempt < attempts && roots.length < target; attempt++) {
     const r = random() * areaTotal;
@@ -115,12 +121,22 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
   return { len, dir: norm(dir), gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
 
+function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
+  let d = add(direction, normal, -dot(direction, normal));
+  if (Math.hypot(...d) < 1e-4) d = add(fallback, normal, -dot(fallback, normal));
+  if (Math.hypot(...d) < 1e-4) {
+    const axis = Math.abs(normal[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    d = cross(normal, axis);
+  }
+  return norm(d);
+}
+
 function makeGuide(root, style, head, tie, seed) {
   const pts = [add(root.p, root.n, 0.025)];
   let p = pts[0].slice(), d = style.dir.slice();
   const radial = norm(sub(p, head.C));
   // Comb direction is projected onto the scalp tangent plane at the root.
-  d = norm(add(d, root.n, -dot(d, root.n)));
+  d = tangentFlow(d, root.n);
   const phase = seed * Math.PI * 2;
   for (let s = 1; s <= SEG; s++) {
     const t = s / SEG;
@@ -145,10 +161,19 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const backStyle = selection.back;
   const tie = backStyle >= 3 ? [head.C[0], head.C[1] + (backStyle === 4 ? head.Rad[1] * 0.55 : head.Rad[1] * 0.08), head.C[2] - head.Rad[2] * 0.72] : null;
   const guides = [];
+  const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
+  const coverage = clamp(Number(look.coverage ?? 1), 0, 1);
+  const hairlineCoverage = clamp(Number(look.hairlineCoverage ?? 1), 0, 1);
   let seed = 17;
   const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   for (const root of map.roots) {
-    const zone = regionOf(root.p, root.n, head);
+    if (dot(root.n, sub(root.p, head.C)) < 0) root.n = root.n.map(v => -v);
+    const region = regionOf(root.p, root.n, head);
+    const zone = region === 'hairline' ? 'bangs' : region === 'temples' || region === 'sides' ? 'sides' : region === 'crown' ? 'top' : 'back';
+    const keep = coverage * (region === 'hairline' ? hairlineCoverage : 1);
+    const hash = Math.abs(Math.sin(root.p[0] * 127.1 + root.p[1] * 311.7 + root.p[2] * 74.7) * 43758.5453) % 1;
+    if (hash > keep) continue;
+    regionCounts[region]++;
     const style = styleFor(zone, selection[zone], root.p, head, lengths, look, tie);
     if (!style) continue;
     guides.push(makeGuide(root, style, head, tie, random()));
@@ -167,5 +192,5 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
       guides.push({ points, center: tie, width: 0.06, tone: 0.96, loose: 0 });
     }
   }
-  return { guides, head, tie, coverage: { area: map.area, roots: map.roots.length, guides: guides.length, spacing: map.spacing } };
+  return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };
 }

@@ -18,11 +18,14 @@ function regionOf(p, n, head) {
   const x = (p[0] - head.C[0]) / head.Rad[0];
   const y = (p[1] - head.C[1]) / head.Rad[1];
   const z = (p[2] - head.C[2]) / head.Rad[2];
-  const front = z > 0.34 || n[2] > 0.32;
+  const front = z > 0.18 || n[2] > 0.18;
   const rear = z < -0.34 || n[2] < -0.32;
   if (rear && y < -0.48) return 'nape';
+  // Reserve a broad central frontal scalp band for bangs before assigning crown roots.
+  // This prevents the crown threshold from swallowing almost the entire fringe region.
+  if (front && y < 0.78 && Math.abs(x) < 0.72) return 'hairline';
+  if (front && y < 0.72 && Math.abs(x) >= 0.72) return 'temples';
   if (y > 0.42 || n[1] > 0.62) return 'crown';
-  if (front && y < 0.48) return Math.abs(x) > 0.48 ? 'temples' : 'hairline';
   if (Math.abs(x) > 0.52 || Math.abs(n[0]) > 0.52) return 'sides';
   if (rear) return 'back';
   return y > 0 ? 'crown' : 'back';
@@ -186,11 +189,23 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     guides.push(makeGuide(root, style, head, tie, random()));
   }
   if (tie) {
+    const high = mainStyle === 0;
+    const tailLength = 2.8 * Math.exp((lengths.main || 0) * 0.69);
     for (let i = 0; i < 110; i++) {
-      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075, len = 2.8 * Math.exp((lengths.main || 0) * 0.69);
+      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075;
       const points = [];
-      for (let s = 0; s <= SEG; s++) { const t = s / SEG; points.push([tie[0] + Math.cos(a) * radius * (1 + t), tie[1] - len * t * t, tie[2] + Math.sin(a) * radius * 0.6 - 0.25 * Math.sin(Math.PI * t)]); }
-      guides.push({ points, center: [tie[0], tie[1] - 1.2, tie[2] + 0.8], width: 0.06, tone: 0.96, loose: 1 });
+      for (let s = 0; s <= SEG; s++) {
+        const t = s / SEG;
+        const lift = high ? 0.48 * Math.sin(Math.PI * Math.min(1, t * 1.35)) : 0.08 * Math.sin(Math.PI * t);
+        const drop = high ? tailLength * Math.max(0, t - 0.12) ** 1.35 : tailLength * t * t;
+        const sweep = high ? -0.48 * t : -0.22 * t;
+        points.push([
+          tie[0] + Math.cos(a) * radius * (1 + t) + sweep * t,
+          tie[1] + lift - drop,
+          tie[2] + Math.sin(a) * radius * 0.6 - (high ? 0.38 : 0.12) * t
+        ]);
+      }
+      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.45, tie[2] + 0.4], width: 0.06, tone: 0.96, loose: 1 });
     }
   }
   return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };

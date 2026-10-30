@@ -282,7 +282,7 @@ export function startViewer(THREE, human, ui) {
 
   // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
   const hairData = makeHair(meta);
-  let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
+  let hairOn = true, hairCapOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
   const hairSel = { main: 0, bangs: 0 };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
@@ -385,7 +385,7 @@ export function startViewer(THREE, human, ui) {
   function fitHair(P, Nrm, busy = false) {
     const eyesC = ['left', 'right'].map(sd => { const ids = meta.eyes[sd]; return [0, 1, 2].map(a => ids.reduce((t, i) => t + P[i * 3 + a], 0) / ids.length); });
     const hairShown = hairOn && gearRules.hair !== 'hide';
-    scalpPiece.mesh.visible = hairShown; groomMesh.visible = hairShown;
+    scalpPiece.mesh.visible = hairShown && hairCapOn; groomMesh.visible = hairShown;
     if (hairShown) {
       fitGarment(hairData.scalp, P, Nrm); scalpPiece.attr.needsUpdate = true; scalpPiece.geo.computeVertexNormals();
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
@@ -1476,6 +1476,7 @@ export function startViewer(THREE, human, ui) {
   };
   const label = (parent, text) => { const l = document.createElement('div'); l.textContent = text; l.style.cssText = 'color:var(--muted);margin:0.4rem 0 0.2rem'; parent.appendChild(l); };
   pressRow(hairSec, ['Hair', 'Bald'], 0, i => { hairOn = i === 0; update(); });
+  pressRow(hairSec, ['Hair cap on', 'Hair cap off'], 0, i => { hairCapOn = i === 0; update(); });
   label(hairSec, 'Main hairstyle');
   pressRow(hairSec, GROOM_STYLE_NAMES.main, hairSel.main, i => { hairSel.main = i; update(); });
   makeRow(hairSec, 'Main hair length', -1, 1, () => hairLen.main, v => { hairLen.main = v; });
@@ -2017,7 +2018,7 @@ export function startViewer(THREE, human, ui) {
           coverSize: race.coverSize, coverA: race.coverA, coverB: race.coverB, pupil: race.pupil, eyeColor: race.eyeColor, furPattern: race.furPattern, furDark: race.furDark,
           noseColor: race.noseColor, luster: race.luster, furLength: race.furLength },
         skin: '#' + skinMat.color.clone().convertLinearToSRGB().getHexString(), skinGlow,
-        hair: { on: hairOn, sel: { ...hairSel }, len: { ...hairLen }, look: { ...hairLook }, phys: { ...hairPhys }, color: hairColor, tip: hairTip, blend: hairBlend, brow: { ...brow }, browColor },
+        hair: { on: hairOn, cap: hairCapOn, sel: { ...hairSel }, len: { ...hairLen }, look: { ...hairLook }, phys: { ...hairPhys }, color: hairColor, tip: hairTip, blend: hairBlend, brow: { ...brow }, browColor },
         gear: gear.equipped(),
       };
     },
@@ -2100,7 +2101,7 @@ export function startViewer(THREE, human, ui) {
         if (a.skin) skinMat.color.copy(lin(a.skin));
         if (a.skinGlow != null) { skinGlow = a.skinGlow; skinDetail.setTranslucency(skinGlow); }
         if (a.hair) {
-          hairOn = a.hair.on ?? hairOn;
+          hairOn = a.hair.on ?? hairOn; hairCapOn = a.hair.cap ?? hairCapOn;
           const savedSel = a.hair.sel || {};
           if (savedSel.main != null || savedSel.bangs != null) Object.assign(hairSel, savedSel);
           else { hairSel.main = savedSel.back === 3 ? 0 : 1; hairSel.bangs = savedSel.bangs ?? 0; }

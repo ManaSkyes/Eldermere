@@ -105,6 +105,8 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     if (index === 3) { len = 1.55; dir = [side * 0.75, -0.65, 0.25]; gravity = 0.55; gather = true; }
     if (index === 4) { len = 0.82; dir = [side * 0.25, -0.5, 0.65]; gravity = 0.38; }
   } else if (zone === 'top') {
+    // Crown roots cross over the centerline first instead of fanning away from it.
+    // The normal style direction takes over farther along each guide.
     if (index === 0) { len = 0.48; dir = [0, 0.25, -1]; gravity = 0.05; }
     if (index === 1) { len = 1.6; dir = [0, 0.1, -1]; gravity = 0.22; gather = true; }
     if (index === 2) { len = 1.8; dir = [side, -0.25, -0.25]; gravity = 0.4; gather = true; }
@@ -119,7 +121,8 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     else { len = index === 0 ? 0.55 : index === 1 ? 1.8 : 2.8; dir = [side * 0.15, -1, -0.2]; gravity = 0.58; }
   }
   len *= Math.exp((lengths[zone] || 0) * 0.69);
-  return { len, dir: norm(dir), gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+  const startDir = zone === 'top' ? [-side * 0.9, 0.02, -0.18] : null;
+  return { len, dir: norm(dir), startDir, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
 
 function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
@@ -134,13 +137,22 @@ function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
 
 function makeGuide(root, style, head, tie, seed) {
   const pts = [add(root.p, root.n, 0.025)];
-  let p = pts[0].slice(), d = style.dir.slice();
+  let p = pts[0].slice(), d = style.startDir ? style.startDir.slice() : style.dir.slice();
   const radial = norm(sub(p, head.C));
-  // Comb direction is projected onto the scalp tangent plane at the root.
+  // Both the crossing start-flow and the eventual style flow are tangent to the scalp.
   d = tangentFlow(d, root.n);
+  const endDir = tangentFlow(style.dir, root.n);
   const phase = seed * Math.PI * 2;
   for (let s = 1; s <= SEG; s++) {
     const t = s / SEG;
+    if (style.startDir && t < 0.3) {
+      const blend = Math.min(1, t / 0.3);
+      d = tangentFlow([
+        style.startDir[0] * (1 - blend) + style.dir[0] * blend,
+        style.startDir[1] * (1 - blend) + style.dir[1] * blend,
+        style.startDir[2] * (1 - blend) + style.dir[2] * blend
+      ], root.n);
+    } else if (style.startDir) d = endDir.slice();
     if (style.gather && tie && t > 0.2) {
       const u = (t - 0.2) / 0.8, target = add(tie, root.n, 0.025 * (1 - u));
       p = [p[0] + (target[0] - p[0]) * 0.22, p[1] + (target[1] - p[1]) * 0.22, p[2] + (target[2] - p[2]) * 0.22];

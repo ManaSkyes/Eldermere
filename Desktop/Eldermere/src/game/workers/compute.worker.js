@@ -41,7 +41,8 @@ self.onmessage = ({ data }) => {
         const umbrafiend = a.umbrafiend === true;
         const effectLod = umbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15);
         // Mid/far creatures need less frequent skeletal pose evaluation; combatants at tier 0 stay full-rate.
-        const animationEvery = umbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 3 : 10);
+        // Match the main thread: never throttle an active Umbrafiend move; distant idle poses can be reused.
+        const animationEvery = umbrafiend ? (a.act ? 1 : tier === 0 ? 1 : tier === 1 ? 3 : 6) : (tier === 0 ? 1 : tier === 1 ? 3 : 10);
         // Actual CPU animation/effect math runs here, using only serializable snapshots.
         // The main thread applies these values to Three.js objects.
         let pose = null;

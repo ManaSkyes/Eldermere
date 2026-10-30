@@ -152,11 +152,48 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     let vertex = 0;
     const C = head.C, Rad = head.Rad;
 
-    const outwardAt = (p, center) => {
-      const q = [(p[0] - center[0]) / Rad[0], (p[1] - center[1]) / Rad[1] * 0.8, (p[2] - center[2]) / Rad[2]];
-      const length = Math.hypot(...q) || 1;
-      return q.map(v => v / length);
-    };
+    // Build one stable cross-section frame per guide. The initial outward axis is
+    // projected off the root tangent, then parallel-transported down the curve.
+    // Recomputing a head-centred radial vector at every point makes strands fan
+    // outward as they descend (the old "lampshade" silhouette).
+    const guideFrames = guides.map(guide => {
+      if (!guide || !guide.points || guide.points.length !== SEG + 1) return null;
+      const pts = guide.points, normals = new Array(SEG + 1), sides = new Array(SEG + 1);
+      const tangentAt = s => {
+        const a = pts[Math.max(0, s - 1)], b = pts[Math.min(SEG, s + 1)];
+        const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l = Math.hypot(...v) || 1;
+        return v.map(x => x / l);
+      };
+      const cross3 = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+      const dot3 = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+      const unit = v => { const l = Math.hypot(...v) || 1; return v.map(x => x/l); };
+      const tangents = Array.from({ length: SEG + 1 }, (_, s) => tangentAt(s));
+      const root = pts[0], center = guide.center || C;
+      let n = [(root[0]-center[0])/Rad[0], (root[1]-center[1])/Rad[1]*0.8, (root[2]-center[2])/Rad[2]];
+      const t0 = tangents[0];
+      n = n.map((v, i) => v - t0[i] * dot3(n, t0));
+      if (Math.hypot(...n) < 1e-5) {
+        const axis = Math.abs(t0[1]) < 0.9 ? [0,1,0] : [1,0,0];
+        n = cross3(t0, axis);
+      }
+      normals[0] = unit(n);
+      sides[0] = unit(cross3(t0, normals[0]));
+      for (let s = 1; s <= SEG; s++) {
+        const prevT = tangents[s-1], nextT = tangents[s], axis = cross3(prevT, nextT);
+        const sinA = Math.hypot(...axis), cosA = Math.max(-1, Math.min(1, dot3(prevT, nextT)));
+        let transported = normals[s-1].slice();
+        if (sinA > 1e-6) {
+          const a = axis.map(v => v / sinA), angle = Math.atan2(sinA, cosA);
+          const axn = cross3(a, transported), d = dot3(a, transported), c = Math.cos(angle), sn = Math.sin(angle);
+          transported = transported.map((v, i) => v*c + axn[i]*sn + a[i]*d*(1-c));
+        }
+        const projection = dot3(transported, nextT);
+        transported = unit(transported.map((v, i) => v - nextT[i]*projection));
+        normals[s] = transported;
+        sides[s] = unit(cross3(nextT, transported));
+      }
+      return { normals, sides, tangents };
+    });
 
     const layerIndexEnds = [];
     for (let layer = 0; layer < 3; layer++) {
@@ -170,30 +207,27 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const angle = baseAngle + phase * 0.12;
         const volumeBoost = 1.22;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
-        const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * [0.75, 1.08, 1.38][layer];
+        const layerLift = (layer === 0 ? 0.025 : layer === 1 ? 0.065 : 0.12) * [0.75, 1.08, 1.28][layer];
         const radialOffset = strand.width * layerLift * volume * volumeBoost;
         for (let s = 0; s <= SEG; s++) {
           const p = pts[s], prev = pts[Math.max(0, s - 1)], next = pts[Math.min(SEG, s + 1)];
           let tangent = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];
           const tl = Math.hypot(...tangent) || 1;
           tangent = tangent.map(v => v / tl);
-          const outward = outwardAt(p, strand.center || C);
-          let side = [
-            tangent[1] * outward[2] - tangent[2] * outward[1],
-            tangent[2] * outward[0] - tangent[0] * outward[2],
-            tangent[0] * outward[1] - tangent[1] * outward[0],
-          ];
-          const sl = Math.hypot(...side) || 1;
-          side = side.map(v => v / sl);
+          const frame = guideFrames[strand.gi];
+          const outward = frame.normals[s], side = frame.sides[s];
           const radial = [
             outward[0] * Math.cos(angle) + side[0] * Math.sin(angle),
             outward[1] * Math.cos(angle) + side[1] * Math.sin(angle),
             outward[2] * Math.cos(angle) + side[2] * Math.sin(angle),
           ];
+          // Bundle separation is strongest near the follicle and settles into the
+          // authored guide. This preserves root volume without spreading the tips.
+          const rootFade = Math.pow(1 - s / SEG, 1.45);
           const center = [
-            p[0] + radial[0] * radialOffset,
-            p[1] + radial[1] * radialOffset,
-            p[2] + radial[2] * radialOffset,
+            p[0] + radial[0] * radialOffset * rootFade,
+            p[1] + radial[1] * radialOffset * rootFade,
+            p[2] + radial[2] * radialOffset * rootFade,
           ];
           // Each strand is its own fine ribbon, not a broad textured card. It tapers almost to a point.
           const f = s / SEG;

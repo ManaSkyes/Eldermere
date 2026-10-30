@@ -133,7 +133,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const strandBase = vertex;
         const phase = strand.seed * Math.PI * 2;
         const angle = (strand.strandIndex / 6) * Math.PI * 2 + phase * 0.12;
-        const strandWidth = Math.max(0.0008, strand.width * 0.027 * volume) * (0.78 + strand.seed * 0.42);
+        const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume) * (0.78 + strand.seed * 0.42);
         const radialOffset = strand.width * 0.22 * volume;
         for (let s = 0; s <= SEG; s++) {
           const p = pts[s], prev = pts[Math.max(0, s - 1)], next = pts[Math.min(SEG, s + 1)];

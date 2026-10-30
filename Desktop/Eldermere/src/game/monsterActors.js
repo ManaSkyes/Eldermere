@@ -831,7 +831,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
       // and distant glow sprites are reduced to make large packs affordable.
-      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
+      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = umbrafiendGlowsVisible && tier < 2;
       const behaviorStartedAt = sampleActor ? performance.now() : 0;
       // Off-screen actors still participate in combat and group behavior, but their decision/movement
       // step only needs to run at 12 Hz. Keep elapsed time so cooldowns and movement remain time-based;

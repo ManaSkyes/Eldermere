@@ -89,7 +89,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
   function build(guides, head, look = {}) {
     guideCount = guides.length;
     const strandLayers = [[], [], []];
-    const density = Math.max(0, Math.min(1, look.density ?? 1));
+    const density = Math.max(0.1, Math.min(100, Number(look.density ?? 1) || 0.1));
     let seed = 31;
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const volume = look.volume ?? 1;

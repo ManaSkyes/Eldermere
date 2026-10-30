@@ -1498,7 +1498,7 @@ export function startViewer(THREE, human, ui) {
   // ---- Hair lab: look, feel, motion tests, detail levels ----
   label(hairSec, 'Hair lab — look');
   makeRow(hairSec, 'Volume', 0.6, 1.6, () => hairLook.volume, v => { hairLook.volume = v; });
-  makeRow(hairSec, 'Density', 0, 1, () => hairLook.density, v => { hairLook.density = v; });
+  makeRow(hairSec, 'Strand density (×)', 0.1, 100, () => hairLook.density, v => { hairLook.density = v; });
   makeRow(hairSec, 'Curl', 0, 3, () => hairLook.curl, v => { hairLook.curl = v; });
   makeRow(hairSec, 'Wave', 0, 1, () => hairLook.wave, v => { hairLook.wave = v; });
   label(hairSec, 'Hair lab — movement');

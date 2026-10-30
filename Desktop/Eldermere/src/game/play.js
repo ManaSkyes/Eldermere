@@ -1205,7 +1205,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<details style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Atmospheric haze prototype (A/B)</summary><div style="font-size:11px;opacity:.85;margin:3px 0 5px">Extends the existing outdoor fog range; preserves the sky, weather color, indoor fog, and strong local fog. This is a tuning prototype, not volumetric scattering.</div><label style="display:block;cursor:pointer"><input type="checkbox" data-atmosphere="enabled"> Enable far-distance haze</label><label style="display:block;margin-top:4px">Start distance <input type="range" data-atmosphere="start" min="80" max="280" step="5" value="140" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="start">140</span></label><label style="display:block">End distance <input type="range" data-atmosphere="end" min="180" max="450" step="10" value="360" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="end">360</span></label><label style="display:block">Strength <input type="range" data-atmosphere="strength" min="0" max="1" step="0.05" value="0.35" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="strength">0.35</span></label></details>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
-    `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
+    `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>GPU throughput / limit breaker</b><div style="font-size:11px;opacity:.85">Repeats the exact same scene render several times inside each display callback, without advancing gameplay between repeats. This bypasses the monitor-refresh limit for render-work throughput, but is not gameplay FPS. Keep the camera still and remove enemies for a clean map baseline.</div><button type="button" data-gpu-throughput style="margin-top:5px;cursor:pointer">Run GPU throughput test</button> <span data-gpu-throughput-status style="font-size:11px">Ready · about 8 seconds</span><pre data-gpu-throughput-report style="white-space:pre-wrap;font-size:12px;margin:4px 0 0">No throughput test yet.</pre></div><div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
     `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Foliage buffer A/B test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">One click runs a repeatable stationary camera sweep: 2 s warm-up, then 8 s normal foliage culling and 8 s with culling frozen. Each phase spins at 4x the original speed (four 360° turns per phase). The player stays still. The frozen phase retains the current foliage layout, so compare performance rather than visual correctness.</p><button type="button" data-foliage-test style="cursor:pointer">Run foliage buffer test</button> <span data-foliage-test-status style="font-size:11px">Ready · about 18 seconds</span></details><details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Live traversal capture</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Start capture, close or leave the monitor open, then sprint across the largest terrain you can. Stop to report frame-time spikes, CPU/render timings, draw load, and distance travelled. Captures up to 5 minutes.</p><button type="button" data-traverse-start style="cursor:pointer">Start live capture</button> <button type="button" data-traverse-stop style="cursor:pointer" disabled>Stop &amp; report</button> <button type="button" data-traverse-copy style="cursor:pointer" disabled>Copy report</button><div data-traverse-status style="font-size:11px;margin-top:4px">Ready</div><pre data-traverse-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No traversal captured yet.</pre></details>` +
     `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Worker pool stress test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Runs the same deterministic CPU workload across different worker counts. Keep the camera still; results measure worker throughput, not full game speedup.</p><button type="button" data-worker-stress style="cursor:pointer">Run worker stress test</button> <span data-worker-stress-status style="font-size:11px">Ready</span><pre data-worker-stress-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No test run yet.</pre></details>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
@@ -1994,15 +1994,16 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
   const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
   const startGpuQuery = bucket => {
-    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= (traversalCapture.on ? 48 : 8)) return null;
+    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= (traversalCapture.on ? 48 : gpuThroughput.active ? 32 : 8)) return null;
     const q = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, q);
-    return { q, bucket, mode: gpuModeKey(), captureFrameId: traversalCapture.on ? traversalCapture.frameId : null, benchAcc: bench.on && bench.n > 40 ? bench.acc : null };
+    return { q, bucket, mode: gpuModeKey(), captureFrameId: traversalCapture.on ? traversalCapture.frameId : null, benchAcc: bench.on && bench.n > 40 ? bench.acc : null, throughputRunId: gpuThroughput.active ? gpuThroughput.runId : null };
   };
   const endGpuQuery = item => { if (item) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(item); } };
   // "Measure each part": each part of the scene switched off in turn for a moment, the GPU's and the CPU's time
   // measured with and without it — what each one costs, in one table
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
   const scenarioBench = { on: false, phase: 'idle', frame: 0, logic: [], submit: [], frameMs: [], calls: [], tris: [], report: '', saved: null, clearRestoreForce: false, restoreForce: null, restoreForceDelay: 0 };
+  const gpuThroughput = { active: false, started: 0, runId: 0, warmupMs: 2000, measureMs: 6000, repeats: 4, frames: 0, renders: 0, cpuSubmitMs: 0, gpuSamples: [], report: '' };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
     { name: 'World / area fog', off: () => { probe.fogOff = true; applyProbe(); }, on: () => { probe.fogOff = false; applyProbe(); } },
@@ -2116,6 +2117,19 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     resetGpuSamples();
   };
   probeEl.querySelector('[data-scenario-run]').addEventListener('click', startScenarioBenchmark);
+  const throughputStatus = () => probeEl.querySelector('[data-gpu-throughput-status]');
+  const throughputReport = () => probeEl.querySelector('[data-gpu-throughput-report]');
+  probeEl.querySelector('[data-gpu-throughput]').addEventListener('click', () => {
+    if (gpuThroughput.active || bench.on || scenarioBench.on || traversalCapture.on || !tq || !probe.sync) {
+      throughputStatus().textContent = !tq ? 'Unavailable: EXT_disjoint_timer_query_webgl2 is not supported.' : !probe.sync ? 'Enable Measure GPU time first.' : 'Finish the other benchmark/capture first.';
+      return;
+    }
+    gpuThroughput.active = true; gpuThroughput.runId++; gpuThroughput.started = performance.now();
+    gpuThroughput.frames = 0; gpuThroughput.renders = 0; gpuThroughput.cpuSubmitMs = 0; gpuThroughput.gpuSamples = []; gpuThroughput.report = '';
+    probeEl.querySelector('[data-gpu-throughput]').disabled = true;
+    throughputStatus().textContent = 'Warming up shaders and render state…';
+    throughputReport().textContent = 'Warm-up: 2 seconds. Measurement: 6 seconds. The scene is rendered 4 extra times per display callback.';
+  });
   probeEl.querySelector('[data-scenario-copy]').addEventListener('click', async () => {
     const button = scenarioCopyButton();
     if (!scenarioBench.report) return;
@@ -2296,6 +2310,45 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' }); else renderer.render(scene, camera);
     if (traversalCapture.on) { traversalCapture.frameStages.mainRenderMs = performance.now() - stageMainStart; traversalCapture.stage = ''; }
     endGpuQuery(mainQuery);
+    if (gpuThroughput.active && now - gpuThroughput.started >= gpuThroughput.warmupMs) {
+      const measureElapsed = now - gpuThroughput.started - gpuThroughput.warmupMs;
+      if (measureElapsed <= gpuThroughput.measureMs) {
+        for (let ri = 0; ri < gpuThroughput.repeats; ri++) {
+          const q = startGpuQuery('main'), rt0 = performance.now();
+          if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' });
+          else renderer.render(scene, camera);
+          gpuThroughput.cpuSubmitMs += performance.now() - rt0;
+          gpuThroughput.renders++;
+          endGpuQuery(q);
+        }
+        gpuThroughput.frames++;
+        throughputStatus().textContent = `Measuring… ${Math.min(100, measureElapsed / gpuThroughput.measureMs * 100).toFixed(0)}% · ${gpuThroughput.renders} extra renders`;
+      } else {
+        gpuThroughput.active = false;
+        const sorted = gpuThroughput.gpuSamples.filter(Number.isFinite).sort((a,b)=>a-b), mid = sorted.length >> 1;
+        const gpuMedian = sorted.length ? (sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2) : NaN;
+        const seconds = gpuThroughput.measureMs / 1000, perSecond = gpuThroughput.renders / seconds;
+        const cpuPerRender = gpuThroughput.renders ? gpuThroughput.cpuSubmitMs / gpuThroughput.renders : NaN;
+        gpuThroughput.report = [
+          'ELDERMERE GPU THROUGHPUT TEST',
+          new Date().toLocaleString(),
+          'Mode: repeated steady-state scene renders; gameplay advances once per display callback, not once per render',
+          `Extra renders: ${gpuThroughput.renders} over ${seconds.toFixed(1)} measured seconds · ${perSecond.toFixed(1)} renders/s`,
+          `Display callbacks during measurement: ${gpuThroughput.frames} · ${(gpuThroughput.frames / seconds).toFixed(1)} callbacks/s`,
+          `Extra renders per callback: ${gpuThroughput.frames ? (gpuThroughput.renders / gpuThroughput.frames).toFixed(2) : 'n/a'}`,
+          `GPU time per render: ${Number.isFinite(gpuMedian) ? gpuMedian.toFixed(3) + ' ms median' : 'unavailable'} · ${gpuThroughput.gpuSamples.length} valid timer samples`,
+          `CPU submission per extra render: ${Number.isFinite(cpuPerRender) ? cpuPerRender.toFixed(3) + ' ms average' : 'unavailable'}`,
+          `CPU submission total: ${gpuThroughput.cpuSubmitMs.toFixed(1)} ms`,
+          `Render scale: ${(probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0)}% · resolution: ${renderer.domElement.width}×${renderer.domElement.height}`,
+          `Draw calls: ${probeAcc.calls} · triangles: ${(probeAcc.tris / 1e6).toFixed(2)}M (latest game frame; repeat passes are not added to this counter)`,
+          '',
+          'Interpretation: renders/s measures how many repeated scene submissions were completed during the available display callbacks. GPU ms/render is the asynchronous GPU timer-query median. This is a steady-state renderer stress test, not uncapped gameplay FPS; requestAnimationFrame remains display-synchronized. A high CPU submission/render with low GPU time indicates submission-bound rendering.'
+        ].join('\\n');
+        throughputReport().textContent = gpuThroughput.report;
+        throughputStatus().textContent = 'Complete · copy the report text below.';
+        probeEl.querySelector('[data-gpu-throughput]').disabled = false;
+      }
+    }
     body?.showHead(true);                              // ...but everything else (hair physics, mirrors) does
     const cpu2 = performance.now();
     while (tqList.length && glc.getQueryParameter(tqList[0].q, glc.QUERY_RESULT_AVAILABLE)) {
@@ -2309,6 +2362,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
           probeInfo.gpu = (Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0) + (Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0);
         }
         if (item.benchAcc) { if (item.bucket === 'main') { item.benchAcc.g += gv; item.benchAcc.gk++; } else { item.benchAcc.gr += gv; item.benchAcc.grk++; } }
+        if (item.throughputRunId != null && item.throughputRunId === gpuThroughput.runId) gpuThroughput.gpuSamples.push(gv);
       }
       glc.deleteQuery(item.q);
     }

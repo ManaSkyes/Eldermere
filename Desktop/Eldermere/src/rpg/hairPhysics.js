@@ -29,7 +29,7 @@ function makeSurfaceIndex(surface, cell = 0.075, center = [0, 0, 0]) {
       const k = key(x, y, z); (grid.get(k) || grid.set(k, []).get(k)).push(id);
     }
   }
-  return { grid, tri, cell, key };
+  return { grid, tri, cell, key, marks: new Uint32Array(tri.length), stamp: 0, closest: [0, 0, 0], candidate: [0, 0, 0] };
 }
 function closestOnTriangle(p, a, b, c, out) {
   const abx=b[0]-a[0], aby=b[1]-a[1], abz=b[2]-a[2], acx=c[0]-a[0], acy=c[1]-a[1], acz=c[2]-a[2];
@@ -63,11 +63,11 @@ function closestOnTriangle(p, a, b, c, out) {
 function collideSurface(point, surface, radius) {
   if (!surface) return false;
   const { grid, tri, cell, key } = surface, gx=Math.floor(point[0]/cell), gy=Math.floor(point[1]/cell), gz=Math.floor(point[2]/cell);
-  let best=null, bestD=Infinity; const seen=new Set(), closest=[0,0,0], candidate=[0,0,0];
+  let best=null, bestD=Infinity; const marks=surface.marks, stamp=++surface.stamp, closest=surface.closest, candidate=surface.candidate;
   for(let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) for(let z=-1;z<=1;z++) {
     const list=grid.get(key(gx+x,gy+y,gz+z)); if(!list) continue;
     for(const id of list) {
-      if(seen.has(id)) continue; seen.add(id);
+      if(marks[id]===stamp) continue; marks[id]=stamp;
       const f=tri[id]; closestOnTriangle(point,f.a,f.b,f.c,candidate);
       const dx=point[0]-candidate[0],dy=point[1]-candidate[1],dz=point[2]-candidate[2],d=dx*dx+dy*dy+dz*dz;
       if(d<bestD){bestD=d;best=f;closest[0]=candidate[0];closest[1]=candidate[1];closest[2]=candidate[2];}

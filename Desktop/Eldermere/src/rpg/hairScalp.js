@@ -102,20 +102,20 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
 
   if (zone === 'bangs') {
     if (index === STYLE_NAMES.bangs.length - 1) return null;
-    if (index === 0) { len = 1.1; dir = [0, 0.2, -1]; gravity = 0.12; }
-    if (index === 1) { len = 0.9; dir = [0, -0.72, 0.72]; gravity = 0.65; }
-    if (index === 2) { len = 1.15; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
-    if (index === 3) { len = 1.25; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
-    if (index === 4) { len = 0.72; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
-    len *= Math.exp((lengths.bangs || 0) * 0.69);
+    if (index === 0) { len = 0.28; dir = [0, 0.2, -1]; gravity = 0.12; }
+    if (index === 1) { len = 0.34; dir = [0, -0.72, 0.72]; gravity = 0.65; }
+    if (index === 2) { len = 0.38; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
+    if (index === 3) { len = 0.42; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
+    if (index === 4) { len = 0.24; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
+    len *= Math.exp((lengths.bangs || 0) * 0.35);
   } else {
     // All non-fringe scalp regions share one calm backward flow into the selected ponytail.
     // There is deliberately no mirrored/crossing crown start direction.
-    len = 1.15;
-    dir = [side * 0.08, -0.28, -1];
-    gravity = 0.32;
+    len = 0.58;
+    dir = [side * 0.04, -0.18, -1];
+    gravity = 0.2;
     gather = !!tie;
-    len *= Math.exp((lengths.main || 0) * 0.69);
+    len *= Math.exp((lengths.main || 0) * 0.35);
   }
   return { len, dir: norm(dir), startDir: null, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
@@ -168,7 +168,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const map = sampleScalp(scalp, P, N);
   const mainStyle = selection.main ?? 0;
   const tie = mainStyle === 0 || mainStyle === 1
-    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.34 : -0.38), head.C[2] - head.Rad[2] * 0.78]
+    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.12 : -0.30), head.C[2] - head.Rad[2] * 0.68]
     : null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
@@ -190,15 +190,15 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   }
   if (tie) {
     const high = mainStyle === 0;
-    const tailLength = 2.8 * Math.exp((lengths.main || 0) * 0.69);
+    const tailLength = 1.15 * Math.exp((lengths.main || 0) * 0.35);
     for (let i = 0; i < 110; i++) {
       const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075;
       const points = [];
       for (let s = 0; s <= SEG; s++) {
         const t = s / SEG;
-        const lift = high ? 0.48 * Math.sin(Math.PI * Math.min(1, t * 1.35)) : 0.08 * Math.sin(Math.PI * t);
-        const drop = high ? tailLength * Math.max(0, t - 0.12) ** 1.35 : tailLength * t * t;
-        const sweep = high ? -0.48 * t : -0.22 * t;
+        const lift = high ? 0.16 * Math.sin(Math.PI * t) : 0.025 * Math.sin(Math.PI * t);
+        const drop = tailLength * t * t;
+        const sweep = high ? -0.12 * t : -0.06 * t;
         points.push([
           tie[0] + Math.cos(a) * radius * (1 + t) + sweep * t,
           tie[1] + lift - drop,

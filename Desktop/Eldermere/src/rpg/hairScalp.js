@@ -155,8 +155,10 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
   }
   const tone = 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11);
   if (zone !== 'bangs' && [2, 3, 4, 5, 6, 7, 8, 9].includes(index)) {
+    // Long straight hair routes frontal roots around the cheeks rather than down the face.
+    const faceFrame = index === 2 && (zone === 'hairline' || zone === 'temples');
     return { len, dir: norm(dir), startDir: null, gravity, curl, gather: false, fringe: false, loose,
-      width, tone, flow: 'drape' };
+      width, tone, flow: faceFrame ? 'faceFrame' : 'drape' };
   }
   return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose, width, tone };
 }
@@ -196,7 +198,31 @@ function makeDrapeGuide(root, style, head, seed, underlayer = false) {
     loose: 1, dynamic: false, mass: underlayer, region: root.region || 'back' };
 }
 
+function makeFaceFrameGuide(root, style, head, seed) {
+  // Side-panel roots sweep outward around the cheek, then fall beside the face.
+  // This is authored hairstyle flow, not a stronger collision shove or a bang.
+  const x = (root.p[0] - head.C[0]) / head.Rad[0];
+  const side = Math.abs(x) < 0.045 ? (seed < 0.5 ? -1 : 1) : Math.sign(x);
+  const lateral = 0.13 + clamp((0.82 - Math.abs(x)) * head.Rad[0] * 0.72, 0, 0.34);
+  const p0 = add(root.p, root.n, 0.055);
+  const p1 = add(add(p0, root.n, 0.20), [side * 0.07, 0, 0.045]);
+  const p2 = [p0[0] + side * lateral * 0.78, p0[1] - style.len * 0.52, p0[2] + 0.035];
+  const p3 = [p0[0] + side * lateral, p0[1] - style.len, p0[2] - 0.025];
+  const phase = seed * Math.PI * 2, points = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG, v = 1 - t;
+    const p = [
+      v*v*v*p0[0] + 3*v*v*t*p1[0] + 3*v*t*t*p2[0] + t*t*t*p3[0],
+      v*v*v*p0[1] + 3*v*v*t*p1[1] + 3*v*t*t*p2[1] + t*t*t*p3[1],
+      v*v*v*p0[2] + 3*v*v*t*p1[2] + 3*v*t*t*p2[2] + t*t*t*p3[2]
+    ];
+    points.push(add(p, root.n, Math.sin(phase + t * Math.PI * 2) * style.curl * 0.18 * t));
+  }
+  return { points, center: head.C, width: style.width, tone: style.tone, loose: 1, dynamic: false, region: root.region || 'temples' };
+}
+
 function makeGuide(root, style, head, tie, seed) {
+  if (style.flow === 'faceFrame') return makeFaceFrameGuide(root, style, head, seed);
   if (style.flow === 'drape') return makeDrapeGuide(root, style, head, seed, false);
   const pts = [add(root.p, root.n, 0.035)];
   // Fringe leaves the forehead first; tangent projection had flattened it into the face.

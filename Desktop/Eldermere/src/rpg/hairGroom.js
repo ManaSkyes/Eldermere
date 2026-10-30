@@ -111,11 +111,9 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         if (!guide || !guide.points || guide.points.length !== SEG + 1) continue;
         // Static scalp coverage uses a lean strand budget. Motion-critical fringe and tail
         // guides receive the strands saved from the broad, mostly hidden base layer.
-        let baseCount = guide.mass
-          ? (layer === 0 ? 1 : 0)
-          : guide.dynamic
-            ? (layer === 0 ? 1 : layer === 1 ? 8 : (random() < 0.55 ? 8 : 4))
-            : (layer === 0 ? 1 : layer === 1 ? 3 : (random() < 0.22 ? 4 : 0));
+        let baseCount = guide.dynamic
+          ? (layer === 0 ? 1 : layer === 1 ? 8 : (random() < 0.55 ? 8 : 4))
+          : (layer === 0 ? 1 : layer === 1 ? 3 : (random() < 0.22 ? 4 : 0));
         if (combined) {
           const regionBoost = guide.region === 'hairline' || guide.region === 'crown' ? 1.55
             : guide.region === 'temples' || guide.region === 'sides' ? 1.05 : 0.72;
@@ -171,7 +169,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const clumpAngle = Math.floor(strand.strandIndex / 3) / clumpCount * Math.PI * 2;
         const angle = baseAngle + phase * 0.12;
         const volumeBoost = 1.22;
-        const strandWidth = Math.max(0.0008, strand.width * (guide.mass ? 0.19 : 0.06) * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
+        const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
         const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * [0.75, 1.08, 1.38][layer];
         const radialOffset = strand.width * layerLift * volume * volumeBoost;
         for (let s = 0; s <= SEG; s++) {
@@ -199,7 +197,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
           ];
           // Each strand is its own fine ribbon, not a broad textured card. It tapers almost to a point.
           const f = s / SEG;
-          const halfWidth = strandWidth * (1 - (guide.mass ? 0.28 : 0.995) * Math.pow(f, guide.mass ? 0.8 : 1.35)) * 0.5;
+          const halfWidth = strandWidth * (1 - 0.995 * Math.pow(f, 1.35)) * 0.5;
           const widthDir = [
             tangent[1] * radial[2] - tangent[2] * radial[1],
             tangent[2] * radial[0] - tangent[0] * radial[2],

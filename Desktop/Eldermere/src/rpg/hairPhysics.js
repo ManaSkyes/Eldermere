@@ -5,7 +5,7 @@ const SEG = 14;
 export function makeGuideSim(guides, head) {
   const n = SEG + 1, G = guides.length;
   const rest = new Float32Array(G * n * 3), p = new Float32Array(G * n * 3), prev = new Float32Array(G * n * 3), seg = new Float32Array(G * n);
-  const bend = new Float32Array(G * n), pull = new Float32Array(G * n), dampK = new Float32Array(G * n), tied = new Uint8Array(G), activeFrom = new Uint8Array(G), restInside = new Uint8Array(G * n);
+  const bend = new Float32Array(G * n), pull = new Float32Array(G * n), dampK = new Float32Array(G * n), tied = new Uint8Array(G), activeFrom = new Uint8Array(G);
   // Whether each rest-pose point starts inside the skull is invariant for this hairstyle.
   // Cache it once so every 60 Hz physics tick can skip the inverse transform and ellipsoid test
   // for points that are intentionally embedded in the scalp/face.
@@ -15,12 +15,10 @@ export function makeGuideSim(guides, head) {
   guides.forEach((gd, k) => {
     tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;
     gd.points.forEach((q, s) => { const i = k * n + s; rest.set(q, i * 3); if (s) { const a = gd.points[s - 1]; seg[i] = Math.hypot(q[0] - a[0], q[1] - a[1], q[2] - a[2]); L += seg[i]; }
-      // The first 25 cm are strongly style-locked; keep them on the authored curve and simulate only the free length.
-      // Very short loose hair therefore needs no point physics, while the card geometry and guide texture stay unchanged.
-      if (L >= 0.25 && activeFrom[k] === n) activeFrom[k] = s;
-      const ex = (q[0] - head.C[0]) / (head.Rad[0] * 0.9), ey = (q[1] - head.C[1]) / (head.Rad[1] * 0.9), ez = (q[2] - head.C[2]) / (head.Rad[2] * 0.9);
-      restInside[i] = ex * ex + ey * ey + ez * ez < 1 ? 1 : 0;
-      const u = Math.max(0, Math.min(1, (L - 0.25) / 1.6)), f = u * u * (3 - 2 * u);   // free from ~2.5 cm, fully free by ~18 cm (decimetres)
+      // Only the root itself is locked. The first few centimetres must be free to
+      // resolve against the skull/face or authored curves can remain embedded.
+      if (L >= 0.045 && activeFrom[k] === n) activeFrom[k] = s;
+      const u = Math.max(0, Math.min(1, (L - 0.045) / 1.6)), f = u * u * (3 - 2 * u);   // free from ~2.5 cm, fully free by ~18 cm (decimetres)
       bend[i] = 0.75 - 0.55 * f; pull[i] = 0.12 * (1 - f) + 0.006; dampK[i] = 0.14 + 0.18 * f; });   // (the ends of long hair damped hardest: they settle instead of flailing)
   });
   const D = new Float32Array(16), Dr = new Float32Array(16), Wpi = new Float32Array(16), WMp = new Float32Array(16), T1 = new Float32Array(16), T1i = new Float32Array(16); let havePrev = false;
@@ -90,18 +88,24 @@ export function makeGuideSim(guides, head) {
         const b = Math.min(0.95, bend[i] * sk); p[o] += (p[q] + tmp[0] - p[o]) * b; p[o + 1] += (p[q + 1] + tmp[1] - p[o + 1]) * b; p[o + 2] += (p[q + 2] + tmp[2] - p[o + 2]) * b;
         // a weak pull back to the style as a whole
         xf(WM, rest, o, tg, 0); const pl = pull[i]; p[o] += (tg[0] - p[o]) * pl; p[o + 1] += (tg[1] - p[o + 1]) * pl; p[o + 2] += (tg[2] - p[o + 2]) * pl;
-        // The skull collision can only push points whose rest pose starts outside the skull.
-        // Points intentionally rooted inside the face/scalp skip this transform and ellipsoid test.
-        if (!restInside[i]) {
-          tmp[0] = p[o]; tmp[1] = p[o + 1]; tmp[2] = p[o + 2]; xf(WMi, tmp, 0, tmp, 0);
-          const ex = (tmp[0] - head.C[0]) / (head.Rad[0] * 0.9), ey = (tmp[1] - head.C[1]) / (head.Rad[1] * 0.9), ez = (tmp[2] - head.C[2]) / (head.Rad[2] * 0.9), ed = Math.hypot(ex, ey, ez);
-          if (ed < 1 && ed > 1e-4) { tmp[0] = head.C[0] + (tmp[0] - head.C[0]) / ed; tmp[1] = head.C[1] + (tmp[1] - head.C[1]) / ed; tmp[2] = head.C[2] + (tmp[2] - head.C[2]) / ed; xf(WM, tmp, 0, tmp, 0); p[o] = tmp[0]; p[o + 1] = tmp[1]; p[o + 2] = tmp[2]; }
-        }
-        // neck, shoulders, back (only where the style itself isn't resting inside one)
-        if (cw.length) { xf(WM, rest, o, tg, 0); for (const c of cw) if (!insideCap(tg, c)) pushCap(p, o, c); }
-        // spacing to the point above, exactly
+        // Enforce segment length first. Collision must run after this constraint;
+        // otherwise the length correction immediately pulls the hair back through the body.
         const L = seg[i] * scale, dx = p[o] - p[q], dy = p[o + 1] - p[q + 1], dz = p[o + 2] - p[q + 2], d = Math.hypot(dx, dy, dz) || 1e-6;
         p[o] = p[q] + dx / d * L; p[o + 1] = p[q + 1] + dy / d * L; p[o + 2] = p[q + 2] + dz / d * L;
+        // Resolve against the head on every simulated point, including points whose
+        // authored rest pose began inside the approximate skull. Use a small clearance
+        // so ribbons do not sit exactly on the collision surface.
+        tmp[0] = p[o]; tmp[1] = p[o + 1]; tmp[2] = p[o + 2]; xf(WMi, tmp, 0, tmp, 0);
+        const ex = (tmp[0] - head.C[0]) / (head.Rad[0] * 0.94), ey = (tmp[1] - head.C[1]) / (head.Rad[1] * 0.94), ez = (tmp[2] - head.C[2]) / (head.Rad[2] * 0.94), ed = Math.hypot(ex, ey, ez);
+        if (ed < 1.015 && ed > 1e-4) {
+          const push = 1.015 / ed;
+          tmp[0] = head.C[0] + (tmp[0] - head.C[0]) * push;
+          tmp[1] = head.C[1] + (tmp[1] - head.C[1]) * push;
+          tmp[2] = head.C[2] + (tmp[2] - head.C[2]) * push;
+          xf(WM, tmp, 0, tmp, 0); p[o] = tmp[0]; p[o + 1] = tmp[1]; p[o + 2] = tmp[2];
+        }
+        // Neck, shoulders and torso capsules are also resolved after segment length.
+        if (cw.length) for (const c of cw) pushCap(p, o, c);
       }
     }
   }

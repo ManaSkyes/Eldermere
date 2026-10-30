@@ -300,9 +300,8 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     // front layer, never a replacement for the underlying hairline/crown coverage.
     const rootTie = tieForRoot(root);
     const baseStyle = styleFor('main', selection.main, root.p, head, lengths, look, rootTie);
-    // Loose cuts get a real inner hair mass. These broad, low-detail ribbons sit
-    // beneath the outer strand groom and keep the scalp/underlayer from showing through.
-    if (baseStyle && baseStyle.flow === 'drape') guides.push(makeDrapeGuide(root, baseStyle, head, random(), true));
+    // Keep one guide per follicle. A second broad underlayer doubled guide simulation
+    // and ribbon generation without solving surface collision or silhouette coverage.
     if (baseStyle) guides.push(makeGuide(root, baseStyle, head, rootTie, random()));
     if (region === 'hairline') {
       const fringeStyle = styleFor('bangs', selection.bangs, root.p, head, lengths, look, null);

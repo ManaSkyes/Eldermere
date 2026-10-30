@@ -135,9 +135,11 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
       const on = (p.on || segs.map((_, i) => i)).filter(i => segs[i] && segs[i].slot >= 0);
       const tot = on.reduce((t, i) => t + segs[i].w, 0) || 1, cum = []; let c = 0; for (const i of on) { c += segs[i].w / tot; cum.push(c); }
       const cc = new THREE.Color(p.color || '#140a22');
-      return { ...p, on, cum, r: cc.r, g: cc.g, b: cc.b, acc: Math.random() };
+      return { ...p, enabled: true, on, cum, r: cc.r, g: cc.g, b: cc.b, acc: Math.random() };
     });
-    const h = { segs, puffs: P, scale: 1, lod: 1, removed: false,
+    const h = { segs, puffs: P, scale: 1, lod: 1, enabled: true, removed: false,
+      setEnabled(on) { h.enabled = !!on; },
+      setGroupEnabled(group, on) { for (const p of P) if (p.group === group) p.enabled = !!on; },
       remove() { if (h.removed) return; h.removed = true; bodies.splice(bodies.indexOf(h), 1); for (const s of segs) if (s.slot >= 0) { anchorData[s.slot * 8 + 3] = -1; anchorData[s.slot * 8 + 7] = -1; parked.push([s.slot, now + 4]); } anchorTex.needsUpdate = true; } };
     bodies.push(h); return h;
   }

@@ -393,7 +393,7 @@ export function startViewer(THREE, human, ui) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
         const groomData = buildScalpGroom(hairData.scalp, hairData.headIds, P, Nrm, eyesC[0][1], hairSel, lengths, hairLook);
-        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
+        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook); hairR.info.coverage = groomData.coverage; Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {
         // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)
@@ -1493,7 +1493,7 @@ export function startViewer(THREE, human, ui) {
   label(hairSec, 'Detail level (what a distant camera sees)');
   pressRow(hairSec, ['Auto', 'Near', 'Mid', 'Far'], 0, i => { hairR.lodForce = i === 0 ? null : 3 - i; });
   const labOut = document.createElement('div'); labOut.style.cssText = 'color:var(--muted);font-size:0.85em;margin:0.3rem 0'; hairSec.appendChild(labOut);
-  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.strands.toLocaleString()} strands · ${(f.tris / 1000).toFixed(1)}k triangles · ${f.guides} simulated guides`; };
+  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.strands.toLocaleString()} strands · ${(f.tris / 1000).toFixed(1)}k tris · ${f.guides} guides · scalp ${f.coverage?.roots ?? f.guides} roots`; };
   labInfo();
   setHairColor(hairColor);
   const detailSec = section('Skin details', false);

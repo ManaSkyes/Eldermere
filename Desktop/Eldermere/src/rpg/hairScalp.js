@@ -247,7 +247,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     ? [[head.C[0] - head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82],
        [head.C[0] + head.Rad[0] * 0.72, head.C[1] - head.Rad[1] * 0.22, head.C[2] - head.Rad[2] * 0.82]]
     : (mainStyle === 0 || mainStyle === 1 || mainStyle === 12 || mainStyle === 13 || mainStyle === 14)
-      ? [[head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : mainStyle === 1 ? -0.34 : 0.48), head.C[2] - head.Rad[2] * 1.12]]
+      ? [[head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.22 : mainStyle === 1 || mainStyle === 14 ? -0.34 : 0.48), head.C[2] - head.Rad[2] * 1.12]]
       : [];
   const tieForRoot = root => ties.length > 1 ? ties[root.p[0] < head.C[0] ? 0 : 1] : ties[0] || null;
   const guides = [];

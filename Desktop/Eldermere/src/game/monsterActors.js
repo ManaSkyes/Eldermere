@@ -187,7 +187,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const A = { id, M, C, mo, S, group, level, presentationId: nextPresentationActorId++, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
       alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
-    scene.add(C.root); A.attached = true; C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
+    scene.add(C.root); A.attached = true; C.setAttached?.(true); C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
     A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0;   // (a swarm starts up high) A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;
     mo.onCommit = (dx, dz) => { const c = Math.cos(A.yaw), s = Math.sin(A.yaw); A.pos.x += dx * c + dz * s; A.pos.z += -dx * s + dz * c; if (A.landDy) { A.pos.y += A.landDy; A.landDy = 0; } A.gx = 1e9; if (!M.flight && shapes.length) { const r = settle(A, A.pos.x, A.pos.z); A.pos.x = r.x; A.pos.z = r.z; } };
     mo.onEvent = (name, d) => {

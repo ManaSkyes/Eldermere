@@ -343,12 +343,12 @@ function shadePuffs(THREE, P, chains, byChain, look) {
   const k = (look.smoke ?? 0.6) / 0.6 * (look.cheap ? 0.35 : 1) * (look.puffK ?? 1), aK = 1 + (1 - (look.puffK ?? 1)) * 0.5, smoke = look.smokeColor || '#0c0616', puffs = [];
   if (aura.length) {
     const haze = new THREE.Color(look.aura || '#1e0c40').lerp(new THREE.Color(look.auraGlow || '#5a28b8'), 0.4);   // (lifted toward the glow: it has to read against a night sky)
-    puffs.push({ on: aura, mode: 'cling', rate: 170 * k, life: [0.8, 1.4], size: [1.9, 2.8], sizeByRadius: true, color: '#' + haze.getHexString(), alpha: 0.5 * aK, rise: 0.02, drift: 0.05 });
-    puffs.push({ on: aura, mode: 'cling', rate: 70 * k, life: [0.6, 1.1], size: [1.2, 1.8], sizeByRadius: true, color: smoke, alpha: 0.55 * aK, rise: 0.01, drift: 0.03 });
+    puffs.push({ group: 'smokeAura', on: aura, mode: 'cling', rate: 170 * k, life: [0.8, 1.4], size: [1.9, 2.8], sizeByRadius: true, color: '#' + haze.getHexString(), alpha: 0.5 * aK, rise: 0.02, drift: 0.05 });
+    puffs.push({ group: 'smokeAura', on: aura, mode: 'cling', rate: 70 * k, life: [0.6, 1.1], size: [1.2, 1.8], sizeByRadius: true, color: smoke, alpha: 0.55 * aK, rise: 0.01, drift: 0.03 });
     if (core.length) puffs.push({ group: 'coreGlow', on: core, mode: 'cling', rate: 22 * (look.coreGlow ?? 1), life: [0.6, 1.0], size: [1.1, 1.7], sizeByRadius: true, color: look.auraGlow || '#5a28b8', alpha: 0.3, add: true, rise: 0.03, drift: 0.02 });
   }
-  if (hug.length) puffs.push({ on: hug, mode: 'cling', rate: (aura.length ? 30 : 70) * k, life: [0.6, 1.1], size: [1.6, 2.6], sizeByRadius: true, color: smoke, alpha: 0.38, rise: 0.05, drift: 0.04 });
-  puffs.push({ on: wing.length ? [...wing, ...aura] : null, mode: 'trail', rate: 34 * k, life: [0.9, 1.7], size: [0.07 * (look.wispSize ?? 1) / 0.6, 0.26 * (look.wispSize ?? 1) / 0.6], color: smoke, alpha: 0.32, rise: look.wispRise ?? 0.4, drift: 0.12 });
+  if (hug.length) puffs.push({ group: 'smokeAura', on: hug, mode: 'cling', rate: (aura.length ? 30 : 70) * k, life: [0.6, 1.1], size: [1.6, 2.6], sizeByRadius: true, color: smoke, alpha: 0.38, rise: 0.05, drift: 0.04 });
+  puffs.push({ group: 'wisps', on: wing.length ? [...wing, ...aura] : null, mode: 'trail', rate: 34 * k, life: [0.9, 1.7], size: [0.07 * (look.wispSize ?? 1) / 0.6, 0.26 * (look.wispSize ?? 1) / 0.6], color: smoke, alpha: 0.32, rise: look.wispRise ?? 0.4, drift: 0.12 });
   return P.attach({ anchors, puffs });
 }
 

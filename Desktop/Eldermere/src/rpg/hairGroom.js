@@ -99,10 +99,13 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
       for (let gi = 0; gi < guideCount; gi++) {
         const guide = guides[gi];
         if (!guide || !guide.points || guide.points.length !== SEG + 1) continue;
-        const count = layer === 0 ? 1 : layer === 1 ? (random() < 0.35 + 0.65 * density ? 6 : 0) : (random() < 0.3 * density ? 8 : random() < 0.35 * density ? 4 : 0);
+        const baseCount = layer === 0 ? 1 : layer === 1 ? 6 : (random() < 0.3 ? 8 : random() < 0.35 ? 4 : 0);
+        const scaled = baseCount * density;
+        const count = Math.floor(scaled) + (random() < scaled - Math.floor(scaled) ? 1 : 0);
+        const total = Math.max(1, Math.round(10.8 * density));
         for (let j = 0; j < count; j++) {
-          const strandIndex = layer === 0 ? 0 : layer === 1 ? j + 1 : j + 3;
-          strandLayers[layer].push({ gi, strandIndex, width: guide.width || 0.08, tone: guide.tone || 1, center: guide.center || head.C, seed: random() });
+          const strandIndex = (layer === 0 ? 0 : layer === 1 ? 1 + j : 7 + j);
+          strandLayers[layer].push({ gi, strandIndex, strandTotal: total, width: guide.width || 0.08, tone: guide.tone || 1, center: guide.center || head.C, seed: random() });
         }
       }
     }
@@ -132,7 +135,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const guide = guides[strand.gi], pts = guide.points;
         const strandBase = vertex;
         const phase = strand.seed * Math.PI * 2;
-        const angle = (strand.strandIndex / 15) * Math.PI * 2 + phase * 0.12;
+        const angle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2 + phase * 0.12;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume) * (0.78 + strand.seed * 0.42);
         const radialOffset = strand.width * 0.22 * volume;
         for (let s = 0; s <= SEG; s++) {

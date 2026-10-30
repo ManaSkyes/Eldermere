@@ -102,11 +102,11 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
 
   if (zone === 'bangs') {
     if (index === STYLE_NAMES.bangs.length - 1) return null;
-    if (index === 0) { len = 0.075; dir = [0, 0.2, -1]; gravity = 0.12; }
-    if (index === 1) { len = 0.105; dir = [0, -0.72, 0.72]; gravity = 0.65; }
-    if (index === 2) { len = 0.12; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
-    if (index === 3) { len = 0.14; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
-    if (index === 4) { len = 0.085; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
+    if (index === 0) { len = 0.22; dir = [0, 0.18, -1]; gravity = 0.12; }
+    if (index === 1) { len = 0.30; dir = [0, -0.78, 0.72]; gravity = 0.65; }
+    if (index === 2) { len = 0.34; dir = [side * 0.9, -0.34, 0.42]; gravity = 0.38; }
+    if (index === 3) { len = 0.32; dir = [side * 0.55, -0.62, 0.58]; gravity = 0.48; }
+    if (index === 4) { len = 0.23; dir = [side * 0.2, -0.5, 0.82]; gravity = 0.32; }
     len *= lengths.bangs ?? 1;
   } else {
     // All non-fringe scalp regions share one calm backward flow into the selected ponytail.
@@ -117,7 +117,7 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     gather = !!tie;
     len *= lengths.main ?? 1;
   }
-  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, fringe: zone === 'bangs', loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
 
 function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
@@ -131,7 +131,27 @@ function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
 }
 
 function makeGuide(root, style, head, tie, seed) {
-  const pts = [add(root.p, root.n, 0.025)];
+  const pts = [add(root.p, root.n, 0.035)];
+  // Fringe leaves the forehead first; tangent projection had flattened it into the face.
+  if (style.fringe) {
+    const p0 = pts[0], forward = style.dir;
+    const p1 = add(add(p0, root.n, 0.12), forward, style.len * 0.16);
+    const p2 = add(p0, forward, style.len * 0.78);
+    p2[1] -= style.len * 0.12;
+    const p3 = add(p0, forward, style.len);
+    p3[1] -= style.len * (0.42 + style.gravity * 0.18);
+    const phase = seed * Math.PI * 2;
+    for (let s = 1; s <= SEG; s++) {
+      const t = s / SEG, v = 1 - t;
+      const p = [
+        v*v*v*p0[0] + 3*v*v*t*p1[0] + 3*v*t*t*p2[0] + t*t*t*p3[0],
+        v*v*v*p0[1] + 3*v*v*t*p1[1] + 3*v*t*t*p2[1] + t*t*t*p3[1],
+        v*v*v*p0[2] + 3*v*v*t*p1[2] + 3*v*t*t*p2[2] + t*t*t*p3[2]
+      ];
+      pts.push(add(p, root.n, Math.sin(phase + t * Math.PI * 2) * style.curl * 0.012 * t));
+    }
+    return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: true };
+  }
   let p = pts[0].slice(), d = style.startDir ? style.startDir.slice() : style.dir.slice();
   const radial = norm(sub(p, head.C));
   // Both the crossing start-flow and the eventual style flow are tangent to the scalp.
@@ -178,7 +198,7 @@ function makeGuide(root, style, head, tie, seed) {
     p = add(p, radial, wave);
     pts.push(p.slice());
   }
-  return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose };
+  return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: false };
 }
 
 export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths = {}, look = {}) {
@@ -231,7 +251,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
           tie[2] + Math.sin(a) * radius * 0.72 - (high ? 0.28 : 0.10) * t
         ]);
       }
-      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.42, tie[2] + 0.25], width: 0.052 + phase * 0.008, tone: 0.96, loose: 1 });
+      guides.push({ points, center: [tie[0], tie[1] - tailLength * 0.42, tie[2] + 0.25], width: 0.052 + phase * 0.008, tone: 0.96, loose: 1, dynamic: true });
     }
   }
   return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };

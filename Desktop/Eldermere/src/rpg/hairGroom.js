@@ -99,7 +99,11 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
       for (let gi = 0; gi < guideCount; gi++) {
         const guide = guides[gi];
         if (!guide || !guide.points || guide.points.length !== SEG + 1) continue;
-        const baseCount = layer === 0 ? 1 : layer === 1 ? 6 : (random() < 0.3 ? 8 : random() < 0.35 ? 4 : 0);
+        // Static scalp coverage uses a lean strand budget. Motion-critical fringe and tail
+        // guides receive the strands saved from the broad, mostly hidden base layer.
+        const baseCount = guide.dynamic
+          ? (layer === 0 ? 1 : layer === 1 ? 8 : (random() < 0.55 ? 8 : 4))
+          : (layer === 0 ? 1 : layer === 1 ? 3 : (random() < 0.22 ? 4 : 0));
         const scaled = baseCount * density;
         const count = Math.floor(scaled) + (random() < scaled - Math.floor(scaled) ? 1 : 0);
         const total = Math.max(1, Math.round(10.8 * density));
@@ -146,7 +150,8 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const phase = strand.seed * Math.PI * 2;
         const angle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2 + phase * 0.12;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume) * (0.78 + strand.seed * 0.42);
-        const radialOffset = strand.width * 0.22 * volume;
+        const layerLift = layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24;
+        const radialOffset = strand.width * layerLift * volume;
         for (let s = 0; s <= SEG; s++) {
           const p = pts[s], prev = pts[Math.max(0, s - 1)], next = pts[Math.min(SEG, s + 1)];
           let tangent = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];

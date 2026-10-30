@@ -5,6 +5,8 @@
 import { makeGuideSim } from './hairPhysics.js';
 
 const SEG = 14;
+
+export const HAIR_TREATMENT_NAMES = ['Natural strands', 'Scalp undercoat', 'Soft diffuse', 'Layered volume', 'Root shading', 'Clumped locks', 'Adaptive allocation'];
 const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide;
   uniform sampler2D uHairOff; uniform vec2 uHairOffSize; uniform float uHairWiden;
   varying vec3 vHairT; varying float vHairN; varying float vHairAlong;
@@ -22,6 +24,8 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     uHairRoot: { value: new THREE.Color(1, 1, 1) },
     uHairTip: { value: new THREE.Color(1, 1, 1) },
     uHairBlend: { value: 0.55 },
+    uHairSoftness: { value: 0 },
+    uHairRootStrength: { value: 0 },
   };
   const patchVertex = (shader, withLighting = true) => {
     Object.assign(shader.uniforms, U);
@@ -47,6 +51,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         uniform vec3 uHairRoot; uniform vec3 uHairTip; uniform float uHairBlend;
+        uniform float uHairSoftness; uniform float uHairRootStrength;
         varying vec3 vHairT; varying float vHairN; varying float vHairAlong; vec3 groomBase = vec3(1.0);
         vec3 groomSpec(vec3 L, vec3 col, vec3 N, vec3 V) {
           vec3 T = normalize(vHairT), H = normalize(L + V);
@@ -61,8 +66,12 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
           return col * align * wrap * (sharp * 0.34 + broad * 0.2 * groomBase);
         }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        groomBase = mix(uHairRoot, uHairTip, smoothstep(uHairBlend - 0.22, uHairBlend + 0.22, vHairAlong));
-        diffuseColor.rgb *= groomBase;`)
+        float rootMix = smoothstep(uHairBlend - 0.22, uHairBlend + 0.22, vHairAlong);
+        rootMix = mix(rootMix, smoothstep(0.12, 0.82, vHairAlong), uHairRootStrength);
+        groomBase = mix(uHairRoot, uHairTip, rootMix);
+        float edgeDistance = min(vUv.x, 1.0 - vUv.x);
+        float edgeBlend = mix(1.0, smoothstep(0.0, 0.22, edgeDistance), uHairSoftness);
+        diffuseColor.rgb *= groomBase * mix(0.86, 1.0, edgeBlend);`)
       .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin
         .split('RE_Direct( directLight, geometry, material, reflectedLight );')
         .join('RE_Direct( directLight, geometry, material, reflectedLight );' + spec));
@@ -93,6 +102,9 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     let seed = 31;
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const volume = look.volume ?? 1;
+    const treatment = Math.max(0, Math.min(6, Number(look.treatment) || 0));
+    U.uHairSoftness.value = treatment === 2 ? 1 : 0;
+    U.uHairRootStrength.value = treatment === 4 ? 1 : 0;
 
     // Layer ordering lets distance LOD omit complete strands without rebuilding the groom.
     for (let layer = 0; layer < 3; layer++) {
@@ -101,9 +113,14 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         if (!guide || !guide.points || guide.points.length !== SEG + 1) continue;
         // Static scalp coverage uses a lean strand budget. Motion-critical fringe and tail
         // guides receive the strands saved from the broad, mostly hidden base layer.
-        const baseCount = guide.dynamic
+        let baseCount = guide.dynamic
           ? (layer === 0 ? 1 : layer === 1 ? 8 : (random() < 0.55 ? 8 : 4))
           : (layer === 0 ? 1 : layer === 1 ? 3 : (random() < 0.22 ? 4 : 0));
+        if (treatment === 6) {
+          const regionBoost = guide.region === 'hairline' || guide.region === 'crown' ? 1.55
+            : guide.region === 'temples' || guide.region === 'sides' ? 1.05 : 0.72;
+          baseCount *= regionBoost;
+        }
         const scaled = baseCount * density;
         const count = Math.floor(scaled) + (random() < scaled - Math.floor(scaled) ? 1 : 0);
         const total = Math.max(1, Math.round(10.8 * density));
@@ -148,10 +165,16 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const guide = guides[strand.gi], pts = guide.points;
         const strandBase = vertex;
         const phase = strand.seed * Math.PI * 2;
-        const angle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2 + phase * 0.12;
-        const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume) * (0.78 + strand.seed * 0.42);
-        const layerLift = layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24;
-        const radialOffset = strand.width * layerLift * volume;
+        const baseAngle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2;
+        const clumpCount = Math.max(2, Math.ceil(strand.strandTotal / 3));
+        const clumpAngle = Math.floor(strand.strandIndex / 3) / clumpCount * Math.PI * 2;
+        const angle = treatment === 5
+          ? clumpAngle + (strand.strandIndex % 3 - 1) * 0.075 + phase * 0.025
+          : baseAngle + phase * 0.12;
+        const volumeBoost = treatment === 3 ? 1.22 : 1;
+        const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
+        const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * (treatment === 3 ? [0.75, 1.08, 1.38][layer] : 1);
+        const radialOffset = strand.width * layerLift * volume * volumeBoost;
         for (let s = 0; s <= SEG; s++) {
           const p = pts[s], prev = pts[Math.max(0, s - 1)], next = pts[Math.min(SEG, s + 1)];
           let tangent = [next[0] - prev[0], next[1] - prev[1], next[2] - prev[2]];

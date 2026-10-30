@@ -13,7 +13,7 @@ import { makeTail, makeCape } from './tailCape.js';
 import { WEAPONS, weaponMaterials } from './weapons.js';
 import { ITEMS, SLOTS, OUTFIT_PRESETS, createEquipment, traitsOf } from './equipment.js';
 import { PARTS, placePart, partAnchors, partOptions, featherTexture, tube } from './attachments.js';
-import { createHairGroom } from './hairGroom.js';
+import { createHairGroom, HAIR_TREATMENT_NAMES } from './hairGroom.js';
 import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
@@ -282,8 +282,20 @@ export function startViewer(THREE, human, ui) {
 
   // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
   const hairData = makeHair(meta);
+  const undercoatGeo = new THREE.BufferGeometry();
+  const undercoatPosition = new THREE.BufferAttribute(hairData.scalp.positions, 3);
+  undercoatGeo.setAttribute('position', undercoatPosition);
+  undercoatGeo.setIndex(hairData.scalp.tris);
+  undercoatGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(hairData.scalp.skinIndex, 4));
+  undercoatGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(hairData.scalp.skinWeight, 4));
+  undercoatGeo.computeVertexNormals();
+  const undercoatMaterial = new THREE.MeshBasicMaterial({ color: lin('#e6e1ea'), side: THREE.DoubleSide, transparent: true, opacity: 0.22, depthWrite: false });
+  const undercoatMesh = new THREE.SkinnedMesh(undercoatGeo, undercoatMaterial);
+  undercoatMesh.bind(rig.skeleton, body.bindMatrix);
+  undercoatMesh.frustumCulled = false; undercoatMesh.visible = false; undercoatMesh.renderOrder = 1;
+  root.add(undercoatMesh);
   let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
-  const hairSel = { main: 0, bangs: 0 };
+  const hairSel = { main: 2, bangs: 1 };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
   // detail levels for the body and clothes by distance (src/rpg/meshLod.js: fewer triangles over the same vertices)
@@ -294,7 +306,7 @@ export function startViewer(THREE, human, ui) {
   let hairWind = [0, 0, 0];
   // the Hair lab (in the creator's hair section): the look (volume, density, curl, wave: the hair is grown again) and the
   // feel (follow, inertia, stiffness, damping, gravity: live)
-  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
+  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0, treatment: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
   let skinGlow = 1, labCombo = null;
   let labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
   const hairLen = { main: 0, bangs: 0 };       // independent main hairstyle and fringe lengths (-1..1)
@@ -385,6 +397,11 @@ export function startViewer(THREE, human, ui) {
     if (hairShown) {
       // Keep the fitted scalp as a sampling surface only; no scalp cap is rendered.
       fitGarment(hairData.scalp, P, Nrm);
+      undercoatMesh.visible = hairLook.treatment === 1;
+      if (undercoatMesh.visible) {
+        undercoatPosition.needsUpdate = true;
+        undercoatGeo.computeVertexNormals();
+      }
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
       if (key !== hairBuilt.key) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
@@ -425,6 +442,7 @@ export function startViewer(THREE, human, ui) {
   // root and tip colors; brows follow the root color unless given their own
   function setHairColor(root, tip = root) {
     hairColor = root; hairTip = tip;
+    undercoatMaterial.color.copy(lin(root)).multiplyScalar(0.58);
     hairU.uHairRoot.value.copy(lin(root)); hairU.uHairTip.value.copy(lin(tip));
     if (!browColor) browMat.color.copy(lin(root)).multiplyScalar(0.6);
     if (pickers.root) { pickers.root.value = root; pickers.tip.value = tip; }
@@ -1478,6 +1496,8 @@ export function startViewer(THREE, human, ui) {
   label(hairSec, 'Bangs style');
   pressRow(hairSec, GROOM_STYLE_NAMES.bangs, hairSel.bangs, i => { hairSel.bangs = i; update(); });
   makeRow(hairSec, 'Bangs length', -1, 1, () => hairLen.bangs, v => { hairLen.bangs = v; });
+  label(hairSec, 'Long-hair rendering style');
+  pressRow(hairSec, HAIR_TREATMENT_NAMES, hairLook.treatment, i => { hairLook.treatment = i; update(); });
   label(hairSec, 'Color');
   const hc = document.createElement('div'); hc.className = 'sw'; hc.style.marginTop = '0.5rem';
   for (const c of ['#e6e1ea', '#e8d6a8', '#b07a3e', '#8a3b24', '#5a3a26', '#2a1d18', '#121012']) {

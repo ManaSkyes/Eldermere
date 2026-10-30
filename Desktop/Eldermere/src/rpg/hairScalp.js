@@ -2,7 +2,7 @@
 // The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
 const SEG = 14;
 const STYLE_NAMES = {
-  main: ['High ponytail', 'Low ponytail'],
+  main: ['High ponytail', 'Low ponytail', 'Long hair'],
   bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'None'],
 };
 export const GROOM_STYLE_NAMES = STYLE_NAMES;
@@ -108,9 +108,15 @@ function styleFor(zone, index, p, head, lengths, look, tie) {
     if (index === 3) { len = 0.32; dir = [side * 0.55, -0.62, 0.58]; gravity = 0.48; }
     if (index === 4) { len = 0.23; dir = [side * 0.2, -0.5, 0.82]; gravity = 0.32; }
     len *= lengths.bangs ?? 1;
+  } else if (index === 2) {
+    // Loose long hair: falls from every scalp region instead of converging on a tie.
+    len = 3.15;
+    dir = [side * 0.12, -0.88, -0.18];
+    gravity = 0.62;
+    gather = false;
+    len *= lengths.main ?? 1;
   } else {
-    // All non-fringe scalp regions share one calm backward flow into the selected ponytail.
-    // There is deliberately no mirrored/crossing crown start direction.
+    // Existing ponytail flow remains unchanged.
     len = 0.68;
     dir = [side * 0.04, -0.12, -1];
     gravity = 0.12;
@@ -150,7 +156,7 @@ function makeGuide(root, style, head, tie, seed) {
       ];
       pts.push(add(p, root.n, Math.sin(phase + t * Math.PI * 2) * style.curl * 0.012 * t));
     }
-    return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: true };
+    return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: true, region: root.region || 'hairline' };
   }
   let p = pts[0].slice(), d = style.startDir ? style.startDir.slice() : style.dir.slice();
   const radial = norm(sub(p, head.C));
@@ -198,7 +204,7 @@ function makeGuide(root, style, head, tie, seed) {
     p = add(p, radial, wave);
     pts.push(p.slice());
   }
-  return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: false };
+  return { points: pts, center: head.C, width: style.width, tone: style.tone, loose: style.loose, dynamic: false, region: root.region || 'crown' };
 }
 
 export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths = {}, look = {}) {
@@ -219,6 +225,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   for (const root of map.roots) {
     if (dot(root.n, sub(root.p, head.C)) < 0) root.n = root.n.map(v => -v);
     const region = regionOf(root.p, root.n, head);
+    root.region = region;
     const keep = coverage * (region === 'hairline' ? hairlineCoverage : 1);
     const hash = Math.abs(Math.sin(root.p[0] * 127.1 + root.p[1] * 311.7 + root.p[2] * 74.7) * 43758.5453) % 1;
     if (hash > keep) continue;

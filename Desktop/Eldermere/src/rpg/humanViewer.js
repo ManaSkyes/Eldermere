@@ -316,7 +316,7 @@ export function startViewer(THREE, human, ui) {
     const m = new THREE.SkinnedMesh(geo, mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; root.add(m);
     return m;
   };
-  const groomMesh = hairR.mesh; root.add(groomMesh);
+  const groomMesh = hairR.mesh; groomMesh.renderOrder = 2; root.add(groomMesh);
   // brows: a decal cut from the skin around the brows, with the brows painted into its texture
   const decal = browDecal(meta), browG = makeGarment(meta, decal.def);
   const browCanvas = document.createElement('canvas'); browCanvas.width = 1024; browCanvas.height = 460;
@@ -394,10 +394,10 @@ export function startViewer(THREE, human, ui) {
     const eyesC = ['left', 'right'].map(sd => { const ids = meta.eyes[sd]; return [0, 1, 2].map(a => ids.reduce((t, i) => t + P[i * 3 + a], 0) / ids.length); });
     const hairShown = hairOn && gearRules.hair !== 'hide';
     groomMesh.visible = hairShown;
+    undercoatMesh.visible = hairShown && hairLook.treatment === 1;
     if (hairShown) {
-      // Keep the fitted scalp as a sampling surface only; no scalp cap is rendered.
+      // Keep the fitted scalp as a sampling surface; only the undercoat comparison style renders it.
       fitGarment(hairData.scalp, P, Nrm);
-      undercoatMesh.visible = hairLook.treatment === 1;
       if (undercoatMesh.visible) {
         undercoatPosition.needsUpdate = true;
         undercoatGeo.computeVertexNormals();

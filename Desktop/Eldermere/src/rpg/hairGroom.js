@@ -9,11 +9,11 @@ const SEG = 14;
 export const HAIR_TREATMENT_NAMES = ['Natural strands', 'Scalp undercoat', 'Soft diffuse', 'Layered volume', 'Root shading', 'Clumped locks', 'Adaptive allocation'];
 const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide;
   uniform sampler2D uHairOff; uniform vec2 uHairOffSize; uniform float uHairWiden;
-  varying vec3 vHairT; varying float vHairN; varying float vHairAlong;
+  varying vec3 vHairT; varying float vHairN; varying float vHairAlong; varying float vHairEdge;
   vec3 hairOffAt(float s) { return texture2D(uHairOff, (vec2(s, hairRef.x) + 0.5) / uHairOffSize).xyz; }`;
 const VERT_BEGIN = `#include <begin_vertex>
   { float hs = hairRef.y; vec3 o0 = hairOffAt(hs), o1 = hairOffAt(min(hs + 1.0, ${SEG}.0));
-    transformed += o0 + hairSide * (uHairWiden - 1.0); vHairAlong = 1.0 - hs / ${SEG}.0;
+    transformed += o0 + hairSide * (uHairWiden - 1.0); vHairAlong = 1.0 - hs / ${SEG}.0; vHairEdge = uv.x;
     hairTan = hairT + (hs < ${SEG}.0 ? o1 - o0 : vec3(0.0)); }`;
 
 export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }) {
@@ -52,7 +52,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
       .replace('#include <common>', `#include <common>
         uniform vec3 uHairRoot; uniform vec3 uHairTip; uniform float uHairBlend;
         uniform float uHairSoftness; uniform float uHairRootStrength;
-        varying vec3 vHairT; varying float vHairN; varying float vHairAlong; vec3 groomBase = vec3(1.0);
+        varying vec3 vHairT; varying float vHairN; varying float vHairAlong; varying float vHairEdge; vec3 groomBase = vec3(1.0);
         vec3 groomSpec(vec3 L, vec3 col, vec3 N, vec3 V) {
           vec3 T = normalize(vHairT), H = normalize(L + V);
           float shift = (vHairN - 0.5) * 0.2;
@@ -69,7 +69,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         float rootMix = smoothstep(uHairBlend - 0.22, uHairBlend + 0.22, vHairAlong);
         rootMix = mix(rootMix, smoothstep(0.12, 0.82, vHairAlong), uHairRootStrength);
         groomBase = mix(uHairRoot, uHairTip, rootMix);
-        float edgeDistance = min(vUv.x, 1.0 - vUv.x);
+        float edgeDistance = min(vHairEdge, 1.0 - vHairEdge);
         float edgeBlend = mix(1.0, smoothstep(0.0, 0.22, edgeDistance), uHairSoftness);
         diffuseColor.rgb *= groomBase * mix(0.86, 1.0, edgeBlend);`)
       .replace('#include <lights_fragment_begin>', THREE.ShaderChunk.lights_fragment_begin

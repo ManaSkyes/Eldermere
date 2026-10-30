@@ -197,6 +197,7 @@ function makeDrapeGuide(root, style, head, seed, underlayer = false) {
 }
 
 function makeGuide(root, style, head, tie, seed) {
+  if (style.flow === 'drape') return makeDrapeGuide(root, style, head, seed, false);
   const pts = [add(root.p, root.n, 0.035)];
   // Fringe leaves the forehead first; tangent projection had flattened it into the face.
   if (style.fringe) {

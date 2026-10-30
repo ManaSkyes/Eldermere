@@ -111,6 +111,15 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     }
 
     const all = [...strandLayers[0], ...strandLayers[1], ...strandLayers[2]];
+    // Re-index each guide's complete strand bundle around the full circumference.
+    // This matters at high multipliers: layer-local indices would otherwise cluster strands.
+    const guideStrandCounts = new Uint32Array(guideCount);
+    const guideStrandOffsets = new Uint32Array(guideCount);
+    for (const strand of all) guideStrandCounts[strand.gi]++;
+    for (const strand of all) {
+      strand.strandIndex = guideStrandOffsets[strand.gi]++;
+      strand.strandTotal = guideStrandCounts[strand.gi];
+    }
     const vertexCount = all.length * (SEG + 1) * 2;
     const positions = new Float32Array(vertexCount * 3);
     const normals = new Float32Array(vertexCount * 3);

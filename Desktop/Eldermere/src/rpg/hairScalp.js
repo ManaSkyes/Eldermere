@@ -2,10 +2,10 @@
 // The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
 const SEG = 14;
 const STYLE_NAMES = {
-  bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy'],
-  top: ['Cropped', 'Swept back', 'Center part', 'Side part', 'Messy'],
-  sides: ['Shaved', 'Short', 'Chin', 'Shoulder', 'Long'],
-  back: ['Short', 'Shoulder', 'Long', 'Ponytail', 'Bun'],
+  bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'Bald'],
+  top: ['Cropped', 'Swept back', 'Center part', 'Side part', 'Messy', 'Bald'],
+  sides: ['Shaved', 'Short', 'Chin', 'Shoulder', 'Long', 'Bald'],
+  back: ['Short', 'Shoulder', 'Long', 'Ponytail', 'Bun', 'Bald'],
 };
 export const GROOM_STYLE_NAMES = STYLE_NAMES;
 
@@ -94,6 +94,8 @@ function sampleScalp(scalp, P, N, spacing = 0.045, maxRoots = 10000) {
 }
 
 function styleFor(zone, index, p, head, lengths, look, tie) {
+  // Bald is an explicit per-region test state: do not generate guides for this scalp zone.
+  if (index === STYLE_NAMES[zone].length - 1) return null;
   const side = Math.sign(p[0] - head.C[0]) || 1;
   const y = (p[1] - head.C[1]) / head.Rad[1], front = (p[2] - head.C[2]) / head.Rad[2];
   const curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
@@ -172,7 +174,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   const head = makeHead(headIds, P, eyeY);
   const map = sampleScalp(scalp, P, N);
   const backStyle = selection.back;
-  const tie = backStyle >= 3 ? [head.C[0], head.C[1] + (backStyle === 4 ? head.Rad[1] * 0.55 : head.Rad[1] * 0.08), head.C[2] - head.Rad[2] * 0.72] : null;
+  const tie = backStyle >= 3 && backStyle <= 4 ? [head.C[0], head.C[1] + (backStyle === 4 ? head.Rad[1] * 0.55 : head.Rad[1] * 0.08), head.C[2] - head.Rad[2] * 0.72] : null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
   const coverage = clamp(Number(look.coverage ?? 1), 0, 1);

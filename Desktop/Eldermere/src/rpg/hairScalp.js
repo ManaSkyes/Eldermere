@@ -195,14 +195,19 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   for (const root of map.roots) {
     if (dot(root.n, sub(root.p, head.C)) < 0) root.n = root.n.map(v => -v);
     const region = regionOf(root.p, root.n, head);
-    const zone = region === 'hairline' ? 'bangs' : 'main';
     const keep = coverage * (region === 'hairline' ? hairlineCoverage : 1);
     const hash = Math.abs(Math.sin(root.p[0] * 127.1 + root.p[1] * 311.7 + root.p[2] * 74.7) * 43758.5453) % 1;
     if (hash > keep) continue;
     regionCounts[region]++;
-    const style = styleFor(zone, selection[zone], root.p, head, lengths, look, tie);
-    if (!style) continue;
-    guides.push(makeGuide(root, style, head, tie, random()));
+
+    // Every follicle first receives the continuous main groom. Bangs are an extra
+    // front layer, never a replacement for the underlying hairline/crown coverage.
+    const baseStyle = styleFor('main', selection.main, root.p, head, lengths, look, tie);
+    if (baseStyle) guides.push(makeGuide(root, baseStyle, head, tie, random()));
+    if (region === 'hairline') {
+      const fringeStyle = styleFor('bangs', selection.bangs, root.p, head, lengths, look, tie);
+      if (fringeStyle) guides.push(makeGuide(root, fringeStyle, head, null, random()));
+    }
   }
   if (tie) {
     const high = mainStyle === 0;

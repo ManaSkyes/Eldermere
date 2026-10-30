@@ -172,7 +172,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
           ];
           // Each strand is its own fine ribbon, not a broad textured card. It tapers almost to a point.
           const f = s / SEG;
-          const halfWidth = strandWidth * (1 - 0.94 * Math.pow(f, 1.35)) * 0.5;
+          const halfWidth = strandWidth * (1 - 0.995 * Math.pow(f, 1.35)) * 0.5;
           const widthDir = [
             tangent[1] * radial[2] - tangent[2] * radial[1],
             tangent[2] * radial[0] - tangent[0] * radial[2],

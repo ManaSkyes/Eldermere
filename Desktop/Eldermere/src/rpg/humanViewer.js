@@ -283,7 +283,7 @@ export function startViewer(THREE, human, ui) {
   // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
   const hairData = makeHair(meta);
   let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
-  const hairSel = { ...DEFAULT_HAIR };
+  const hairSel = { main: 0, bangs: 0 };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
   const scalpPiece = skinnedPiece(hairData.scalp.positions, hairData.scalp.tris, hairData.scalp.skinIndex, hairData.scalp.skinWeight, hairColor);
@@ -301,7 +301,7 @@ export function startViewer(THREE, human, ui) {
   const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
   let skinGlow = 1, labCombo = null;
   let labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
-  const hairLen = { bangs: 0, top: 0, sides: 0, back: 0 };       // slider values -1..1 (half to double length)
+  const hairLen = { main: 0, bangs: 0 };       // independent main hairstyle and fringe lengths (-1..1)
   let hairHead = null;
   const dynamicSkinned = (mat) => {
     const geo = new THREE.BufferGeometry();
@@ -1476,14 +1476,12 @@ export function startViewer(THREE, human, ui) {
   };
   const label = (parent, text) => { const l = document.createElement('div'); l.textContent = text; l.style.cssText = 'color:var(--muted);margin:0.4rem 0 0.2rem'; parent.appendChild(l); };
   pressRow(hairSec, ['Hair', 'Bald'], 0, i => { hairOn = i === 0; update(); });
-  for (const [zone, title] of [['bangs', 'Bangs'], ['top', 'Top'], ['sides', 'Sides'], ['back', 'Back']]) {
-    label(hairSec, title);
-    pressRow(hairSec, GROOM_STYLE_NAMES[zone], hairSel[zone], i => { hairSel[zone] = i; update(); });
-  }
-  label(hairSec, 'Lengths');
-  for (const [zone, lab] of [['bangs', 'Bangs length'], ['top', 'Top length'], ['sides', 'Sides length'], ['back', 'Back length']]) {
-    makeRow(hairSec, lab, -1, 1, () => hairLen[zone], v => { hairLen[zone] = v; });
-  }
+  label(hairSec, 'Main hairstyle');
+  pressRow(hairSec, GROOM_STYLE_NAMES.main, hairSel.main, i => { hairSel.main = i; update(); });
+  makeRow(hairSec, 'Main hair length', -1, 1, () => hairLen.main, v => { hairLen.main = v; });
+  label(hairSec, 'Bangs style');
+  pressRow(hairSec, GROOM_STYLE_NAMES.bangs, hairSel.bangs, i => { hairSel.bangs = i; update(); });
+  makeRow(hairSec, 'Bangs length', -1, 1, () => hairLen.bangs, v => { hairLen.bangs = v; });
   label(hairSec, 'Color');
   const hc = document.createElement('div'); hc.className = 'sw'; hc.style.marginTop = '0.5rem';
   for (const c of ['#e6e1ea', '#e8d6a8', '#b07a3e', '#8a3b24', '#5a3a26', '#2a1d18', '#121012']) {
@@ -2102,7 +2100,14 @@ export function startViewer(THREE, human, ui) {
         if (a.skin) skinMat.color.copy(lin(a.skin));
         if (a.skinGlow != null) { skinGlow = a.skinGlow; skinDetail.setTranslucency(skinGlow); }
         if (a.hair) {
-          hairOn = a.hair.on ?? hairOn; Object.assign(hairSel, a.hair.sel || {}); Object.assign(hairLen, a.hair.len || {}); Object.assign(hairLook, a.hair.look || {}); Object.assign(hairPhys, a.hair.phys || {}); if (hairR.sim) Object.assign(hairR.sim.params, hairPhys);
+          hairOn = a.hair.on ?? hairOn;
+          const savedSel = a.hair.sel || {};
+          if (savedSel.main != null || savedSel.bangs != null) Object.assign(hairSel, savedSel);
+          else { hairSel.main = savedSel.back === 3 ? 0 : 1; hairSel.bangs = savedSel.bangs ?? 0; }
+          const savedLen = a.hair.len || {};
+          if (savedLen.main != null || savedLen.bangs != null) Object.assign(hairLen, savedLen);
+          else { hairLen.main = savedLen.back ?? savedLen.top ?? 0; hairLen.bangs = savedLen.bangs ?? 0; }
+          Object.assign(hairLook, a.hair.look || {}); Object.assign(hairPhys, a.hair.phys || {}); if (hairR.sim) Object.assign(hairR.sim.params, hairPhys);
           hairBlend = a.hair.blend ?? hairBlend;
           setHairColor(a.hair.color ?? hairColor, a.hair.tip ?? a.hair.color ?? hairTip);
           if (a.hair.brow) Object.assign(brow, a.hair.brow); browColor = a.hair.browColor ?? browColor;

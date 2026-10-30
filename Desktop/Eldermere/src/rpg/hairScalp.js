@@ -2,10 +2,8 @@
 // The scalp cap is used only as a fitted surface. No card roots, card copies, or card paths are reused.
 const SEG = 14;
 const STYLE_NAMES = {
-  bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'Bald'],
-  top: ['Cropped', 'Swept back', 'Center part', 'Side part', 'Messy', 'Bald'],
-  sides: ['Shaved', 'Short', 'Chin', 'Shoulder', 'Long', 'Bald'],
-  back: ['Short', 'Shoulder', 'Long', 'Ponytail', 'Bun', 'Bald'],
+  main: ['High ponytail', 'Low ponytail'],
+  bangs: ['Swept back', 'Fringe', 'Side-swept', 'Curtain', 'Wispy', 'None'],
 };
 export const GROOM_STYLE_NAMES = STYLE_NAMES;
 
@@ -94,37 +92,29 @@ function sampleScalp(scalp, P, N, spacing = 0.045, maxRoots = 10000) {
 }
 
 function styleFor(zone, index, p, head, lengths, look, tie) {
-  // Bald is an explicit per-region test state: do not generate guides for this scalp zone.
-  if (index === STYLE_NAMES[zone].length - 1) return null;
   const side = Math.sign(p[0] - head.C[0]) || 1;
-  const y = (p[1] - head.C[1]) / head.Rad[1], front = (p[2] - head.C[2]) / head.Rad[2];
+  const y = (p[1] - head.C[1]) / head.Rad[1];
   const curl = (look.curl ?? 1) * 0.025 + (look.wave ?? 0) * 0.055;
-  let len = 0.8, dir = [0, -0.25, -1], gravity = 0.4, gather = false, loose = 1;
+  let len, dir, gravity, gather = false, loose = 1;
+
   if (zone === 'bangs') {
-    if (index === 0) { len = 1.25; dir = [0, 0.15, -1]; gravity = 0.12; }
-    if (index === 1) { len = Math.max(0.48, 0.92 + y * 0.25); dir = [0, -0.65, 1]; gravity = 0.7; }
-    if (index === 2) { len = 1.35; dir = [side, -0.35, 0.25]; gravity = 0.42; }
-    if (index === 3) { len = 1.55; dir = [side * 0.75, -0.65, 0.25]; gravity = 0.55; gather = true; }
-    if (index === 4) { len = 0.82; dir = [side * 0.25, -0.5, 0.65]; gravity = 0.38; }
-  } else if (zone === 'top') {
-    // Crown roots cross over the centerline first instead of fanning away from it.
-    // The normal style direction takes over farther along each guide.
-    if (index === 0) { len = 0.48; dir = [0, 0.25, -1]; gravity = 0.05; }
-    if (index === 1) { len = 1.6; dir = [0, 0.1, -1]; gravity = 0.22; gather = true; }
-    if (index === 2) { len = 1.8; dir = [side, -0.25, -0.25]; gravity = 0.4; gather = true; }
-    if (index === 3) { len = 1.8; dir = [side * 0.8, -0.2, -0.2]; gravity = 0.4; gather = true; }
-    if (index === 4) { len = 0.95; dir = [Math.sin(p[0] * 9) * 0.5, 0.6, Math.cos(p[2] * 7) * 0.5 - 0.3]; gravity = 0.12; }
-  } else if (zone === 'sides') {
-    if (index === 0) return null;
-    len = index === 1 ? 0.48 : index === 2 ? 1.05 : index === 3 ? 1.8 : 2.7;
-    dir = [side * 0.35, -0.9, -0.12]; gravity = 0.55;
+    if (index === STYLE_NAMES.bangs.length - 1) return null;
+    if (index === 0) { len = 1.1; dir = [0, 0.2, -1]; gravity = 0.12; }
+    if (index === 1) { len = 0.9; dir = [0, -0.72, 0.72]; gravity = 0.65; }
+    if (index === 2) { len = 1.15; dir = [side * 0.9, -0.3, 0.25]; gravity = 0.38; }
+    if (index === 3) { len = 1.25; dir = [side * 0.55, -0.55, 0.45]; gravity = 0.48; }
+    if (index === 4) { len = 0.72; dir = [side * 0.2, -0.45, 0.7]; gravity = 0.32; }
+    len *= Math.exp((lengths.bangs || 0) * 0.69);
   } else {
-    if (index === 3 || index === 4) { len = index === 3 ? 2.8 : 0.9; gather = true; loose = index === 3 ? 1 : 0; }
-    else { len = index === 0 ? 0.55 : index === 1 ? 1.8 : 2.8; dir = [side * 0.15, -1, -0.2]; gravity = 0.58; }
+    // All non-fringe scalp regions share one calm backward flow into the selected ponytail.
+    // There is deliberately no mirrored/crossing crown start direction.
+    len = 1.15;
+    dir = [side * 0.08, -0.28, -1];
+    gravity = 0.32;
+    gather = !!tie;
+    len *= Math.exp((lengths.main || 0) * 0.69);
   }
-  len *= Math.exp((lengths[zone] || 0) * 0.69);
-  const startDir = zone === 'top' ? [-side * 0.9, 0.02, -0.18] : null;
-  return { len, dir: norm(dir), startDir, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
+  return { len, dir: norm(dir), startDir: null, gravity, curl, gather, loose, width: 0.055 + 0.012 * (1 - Math.abs(y)), tone: 0.94 + 0.06 * Math.sin(p[0] * 17 + p[2] * 11) };
 }
 
 function tangentFlow(direction, normal, fallback = [0, 0, -1]) {
@@ -173,8 +163,10 @@ function makeGuide(root, style, head, tie, seed) {
 export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths = {}, look = {}) {
   const head = makeHead(headIds, P, eyeY);
   const map = sampleScalp(scalp, P, N);
-  const backStyle = selection.back;
-  const tie = backStyle >= 3 && backStyle <= 4 ? [head.C[0], head.C[1] + (backStyle === 4 ? head.Rad[1] * 0.55 : head.Rad[1] * 0.08), head.C[2] - head.Rad[2] * 0.72] : null;
+  const mainStyle = selection.main ?? 0;
+  const tie = mainStyle === 0 || mainStyle === 1
+    ? [head.C[0], head.C[1] + head.Rad[1] * (mainStyle === 0 ? 0.34 : -0.38), head.C[2] - head.Rad[2] * 0.78]
+    : null;
   const guides = [];
   const regionCounts = { hairline: 0, temples: 0, crown: 0, sides: 0, back: 0, nape: 0 };
   const coverage = clamp(Number(look.coverage ?? 1), 0, 1);
@@ -184,7 +176,7 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
   for (const root of map.roots) {
     if (dot(root.n, sub(root.p, head.C)) < 0) root.n = root.n.map(v => -v);
     const region = regionOf(root.p, root.n, head);
-    const zone = region === 'hairline' ? 'bangs' : region === 'temples' || region === 'sides' ? 'sides' : region === 'crown' ? 'top' : 'back';
+    const zone = region === 'hairline' ? 'bangs' : 'main';
     const keep = coverage * (region === 'hairline' ? hairlineCoverage : 1);
     const hash = Math.abs(Math.sin(root.p[0] * 127.1 + root.p[1] * 311.7 + root.p[2] * 74.7) * 43758.5453) % 1;
     if (hash > keep) continue;
@@ -193,18 +185,12 @@ export function buildScalpGroom(scalp, headIds, P, N, eyeY, selection, lengths =
     if (!style) continue;
     guides.push(makeGuide(root, style, head, tie, random()));
   }
-  if (tie && backStyle === 3) {
+  if (tie) {
     for (let i = 0; i < 110; i++) {
-      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075, len = 2.8 * Math.exp((lengths.back || 0) * 0.69);
+      const a = random() * Math.PI * 2, radius = 0.035 + random() * 0.075, len = 2.8 * Math.exp((lengths.main || 0) * 0.69);
       const points = [];
       for (let s = 0; s <= SEG; s++) { const t = s / SEG; points.push([tie[0] + Math.cos(a) * radius * (1 + t), tie[1] - len * t * t, tie[2] + Math.sin(a) * radius * 0.6 - 0.25 * Math.sin(Math.PI * t)]); }
       guides.push({ points, center: [tie[0], tie[1] - 1.2, tie[2] + 0.8], width: 0.06, tone: 0.96, loose: 1 });
-    }
-  } else if (tie && backStyle === 4) {
-    for (let i = 0; i < 60; i++) {
-      const lat = (random() - 0.5) * 2.2, radius = 0.28 * Math.cos(lat * 0.7), y0 = 0.22 * Math.sin(lat * 0.7), phase = random() * Math.PI * 2, points = [];
-      for (let s = 0; s <= SEG; s++) { const a = phase + s / SEG * Math.PI * 1.6; points.push([tie[0] + Math.cos(a) * radius, tie[1] + y0 + Math.sin(lat) * 0.12 + Math.sin(a) * radius * 0.25, tie[2] + Math.sin(a) * radius * 0.8]); }
-      guides.push({ points, center: tie, width: 0.06, tone: 0.96, loose: 0 });
     }
   }
   return { guides, head, tie, coverage: { area: map.area, sampledRoots: map.roots.length, roots: guides.length, guides: guides.length, spacing: map.spacing, regions: regionCounts, coverage, hairlineCoverage } };

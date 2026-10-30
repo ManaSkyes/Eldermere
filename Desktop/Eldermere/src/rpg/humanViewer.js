@@ -18,7 +18,8 @@ import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
 import { SWORD_CLIPS, SWORD_STANCE, SHIELD_POSES } from './swordArts.js';
-import { makeHair, buildHairCards, capFlow, HAIR, DEFAULT_HAIR, BROW_STYLES, browDecal, browUVs, paintBrows, lashUVs, paintLashes } from './hair.js';
+import { makeHair, DEFAULT_HAIR, BROW_STYLES, browDecal, browUVs, paintBrows, lashUVs, paintLashes } from './hair.js';
+import { buildScalpGroom, GROOM_STYLE_NAMES } from './hairScalp.js';
 
 export function startViewer(THREE, human, ui) {
   addCustomMorphs(human); addSpeciesTargets(human);
@@ -279,32 +280,16 @@ export function startViewer(THREE, human, ui) {
     }
   }
 
-  // ---- player hair groom: scalp base, strand groom, brows, lashes ----
+  // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
   const hairData = makeHair(meta);
   let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
   const hairSel = { ...DEFAULT_HAIR };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
   const scalpPiece = skinnedPiece(hairData.scalp.positions, hairData.scalp.tris, hairData.scalp.skinIndex, hairData.scalp.skinWeight, hairColor);
-  // The scalp cap is the hair's base layer: its shader draws fine strands along the combing flow
-  // (in the cap's own rest space, so the pattern stays put as the head moves).
-  const flowAttr = new THREE.BufferAttribute(new Float32Array(hairData.scalp.verts.length * 3), 3);
-  scalpPiece.geo.setAttribute('hairFlow', flowAttr);
-  scalpPiece.mesh.material.roughness = 0.6;
-  scalpPiece.mesh.material.onBeforeCompile = sh => {
-    sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 hairFlow;\nvarying vec3 vFlow;\nvarying vec3 vRest;\nvarying vec3 vRestN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFlow = hairFlow; vRest = position; vRestN = normal;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vFlow;\nvarying vec3 vRest;\nvarying vec3 vRestN;')
-      .replace('#include <color_fragment>', `#include <color_fragment>
-        vec3 f = normalize(vFlow + 1e-5), side = normalize(cross(f, normalize(vRestN)) + 1e-5);
-        float across = dot(vRest, side) * 75.0, along = dot(vRest, f) * 6.0;
-        float strands = 0.5 + 0.5 * sin(across + 0.5 * sin(along));
-        float fine = 0.5 + 0.5 * sin(across * 2.3 + 0.4 * sin(along * 1.6));
-        float clump = 0.5 + 0.5 * sin(dot(vRest, side) * 23.0 + sin(along * 0.5) * 2.0);
-        diffuseColor.rgb *= 0.62 + 0.25 * strands + 0.13 * fine + 0.12 * clump;`);
-  };
+  // The scalp cap is a quiet, dark base under the strand groom; root placement is generated
+  // independently from its fitted surface triangles in hairScalp.js.
+  scalpPiece.mesh.material.roughness = 0.62;
   // detail levels for the body and clothes by distance (src/rpg/meshLod.js: fewer triangles over the same vertices)
   const lods = createLods(THREE, () => skinned.filter(m => m.visible && !m.userData.noLod), [{ dist: 7, cell: 0.2 }, { dist: 18, cell: 0.42 }]);
   // the player strand groom: guide curves are simulated on the CPU; fine individual strands are moved on the GPU.
@@ -407,9 +392,8 @@ export function startViewer(THREE, human, ui) {
       if (key !== hairBuilt.key) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
-        const groomData = buildHairCards(hairData, hairSel, P, Nrm, eyesC[0][1], lengths, { copies: 2, tailN: 110, bunN: 60, curl: hairLook.curl, wave: hairLook.wave });   // (one authored guide per scalp root; the groom interpolates multiple fine strands around each guide)
-        flowAttr.array.set(capFlow(hairData, hairSel, P, Nrm, eyesC[0][1], groomData.tie)); flowAttr.needsUpdate = true;
-        groomMesh.updateMatrixWorld(true); hairR.build(groomData.cards, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
+        const groomData = buildScalpGroom(hairData.scalp, hairData.headIds, P, Nrm, eyesC[0][1], hairSel, lengths, hairLook);
+        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {
         // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)
@@ -1479,7 +1463,7 @@ export function startViewer(THREE, human, ui) {
   pressRow(hairSec, ['Hair', 'Bald'], 0, i => { hairOn = i === 0; update(); });
   for (const [zone, title] of [['bangs', 'Bangs'], ['top', 'Top'], ['sides', 'Sides'], ['back', 'Back']]) {
     label(hairSec, title);
-    pressRow(hairSec, HAIR[zone].map(o => o.name), hairSel[zone], i => { hairSel[zone] = i; update(); });
+    pressRow(hairSec, GROOM_STYLE_NAMES[zone], hairSel[zone], i => { hairSel[zone] = i; update(); });
   }
   label(hairSec, 'Lengths');
   for (const [zone, lab] of [['bangs', 'Bangs length'], ['top', 'Top length'], ['sides', 'Sides length'], ['back', 'Back length']]) {
@@ -1509,7 +1493,7 @@ export function startViewer(THREE, human, ui) {
   label(hairSec, 'Detail level (what a distant camera sees)');
   pressRow(hairSec, ['Auto', 'Near', 'Mid', 'Far'], 0, i => { hairR.lodForce = i === 0 ? null : 3 - i; });
   const labOut = document.createElement('div'); labOut.style.cssText = 'color:var(--muted);font-size:0.85em;margin:0.3rem 0'; hairSec.appendChild(labOut);
-  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.cards} cards (${f.layers.join(' / ')}) · ${(f.tris / 1000).toFixed(1)}k triangles · ${f.guides} guides simulated`; };
+  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.strands.toLocaleString()} strands · ${(f.tris / 1000).toFixed(1)}k triangles · ${f.guides} simulated guides`; };
   labInfo();
   setHairColor(hairColor);
   const detailSec = section('Skin details', false);

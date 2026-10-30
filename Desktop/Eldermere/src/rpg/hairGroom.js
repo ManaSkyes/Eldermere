@@ -2,7 +2,7 @@
 // Authored guide curves drive multiple fine, individually shaded strand ribbons. The CPU simulates
 // guides only; the GPU applies their motion to every strand. This replaces the old broad, textured
 // card renderer while retaining the existing hairstyle authoring data during the transition.
-import { makeGuideSim } from './hairCards.js';
+import { makeGuideSim } from './hairPhysics.js';
 
 const SEG = 14;
 const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide;

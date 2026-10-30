@@ -323,7 +323,7 @@ export function startViewer(THREE, human, ui) {
     const m = new THREE.SkinnedMesh(geo, mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; root.add(m);
     return m;
   };
-  const groomMesh = hairR.mesh; root.add(cardsMesh);
+  const groomMesh = hairR.mesh; root.add(groomMesh);
   // brows: a decal cut from the skin around the brows, with the brows painted into its texture
   const decal = browDecal(meta), browG = makeGarment(meta, decal.def);
   const browCanvas = document.createElement('canvas'); browCanvas.width = 1024; browCanvas.height = 460;

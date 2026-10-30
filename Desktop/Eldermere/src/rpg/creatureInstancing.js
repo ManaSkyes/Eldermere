@@ -29,21 +29,29 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
   function removeFromBatch(handle) {
     const batch = handle.batch; if (!batch) return;
     const lastIndex = batch.items.length - 1, last = batch.items[lastIndex];
-    if (handle.slot !== lastIndex) { batch.items[handle.slot] = last; last.slot = handle.slot; batch.mesh.setMatrixAt(handle.slot, new THREE.Matrix4().multiplyMatrices(last.bone.matrixWorld, last.local)); }
+    if (handle.slot !== lastIndex) { batch.items[handle.slot] = last; last.slot = handle.slot; batch.mesh.setMatrixAt(handle.slot, last.scratch.multiplyMatrices(last.bone.matrixWorld, last.local)); }
     batch.items.pop(); batch.mesh.count = batch.items.length; batch.mesh.instanceMatrix.needsUpdate = true; handle.batch = null; handle.slot = -1;
   }
   function register(source, bone) {
-    const handle = { source, bone, local: source.matrix.clone(), batch: null, slot: -1, active: true, visible: true };
+    const handle = { source, bone, local: source.matrix.clone(), scratch: new THREE.Matrix4(), batch: null, slot: -1, active: true, visible: true };
     handles.add(handle);
     if (enabled) addToBatch(handle); else { bone.add(source); source.visible = true; }
     return handle;
   }
   const hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
-  function update(handle) {
-    if (!handle?.active || !handle.batch) return;
-    handle.batch.mesh.setMatrixAt(handle.slot, handle.visible === false ? hiddenMatrix : new THREE.Matrix4().multiplyMatrices(handle.bone.matrixWorld, handle.local));
-    handle.batch.mesh.instanceMatrix.needsUpdate = true;
+  function updateMany(list) {
+    if (!list?.length) return;
+    const dirty = new Set();
+    for (const handle of list) {
+      if (!handle?.active || !handle.batch) continue;
+      const batch = handle.batch;
+      batch.mesh.setMatrixAt(handle.slot, handle.visible === false ? hiddenMatrix : handle.scratch.multiplyMatrices(handle.bone.matrixWorld, handle.local));
+      dirty.add(batch);
+    }
+    // Mark each batch once after all of this creature's rigid details have been written.
+    for (const batch of dirty) batch.mesh.instanceMatrix.needsUpdate = true;
   }
+  function update(handle) { updateMany(handle ? [handle] : []); }
   function setVisible(handle, visible) {
     if (!handle?.active) return;
     handle.visible = !!visible;
@@ -61,7 +69,7 @@ export function createCreaturePartInstancing(THREE, scene, capacity = 512) {
       else { removeFromBatch(h); h.bone.add(h.source); h.source.visible = h.visible !== false; }
     }
   }
-  return { register, update, setVisible, unregister, setEnabled, get enabled() { return enabled; }, get counts() {
+  return { register, update, updateMany, setVisible, unregister, setEnabled, get enabled() { return enabled; }, get counts() {
     let batchesN = 0, instancesN = 0; for (const b of batches.values()) { batchesN++; instancesN += b.items.length; }
     return { batches: batchesN, instances: instancesN };
   } };

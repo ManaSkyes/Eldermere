@@ -271,7 +271,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   root.updateMatrixWorld(true);
   root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false; for (const m of meshes) { m.updateMatrix(); m.matrixAutoUpdate = false; }
   const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
-  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) for (const h of instancedParts) instances.update(h); }
+  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) instances.updateMany ? instances.updateMany(instancedParts) : instancedParts.forEach(h => instances.update(h)); }
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },

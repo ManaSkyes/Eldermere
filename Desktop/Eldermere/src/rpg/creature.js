@@ -275,9 +275,9 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
-    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
+    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; if (puffs) puffs.setEnabled(smokeAuraVisible); },
     setMembranesVisible(visible) { membranesVisible = !!visible; for (const m of membraneMeshes) m.visible = membranesVisible; },
-    setGlowsVisible(visible) { glowsVisible = !!visible; for (const g of glows) g.visible = glowsVisible; },
+    setGlowsVisible(visible) { glowsVisible = !!visible; for (const g of glows) g.visible = glowsVisible; if (puffs) puffs.setGroupEnabled('coreGlow', glowsVisible); },
     setWispsVisible(visible) { wispsVisible = !!visible; if (wispPoints) wispPoints.visible = wispsVisible; },
     setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
@@ -286,7 +286,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } },
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
-    update(t) { uniforms.uTime.value = t; if (wispsVisible) wisps?.(t); if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
+    update(t) { uniforms.uTime.value = t; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; for (const m of membraneMeshes) m.visible = membranesVisible; for (const g of glows) g.visible = glowsVisible; if (wispPoints) wispPoints.visible = wispsVisible; if (wispsVisible) wisps?.(t); if (puffs) puffs.setEnabled(smokeAuraVisible); },
     dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }
@@ -332,7 +332,7 @@ function shadePuffs(THREE, P, chains, byChain, look) {
     const haze = new THREE.Color(look.aura || '#1e0c40').lerp(new THREE.Color(look.auraGlow || '#5a28b8'), 0.4);   // (lifted toward the glow: it has to read against a night sky)
     puffs.push({ on: aura, mode: 'cling', rate: 170 * k, life: [0.8, 1.4], size: [1.9, 2.8], sizeByRadius: true, color: '#' + haze.getHexString(), alpha: 0.5 * aK, rise: 0.02, drift: 0.05 });
     puffs.push({ on: aura, mode: 'cling', rate: 70 * k, life: [0.6, 1.1], size: [1.2, 1.8], sizeByRadius: true, color: smoke, alpha: 0.55 * aK, rise: 0.01, drift: 0.03 });
-    if (core.length) puffs.push({ on: core, mode: 'cling', rate: 22 * (look.coreGlow ?? 1), life: [0.6, 1.0], size: [1.1, 1.7], sizeByRadius: true, color: look.auraGlow || '#5a28b8', alpha: 0.3, add: true, rise: 0.03, drift: 0.02 });
+    if (core.length) puffs.push({ group: 'coreGlow', on: core, mode: 'cling', rate: 22 * (look.coreGlow ?? 1), life: [0.6, 1.0], size: [1.1, 1.7], sizeByRadius: true, color: look.auraGlow || '#5a28b8', alpha: 0.3, add: true, rise: 0.03, drift: 0.02 });
   }
   if (hug.length) puffs.push({ on: hug, mode: 'cling', rate: (aura.length ? 30 : 70) * k, life: [0.6, 1.1], size: [1.6, 2.6], sizeByRadius: true, color: smoke, alpha: 0.38, rise: 0.05, drift: 0.04 });
   puffs.push({ on: wing.length ? [...wing, ...aura] : null, mode: 'trail', rate: 34 * k, life: [0.9, 1.7], size: [0.07 * (look.wispSize ?? 1) / 0.6, 0.26 * (look.wispSize ?? 1) / 0.6], color: smoke, alpha: 0.32, rise: look.wispRise ?? 0.4, drift: 0.12 });

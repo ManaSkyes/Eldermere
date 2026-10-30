@@ -6,7 +6,7 @@ import { makeGuideSim } from './hairPhysics.js';
 
 const SEG = 14;
 
-export const HAIR_TREATMENT_NAMES = ['Natural strands', 'Scalp undercoat', 'Soft diffuse', 'Layered volume', 'Root shading', 'Clumped locks', 'Adaptive allocation'];
+export const HAIR_TREATMENT_NAMES = ['Natural strands', 'Soft diffuse', 'Layered volume', 'Root shading', 'Clumped locks', 'Adaptive allocation', 'Combined coverage + finish'];
 const VERT_PARS = `attribute vec2 hairRef; attribute vec3 hairT; attribute vec3 hairSide; attribute float hairEdge;
   uniform sampler2D uHairOff; uniform vec2 uHairOffSize; uniform float uHairWiden;
   varying vec3 vHairT; varying float vHairN; varying float vHairAlong; varying float vHairEdge;
@@ -103,8 +103,9 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
     const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const volume = look.volume ?? 1;
     const treatment = Math.max(0, Math.min(6, Number(look.treatment) || 0));
-    U.uHairSoftness.value = treatment === 2 ? 1 : 0;
-    U.uHairRootStrength.value = treatment === 4 ? 1 : 0;
+    const combined = treatment === 6;
+    U.uHairSoftness.value = treatment === 1 || combined ? 1 : 0;
+    U.uHairRootStrength.value = treatment === 3 || combined ? 1 : 0;
 
     // Layer ordering lets distance LOD omit complete strands without rebuilding the groom.
     for (let layer = 0; layer < 3; layer++) {
@@ -116,7 +117,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         let baseCount = guide.dynamic
           ? (layer === 0 ? 1 : layer === 1 ? 8 : (random() < 0.55 ? 8 : 4))
           : (layer === 0 ? 1 : layer === 1 ? 3 : (random() < 0.22 ? 4 : 0));
-        if (treatment === 6) {
+        if (treatment === 5 || combined) {
           const regionBoost = guide.region === 'hairline' || guide.region === 'crown' ? 1.55
             : guide.region === 'temples' || guide.region === 'sides' ? 1.05 : 0.72;
           baseCount *= regionBoost;
@@ -172,9 +173,9 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const angle = treatment === 5
           ? clumpAngle + (strand.strandIndex % 3 - 1) * 0.075 + phase * 0.025
           : baseAngle + phase * 0.12;
-        const volumeBoost = treatment === 3 ? 1.22 : 1;
+        const volumeBoost = treatment === 2 || combined ? 1.22 : 1;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
-        const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * (treatment === 3 ? [0.75, 1.08, 1.38][layer] : 1);
+        const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * ((treatment === 2 || combined) ? [0.75, 1.08, 1.38][layer] : 1);
         const radialOffset = strand.width * layerLift * volume * volumeBoost;
         for (let s = 0; s <= SEG; s++) {
           const p = pts[s], prev = pts[Math.max(0, s - 1)], next = pts[Math.min(SEG, s + 1)];

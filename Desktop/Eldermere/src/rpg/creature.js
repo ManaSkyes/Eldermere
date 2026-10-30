@@ -175,7 +175,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const skeleton = new THREE.Skeleton(list);
   const look = spec.look || {};
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
-  const meshes = [];
+  const meshes = [], smokeAuraMeshes = []; let smokeAuraVisible = true;
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
   // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
   // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
@@ -208,13 +208,13 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const P = look.shade ? particles : null;   // (with the particle system: no shells, no aura meshes, no wisps — puffs on the bones instead)
   if (look.shade && !P) {   // the smoke round the body: a loose, flickering shell over the same skin (fallback without particles)
     for (const [inflate, alpha] of [[0.055, 0.8]]) {   // (one shell: each one is a full transparent pass over the creature)
-      const sm = new THREE.SkinnedMesh(geo, smokeMaterial(THREE, uniforms, inflate, alpha, look)); sm.frustumCulled = false; sm.renderOrder = 2; sm.userData.noReflect = true; sm.userData.noCover = true; root.add(sm); sm.bind(skeleton); meshes.push(sm);
+      const sm = new THREE.SkinnedMesh(geo, smokeMaterial(THREE, uniforms, inflate, alpha, look)); sm.frustumCulled = false; sm.renderOrder = 2; sm.userData.noReflect = true; sm.userData.noCover = true; root.add(sm); sm.bind(skeleton); meshes.push(sm); smokeAuraMeshes.push(sm);
     }
   }
   // the aura: the body's would-be flesh as a rolling purple cloud — a dark inner cloud and a faint glow round it
   if (auraGeo && !P) {
     for (const [inflate, glow] of [[0.02, false]]) {   // (one layer: the haze carries the glow at its heart itself)
-      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true;   // (the puddles show its bones, not its haze) root.add(am); am.bind(skeleton); meshes.push(am);
+      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true;   // (the puddles show its bones, not its haze) root.add(am); am.bind(skeleton); meshes.push(am); smokeAuraMeshes.push(am);
     }
   }
   // wisps: dark smoke rising off a shade's body (points that start at random bones and drift up and away)
@@ -275,6 +275,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
     setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
+    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible; if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
     setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
@@ -282,7 +283,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } },
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
-    update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = uniforms.uSmoke.value / (look.smoke ?? 0.6); },
+    update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = smokeAuraVisible ? uniforms.uSmoke.value / (look.smoke ?? 0.6) : 0; },
     dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }

@@ -2003,7 +2003,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // measured with and without it — what each one costs, in one table
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
   const scenarioBench = { on: false, phase: 'idle', frame: 0, logic: [], submit: [], frameMs: [], calls: [], tris: [], report: '', saved: null, clearRestoreForce: false, restoreForce: null, restoreForceDelay: 0 };
-  const gpuThroughput = { active: false, started: 0, runId: 0, warmupMs: 2000, measureMs: 6000, repeats: 4, frames: 0, renders: 0, cpuSubmitMs: 0, gpuSamples: [], report: '' };
+  const gpuThroughput = { active: false, finishing: false, started: 0, runId: 0, warmupMs: 2000, measureMs: 6000, repeats: 4, frames: 0, renders: 0, cpuSubmitMs: 0, gpuSamples: [], report: '' };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
     { name: 'World / area fog', off: () => { probe.fogOff = true; applyProbe(); }, on: () => { probe.fogOff = false; applyProbe(); } },
@@ -2324,29 +2324,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         gpuThroughput.frames++;
         throughputStatus().textContent = `Measuring… ${Math.min(100, measureElapsed / gpuThroughput.measureMs * 100).toFixed(0)}% · ${gpuThroughput.renders} extra renders`;
       } else {
-        gpuThroughput.active = false;
-        const sorted = gpuThroughput.gpuSamples.filter(Number.isFinite).sort((a,b)=>a-b), mid = sorted.length >> 1;
-        const gpuMedian = sorted.length ? (sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2) : NaN;
-        const seconds = gpuThroughput.measureMs / 1000, perSecond = gpuThroughput.renders / seconds;
-        const cpuPerRender = gpuThroughput.renders ? gpuThroughput.cpuSubmitMs / gpuThroughput.renders : NaN;
-        gpuThroughput.report = [
-          'ELDERMERE GPU THROUGHPUT TEST',
-          new Date().toLocaleString(),
-          'Mode: repeated steady-state scene renders; gameplay advances once per display callback, not once per render',
-          `Extra renders: ${gpuThroughput.renders} over ${seconds.toFixed(1)} measured seconds · ${perSecond.toFixed(1)} renders/s`,
-          `Display callbacks during measurement: ${gpuThroughput.frames} · ${(gpuThroughput.frames / seconds).toFixed(1)} callbacks/s`,
-          `Extra renders per callback: ${gpuThroughput.frames ? (gpuThroughput.renders / gpuThroughput.frames).toFixed(2) : 'n/a'}`,
-          `GPU time per render: ${Number.isFinite(gpuMedian) ? gpuMedian.toFixed(3) + ' ms median' : 'unavailable'} · ${gpuThroughput.gpuSamples.length} valid timer samples`,
-          `CPU submission per extra render: ${Number.isFinite(cpuPerRender) ? cpuPerRender.toFixed(3) + ' ms average' : 'unavailable'}`,
-          `CPU submission total: ${gpuThroughput.cpuSubmitMs.toFixed(1)} ms`,
-          `Render scale: ${(probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0)}% · resolution: ${renderer.domElement.width}×${renderer.domElement.height}`,
-          `Draw calls: ${probeAcc.calls} · triangles: ${(probeAcc.tris / 1e6).toFixed(2)}M (latest game frame; repeat passes are not added to this counter)`,
-          '',
-          'Interpretation: renders/s measures how many repeated scene submissions were completed during the available display callbacks. GPU ms/render is the asynchronous GPU timer-query median. This is a steady-state renderer stress test, not uncapped gameplay FPS; requestAnimationFrame remains display-synchronized. A high CPU submission/render with low GPU time indicates submission-bound rendering.'
-        ].join('\\n');
-        throughputReport().textContent = gpuThroughput.report;
-        throughputStatus().textContent = 'Complete · copy the report text below.';
-        probeEl.querySelector('[data-gpu-throughput]').disabled = false;
+        gpuThroughput.active = false; gpuThroughput.finishing = true;
+        throughputStatus().textContent = 'Measurement complete · waiting for GPU timer queries…';
       }
     }
     body?.showHead(true);                              // ...but everything else (hair physics, mirrors) does
@@ -2365,6 +2344,31 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         if (item.throughputRunId != null && item.throughputRunId === gpuThroughput.runId) gpuThroughput.gpuSamples.push(gv);
       }
       glc.deleteQuery(item.q);
+    }
+    if (gpuThroughput.finishing && !tqList.some(item => item.throughputRunId === gpuThroughput.runId)) {
+      gpuThroughput.finishing = false;
+      const sorted = gpuThroughput.gpuSamples.filter(Number.isFinite).sort((a,b)=>a-b), mid = sorted.length >> 1;
+      const gpuMedian = sorted.length ? (sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2) : NaN;
+      const seconds = gpuThroughput.measureMs / 1000, perSecond = gpuThroughput.renders / seconds;
+      const cpuPerRender = gpuThroughput.renders ? gpuThroughput.cpuSubmitMs / gpuThroughput.renders : NaN;
+      gpuThroughput.report = [
+        'ELDERMERE GPU THROUGHPUT TEST',
+        new Date().toLocaleString(),
+        'Mode: repeated steady-state scene renders; gameplay advances once per display callback, not once per render',
+        `Extra renders: ${gpuThroughput.renders} over ${seconds.toFixed(1)} measured seconds · ${perSecond.toFixed(1)} renders/s`,
+        `Display callbacks during measurement: ${gpuThroughput.frames} · ${(gpuThroughput.frames / seconds).toFixed(1)} callbacks/s`,
+        `Extra renders per callback: ${gpuThroughput.frames ? (gpuThroughput.renders / gpuThroughput.frames).toFixed(2) : 'n/a'}`,
+        `GPU time per render: ${Number.isFinite(gpuMedian) ? gpuMedian.toFixed(3) + ' ms median' : 'unavailable'} · ${gpuThroughput.gpuSamples.length} valid timer samples`,
+        `CPU submission per extra render: ${Number.isFinite(cpuPerRender) ? cpuPerRender.toFixed(3) + ' ms average' : 'unavailable'}`,
+        `CPU submission total: ${gpuThroughput.cpuSubmitMs.toFixed(1)} ms`,
+        `Render scale: ${(probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0)}% · resolution: ${renderer.domElement.width}×${renderer.domElement.height}`,
+        `Draw calls: ${probeAcc.calls} · triangles: ${(probeAcc.tris / 1e6).toFixed(2)}M (latest game frame; repeat passes are not added to this counter)`,
+        '',
+        'Interpretation: renders/s measures how many repeated scene submissions were completed during the available display callbacks. GPU ms/render is the asynchronous GPU timer-query median. This is a steady-state renderer stress test, not uncapped gameplay FPS; requestAnimationFrame remains display-synchronized. A high CPU submission/render with low GPU time indicates submission-bound rendering.'
+      ].join('\\n');
+      throughputReport().textContent = gpuThroughput.report;
+      throughputStatus().textContent = 'Complete · copy the report text below.';
+      probeEl.querySelector('[data-gpu-throughput]').disabled = false;
     }
     if (probe.on) { probeInfo.logic = (probeInfo.logic || 0) * 0.9 + (cpu1 - cpu0) * 0.1; probeInfo.submit = (probeInfo.submit || 0) * 0.9 + (cpu2 - cpu1) * 0.1; if (probe.sync) { if (!tq) glc.readPixels(0, 0, 1, 1, glc.RGBA, glc.UNSIGNED_BYTE, px1); } probeInfo.gpuWait = (probeInfo.gpuWait || 0) * 0.9 + (performance.now() - cpu2) * 0.1; }
     if (scenarioBench.on) {

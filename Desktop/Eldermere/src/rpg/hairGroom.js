@@ -167,9 +167,7 @@ export function createHairGroom(THREE, { headBone, skeleton, bindMatrix = null }
         const baseAngle = (strand.strandIndex / Math.max(1, strand.strandTotal)) * Math.PI * 2;
         const clumpCount = Math.max(2, Math.ceil(strand.strandTotal / 3));
         const clumpAngle = Math.floor(strand.strandIndex / 3) / clumpCount * Math.PI * 2;
-        const angle = treatment === 5
-          ? clumpAngle + (strand.strandIndex % 3 - 1) * 0.075 + phase * 0.025
-          : baseAngle + phase * 0.12;
+        const angle = baseAngle + phase * 0.12;
         const volumeBoost = 1.22;
         const strandWidth = Math.max(0.0008, strand.width * 0.06 * volume * volumeBoost) * (0.78 + strand.seed * 0.42);
         const layerLift = (layer === 0 ? 0.045 : layer === 1 ? 0.12 : 0.24) * [0.75, 1.08, 1.38][layer];

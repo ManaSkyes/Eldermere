@@ -390,7 +390,7 @@ export function startViewer(THREE, human, ui) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
         const groomData = buildScalpGroom(hairData.scalp, hairData.headIds, P, Nrm, eyesC[0][1], hairSel, lengths, hairLook);
-        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook, { positions: P, normals: Nrm, ids: hairData.headIds }); hairR.info.coverage = groomData.coverage; Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
+        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook, { positions: hairData.scalp.positions, triangles: hairData.scalp.tris }); hairR.info.coverage = groomData.coverage; Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {
         // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)

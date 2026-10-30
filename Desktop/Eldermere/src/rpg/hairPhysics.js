@@ -2,36 +2,82 @@
 // Kept separate from the retired card renderer so the groom can evolve independently.
 const SEG = 14;
 
-function makeSurfaceIndex(surface, cell = 0.075) {
-  if (!surface || !surface.positions || !surface.normals || !surface.ids?.length) return null;
-  const { positions, normals, ids } = surface, grid = new Map();
-  const key = (x, y, z) => `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
-  for (const id of ids) {
-    const o = id * 3, p = [positions[o], positions[o + 1], positions[o + 2]];
-    const k = key(...p); (grid.get(k) || grid.set(k, []).get(k)).push({ p, n: [normals[o], normals[o + 1], normals[o + 2]] });
+function makeSurfaceIndex(surface, cell = 0.075, center = [0, 0, 0]) {
+  if (!surface?.positions || !surface?.triangles?.length) return null;
+  const P = surface.positions, T = surface.triangles, grid = new Map();
+  const key = (x, y, z) => `${x},${y},${z}`;
+  const tri = [];
+  for (let t = 0; t < T.length; t += 3) {
+    const ia = T[t], ib = T[t + 1], ic = T[t + 2];
+    const a = [P[ia * 3], P[ia * 3 + 1], P[ia * 3 + 2]];
+    const b = [P[ib * 3], P[ib * 3 + 1], P[ib * 3 + 2]];
+    const c = [P[ic * 3], P[ic * 3 + 1], P[ic * 3 + 2]];
+    let nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+    let ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+    let nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const nl = Math.hypot(nx, ny, nz); if (nl < 1e-9) continue;
+    nx /= nl; ny /= nl; nz /= nl;
+    const mx = (a[0] + b[0] + c[0]) / 3 - center[0];
+    const my = (a[1] + b[1] + c[1]) / 3 - center[1];
+    const mz = (a[2] + b[2] + c[2]) / 3 - center[2];
+    if (nx * mx + ny * my + nz * mz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    const id = tri.length, item = { a, b, c, n: [nx, ny, nz] }; tri.push(item);
+    const minX = Math.floor(Math.min(a[0], b[0], c[0]) / cell), maxX = Math.floor(Math.max(a[0], b[0], c[0]) / cell);
+    const minY = Math.floor(Math.min(a[1], b[1], c[1]) / cell), maxY = Math.floor(Math.max(a[1], b[1], c[1]) / cell);
+    const minZ = Math.floor(Math.min(a[2], b[2], c[2]) / cell), maxZ = Math.floor(Math.max(a[2], b[2], c[2]) / cell);
+    for (let x = minX; x <= maxX; x++) for (let y = minY; y <= maxY; y++) for (let z = minZ; z <= maxZ; z++) {
+      const k = key(x, y, z); (grid.get(k) || grid.set(k, []).get(k)).push(id);
+    }
   }
-  return { grid, cell };
+  return { grid, tri, cell, key };
+}
+function closestOnTriangle(p, a, b, c, out) {
+  const abx=b[0]-a[0], aby=b[1]-a[1], abz=b[2]-a[2], acx=c[0]-a[0], acy=c[1]-a[1], acz=c[2]-a[2];
+  const apx=p[0]-a[0], apy=p[1]-a[1], apz=p[2]-a[2];
+  const d1=abx*apx+aby*apy+abz*apz, d2=acx*apx+acy*apy+acz*apz;
+  let u, v, w;
+  if (d1 <= 0 && d2 <= 0) { u=1; v=w=0; }
+  else {
+    const bpx=p[0]-b[0], bpy=p[1]-b[1], bpz=p[2]-b[2], d3=abx*bpx+aby*bpy+abz*bpz, d4=acx*bpx+acy*bpy+acz*bpz;
+    if (d3 >= 0 && d4 <= d3) { u=0; v=1; w=0; }
+    else {
+      const vc=d1*d4-d3*d2;
+      if (vc <= 0 && d1 >= 0 && d3 <= 0) { const t=d1/(d1-d3); u=1-t; v=t; w=0; }
+      else {
+        const cpx=p[0]-c[0], cpy=p[1]-c[1], cpz=p[2]-c[2], d5=abx*cpx+aby*cpy+abz*cpz, d6=acx*cpx+acy*cpy+acz*cpz;
+        if (d6 >= 0 && d5 <= d6) { u=0; v=0; w=1; }
+        else {
+          const vb=d5*d2-d1*d6;
+          if (vb <= 0 && d2 >= 0 && d6 <= 0) { const t=d2/(d2-d6); u=1-t; v=0; w=t; }
+          else {
+            const va=d3*d6-d5*d4;
+            if (va <= 0 && d4-d3 >= 0 && d5-d6 >= 0) { const t=(d4-d3)/((d4-d3)+(d5-d6)); u=0; v=1-t; w=t; }
+            else { const inv=1/(va+vb+vc); v=vb*inv; w=vc*inv; u=1-v-w; }
+          }
+        }
+      }
+    }
+  }
+  out[0]=a[0]*u+b[0]*v+c[0]*w; out[1]=a[1]*u+b[1]*v+c[1]*w; out[2]=a[2]*u+b[2]*v+c[2]*w;
 }
 function collideSurface(point, surface, radius) {
   if (!surface) return false;
-  const { grid, cell } = surface, x = point[0], y = point[1], z = point[2];
-  const gx = Math.floor(x / cell), gy = Math.floor(y / cell), gz = Math.floor(z / cell);
-  let best = null, bestD = Infinity;
-  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
-    const list = grid.get(`${gx+a},${gy+b},${gz+c}`);
-    if (!list) continue;
-    for (const v of list) {
-      const dx=x-v.p[0], dy=y-v.p[1], dz=z-v.p[2], d=dx*dx+dy*dy+dz*dz;
-      if (d < bestD) { bestD=d; best=v; }
+  const { grid, tri, cell, key } = surface, gx=Math.floor(point[0]/cell), gy=Math.floor(point[1]/cell), gz=Math.floor(point[2]/cell);
+  let best=null, bestD=Infinity; const seen=new Set(), closest=[0,0,0], candidate=[0,0,0];
+  for(let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) for(let z=-1;z<=1;z++) {
+    const list=grid.get(key(gx+x,gy+y,gz+z)); if(!list) continue;
+    for(const id of list) {
+      if(seen.has(id)) continue; seen.add(id);
+      const f=tri[id]; closestOnTriangle(point,f.a,f.b,f.c,candidate);
+      const dx=point[0]-candidate[0],dy=point[1]-candidate[1],dz=point[2]-candidate[2],d=dx*dx+dy*dy+dz*dz;
+      if(d<bestD){bestD=d;best=f;closest[0]=candidate[0];closest[1]=candidate[1];closest[2]=candidate[2];}
     }
   }
-  if (!best) return false;
-  const dx=x-best.p[0], dy=y-best.p[1], dz=z-best.p[2];
-  const signed=dx*best.n[0]+dy*best.n[1]+dz*best.n[2];
-  if (signed >= radius) return false;
-  // Project along the skinned surface normal, not toward an approximate head centre.
+  if(!best) return false;
+  const n=best.n, signed=(point[0]-closest[0])*n[0]+(point[1]-closest[1])*n[1]+(point[2]-closest[2])*n[2];
+  if(signed>=radius) return false;
   const push=radius-signed;
-  point[0]+=best.n[0]*push; point[1]+=best.n[1]*push; point[2]+=best.n[2]*push;
+  point[0]+=n[0]*push; point[1]+=n[1]*push; point[2]+=n[2]*push;
   return true;
 }
 
@@ -45,7 +91,7 @@ export function makeGuideSim(guides, head, headSurface = null) {
   // the feel, live-tunable (the creator's Hair lab): follow — how much of the head's turning the hair turns with at once
   // (the rest becomes swing); inertia — how much speeding up and slowing down throws it; stiffness, damping, gravity
   const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1, collision: 1 };
-  const surface = makeSurfaceIndex(headSurface);
+  const surface = makeSurfaceIndex(headSurface, 0.075, head.C);
   const guideRadius = Float32Array.from(guides, gd => Math.max(0.018, (gd.width || 0.055) * 0.42));
   guides.forEach((gd, k) => {
     tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;

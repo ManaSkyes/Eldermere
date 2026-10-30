@@ -18,7 +18,7 @@ import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
 import { SWORD_CLIPS, SWORD_STANCE, SHIELD_POSES } from './swordArts.js';
-import { makeHair, hairTexture, buildHairCards, capFlow, HAIR, DEFAULT_HAIR, BROW_STYLES, browDecal, browUVs, paintBrows, lashUVs, paintLashes } from './hair.js';
+import { makeHair, buildHairCards, capFlow, HAIR, DEFAULT_HAIR, BROW_STYLES, browDecal, browUVs, paintBrows, lashUVs, paintLashes } from './hair.js';
 
 export function startViewer(THREE, human, ui) {
   addCustomMorphs(human); addSpeciesTargets(human);
@@ -279,9 +279,8 @@ export function startViewer(THREE, human, ui) {
     }
   }
 
-  // ---- hair: scalp cap, cards, brows, lashes ----
+  // ---- player hair groom: scalp base, strand groom, brows, lashes ----
   const hairData = makeHair(meta);
-  const hairTex = hairTexture(THREE);
   let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
   const hairSel = { ...DEFAULT_HAIR };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
@@ -324,7 +323,7 @@ export function startViewer(THREE, human, ui) {
     const m = new THREE.SkinnedMesh(geo, mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; root.add(m);
     return m;
   };
-  const cardsMesh = hairR.mesh; root.add(cardsMesh);
+  const groomMesh = hairR.mesh; root.add(cardsMesh);
   // brows: a decal cut from the skin around the brows, with the brows painted into its texture
   const decal = browDecal(meta), browG = makeGarment(meta, decal.def);
   const browCanvas = document.createElement('canvas'); browCanvas.width = 1024; browCanvas.height = 460;
@@ -408,9 +407,9 @@ export function startViewer(THREE, human, ui) {
       if (key !== hairBuilt.key) {
         // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
         const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
-        const cards = buildHairCards(hairData, hairSel, P, Nrm, eyesC[0][1], lengths, { copies: 1, tailN: 30, bunN: 18, curl: hairLook.curl, wave: hairLook.wave });   // (guides: one per root; the cards are laid round them)
+        const groomData = buildHairCards(hairData, hairSel, P, Nrm, eyesC[0][1], lengths, { copies: 1, tailN: 30, bunN: 18, curl: hairLook.curl, wave: hairLook.wave });   // (one authored guide per scalp root; the groom interpolates multiple fine strands around each guide)
         flowAttr.array.set(capFlow(hairData, hairSel, P, Nrm, eyesC[0][1], cards.tie)); flowAttr.needsUpdate = true;
-        cardsMesh.updateMatrixWorld(true); hairR.build(cards.cards, cards.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = cards.head; labInfo?.();
+        cardsMesh.updateMatrixWorld(true); hairR.build(groomData.cards, groomData.head, hairLook); Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
         hairBuilt = { key, P: Float32Array.from(P) };
       } else {
         // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)

@@ -706,3 +706,55 @@ tr[data-spell] { cursor: grab; }
   .pages.pages-bestiary:has(.beast-collection) .beast-page-tab { min-height:0; padding:.06rem .02rem; font-size:.44rem; }
   .pages.pages-bestiary:has(.beast-collection) .beast-page-nav { padding:.06rem .12rem; }
 }
+
+
+/* Bestiary collection layout correction: keep the page controls directly
+   beneath the journal subtitle, and restore readable, usable tab dimensions. */
+.pages.pages-bestiary:has(.beast-collection) > .beast-collection {
+  display:grid;
+  grid-template-rows:max-content max-content minmax(0,1fr);
+  align-content:start;
+  row-gap:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  align-self:start;
+  flex:0 0 auto;
+  margin:0;
+  padding:0 .55rem;
+  border:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  align-self:start;
+  margin:0;
+  padding:.12rem .2rem;
+  gap:.15rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+  grid-template-rows:repeat(2,minmax(1.45rem,auto));
+  align-content:start;
+  gap:.12rem .14rem;
+  padding:0;
+  margin:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+  min-height:1.45rem;
+  padding:.16rem .08rem;
+  font-size:clamp(.58rem,.72vw,.76rem);
+  line-height:1.05;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-arrow {
+  flex-basis:1.7rem;
+  width:1.7rem;
+  height:1.65rem;
+}
+@media (max-width:760px) {
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+    grid-template-rows:repeat(2,minmax(1.35rem,auto));
+    gap:.1rem .1rem;
+  }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+    min-height:1.35rem;
+    padding:.12rem .04rem;
+    font-size:.56rem;
+  }
+}

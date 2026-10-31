@@ -486,3 +486,22 @@ tr[data-spell] { cursor: grab; }
 .beast-slot-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.82rem; }
 .beast-slot-state { font-size:.65rem; color:var(--ink-soft); }
 .bestiary .bst-nav button { width:auto; padding:0 .65rem; font-size:.8rem; }
+
+
+/* Bestiary collection: blank field-guide slots become sigils as creatures are discovered. */
+.bestiary .beast-collection { display:flex; flex-direction:column; min-height:0; }
+.beast-collection-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0 1rem .65rem; border-bottom:1px solid var(--rule); }
+.beast-collection-head h2 { margin:.2rem 0; font-family:var(--caps); font-weight:500; font-size:1.6rem; }
+.beast-collection-head .hint { margin:.1rem 0; }
+.beast-collection-head strong { font-size:1.25rem; white-space:nowrap; color:var(--accent); }
+.beast-collection-head strong small { font-size:.72rem; color:var(--ink-soft); font-weight:400; }
+.beast-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:.65rem; padding:1rem; overflow-y:auto; align-content:start; }
+.beast-slot { min-width:0; min-height:116px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; padding:.55rem .35rem; border:1px solid rgba(91,65,39,.3); border-radius:5px; background:rgba(255,250,240,.34); color:var(--ink-b); font:inherit; }
+.beast-slot.discovered { cursor:pointer; background:linear-gradient(145deg,rgba(255,255,255,.48),rgba(192,164,116,.18)); border-color:rgba(121,53,43,.45); }
+.beast-slot.discovered:hover { transform:translateY(-2px); box-shadow:0 3px 10px rgba(55,35,17,.18); }
+.beast-slot.undiscovered { opacity:.62; border-style:dashed; background:rgba(90,70,48,.055); }
+.beast-slot-icon { width:48px; height:48px; display:grid; place-items:center; border:1px solid currentColor; border-radius:50%; font-family:var(--caps); font-size:1.65rem; color:var(--accent); background:radial-gradient(circle,rgba(121,53,43,.12),transparent 70%); }
+.beast-slot.undiscovered .beast-slot-icon { color:var(--ink-soft); border-color:rgba(91,65,39,.35); background:transparent; }
+.beast-slot-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.82rem; }
+.beast-slot-state { font-size:.65rem; color:var(--ink-soft); }
+.bestiary .bst-nav button { width:auto; padding:0 .65rem; font-size:.8rem; }

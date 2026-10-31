@@ -6,7 +6,7 @@ export function createHairMeshes(THREE, { headBone, skeleton }) {
   const panelMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, side: THREE.DoubleSide, vertexColors: true });
   const cap = new THREE.SkinnedMesh(new THREE.BufferGeometry(), capMat);
   const panels = new THREE.SkinnedMesh(new THREE.BufferGeometry(), panelMat);
-  for (const m of [cap, panels]) { m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.renderOrder = 2; }
+  for (const m of [cap, panels]) { m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.renderOrder = 2; m.bind(skeleton); }
   let lodLevel=0, last=null, colors=['#e6e1ea','#e6e1ea'], blend=0;
   let info={locks:0,tris:0};
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));

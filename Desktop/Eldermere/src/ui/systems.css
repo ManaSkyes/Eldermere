@@ -599,3 +599,47 @@ tr[data-spell] { cursor: grab; }
   .beast-page-nav { padding:.2rem .25rem; }
   .beast-page-arrow { flex-basis:1.55rem; height:1.7rem; }
 }
+
+
+/* Bestiary header: override inherited book/header spacing and prevent flex/grid stretching. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  display:flex;
+  flex:0 0 auto;
+  align-items:flex-start;
+  min-height:0;
+  height:auto;
+  margin:0;
+  padding:0 .8rem .12rem;
+  line-height:1;
+  gap:.5rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > div {
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+  gap:0;
+  min-height:0;
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head h2 {
+  display:block;
+  margin:0;
+  padding:0;
+  font-size:1rem;
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint {
+  display:block;
+  margin:0;
+  padding:0;
+  font-size:.68rem;
+  line-height:1.1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  align-self:flex-start;
+  margin:0;
+  padding:0;
+  font-size:.9rem;
+  line-height:1;
+}

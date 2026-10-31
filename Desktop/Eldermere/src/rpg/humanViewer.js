@@ -411,6 +411,31 @@ export function startViewer(THREE, human, ui) {
     fitGarment(browG, P, Nrm); browPiece.attr.needsUpdate = true; browPiece.geo.computeVertexNormals();
     const bk = JSON.stringify(brow); if (bk !== browKey) { browKey = bk; repaintBrows(); }
   }
+  // Compact head-only triangle proxy, refreshed from the skinned body into groom rest space.
+  const headVertexMap = new Int32Array(meta.vertexCount); headVertexMap.fill(-1);
+  const headProxyIds = [], headProxyTris = [];
+  for (const id of hairData.headIds) { headVertexMap[id] = headProxyIds.length; headProxyIds.push(id); }
+  for (let t = 0; t < meta.bodyTris.length; t += 3) {
+    const a = headVertexMap[meta.bodyTris[t]], b = headVertexMap[meta.bodyTris[t + 1]], c = headVertexMap[meta.bodyTris[t + 2]];
+    if (a >= 0 && b >= 0 && c >= 0) headProxyTris.push(a, b, c);
+  }
+  const headProxyPositions = new Float32Array(headProxyIds.length * 3);
+  const headProxy = { positions: headProxyPositions, triangles: new Uint32Array(headProxyTris) };
+  const headProxyV = new THREE.Vector3(), headProxyWorld = new THREE.Vector3();
+  const headProxyInv = new THREE.Matrix4(), headProxyRest = new THREE.Matrix4();
+  function updateHeadCollisionProxy() {
+    body.updateMatrixWorld(true); groomMesh.updateMatrixWorld(true);
+    const bone = rig.skeleton.bones[headBone];
+    headM.multiplyMatrices(meshInv.copy(groomMesh.matrixWorld).invert(), bone.matrixWorld)
+      .multiply(rig.skeleton.boneInverses[headBone]).multiply(body.bindMatrix);
+    headProxyRest.multiplyMatrices(groomMesh.matrixWorld, headM);
+    headProxyInv.copy(headProxyRest).invert();
+    for (let i = 0; i < headProxyIds.length; i++) {
+      body.boneTransform(headProxyIds[i], headProxyV);
+      headProxyWorld.copy(headProxyV).applyMatrix4(body.matrixWorld).applyMatrix4(headProxyInv);
+      const o = i * 3; headProxyPositions[o] = headProxyWorld.x; headProxyPositions[o + 1] = headProxyWorld.y; headProxyPositions[o + 2] = headProxyWorld.z;
+    }
+  }
   // Hair physics: the head's skinning matrix this frame (rest -> now, in the character's space)
   const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
   let hairSimulationEnabled = true; // game camera can pause simulation independently of temporary render visibility
@@ -420,7 +445,8 @@ export function startViewer(THREE, human, ui) {
     const bone = rig.skeleton.bones[headBone];
     meshInv.copy(groomMesh.matrixWorld).invert();
     headM.multiplyMatrices(meshInv, bone.matrixWorld).multiply(rig.skeleton.boneInverses[headBone]).multiply(groomMesh.bindMatrix);
-    hairR.step(dt, groomMesh.matrixWorld, headM, capsules().filter(c => c.hair || c.torso), { wind: game ? hairWind : [labWind * 8, 0, labWind * 3], time: clock.elapsedTime });   // (neck, shoulders and back: arms and legs don't reach the hair)
+    updateHeadCollisionProxy();
+    hairR.step(dt, groomMesh.matrixWorld, headM, capsules().filter(c => c.hair || c.torso), { headSurface: headProxy, wind: game ? hairWind : [labWind * 8, 0, labWind * 3], time: clock.elapsedTime });   // (neck, shoulders and back: arms and legs don't reach the hair)
   }
   // root and tip colors; brows follow the root color unless given their own
   function setHairColor(root, tip = root) {

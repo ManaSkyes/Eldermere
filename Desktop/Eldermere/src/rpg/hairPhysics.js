@@ -91,7 +91,7 @@ export function makeGuideSim(guides, head, headSurface = null) {
   // the feel, live-tunable (the creator's Hair lab): follow — how much of the head's turning the hair turns with at once
   // (the rest becomes swing); inertia — how much speeding up and slowing down throws it; stiffness, damping, gravity
   const params = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1, collision: 1 };
-  const surface = makeSurfaceIndex(headSurface, 0.075, head.C);
+  let surface = makeSurfaceIndex(headSurface, 0.075, head.C);
   const guideRadius = Float32Array.from(guides, gd => Math.max(0.018, (gd.width || 0.055) * 0.42));
   guides.forEach((gd, k) => {
     tied[k] = gd.loose === 0 ? 1 : 0; let L = 0; activeFrom[k] = n;
@@ -108,6 +108,7 @@ export function makeGuideSim(guides, head, headSurface = null) {
   function reset() { ready = false; havePrev = false; }
   function place() { for (let i = 0; i < G * n; i++) { xf(WM, rest, i * 3, p, i * 3); prev[i * 3] = p[i * 3]; prev[i * 3 + 1] = p[i * 3 + 1]; prev[i * 3 + 2] = p[i * 3 + 2]; } ready = true; }
   function step(dt, meshWorld, headM, caps, opts) {
+    if (opts.headSurface) surface = makeSurfaceIndex(opts.headSurface, 0.075, head.C);
     W.set(meshWorld.elements); M.set(headM.elements); mul(W, M, WM); inv(WM, WMi); inv(W, Wi); inv(M, Mi);
     scale = Math.hypot(W[0], W[1], W[2]);
     // a jump in place (a respawn, the creator's turntable reset): start again from the style

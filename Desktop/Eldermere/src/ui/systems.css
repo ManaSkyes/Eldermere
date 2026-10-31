@@ -455,3 +455,8 @@ tr[data-spell] { cursor: grab; }
    Keep this page's right-hand render window transparent so parchment cannot cover it. */
 .pages.pages-bestiary { background: transparent; }
 .bestiary .bst-right { background: transparent; }
+
+
+/* The Bestiary creature is rendered into the shared game canvas beneath the book.
+   Let that viewport show through the book's interior while preserving the leather frame. */
+.book.book-bestiary { background: transparent; }

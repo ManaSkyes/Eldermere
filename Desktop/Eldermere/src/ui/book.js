@@ -323,7 +323,7 @@ export function createBook(root, ctx) {
     const keep = lastTab === tab ? [...el.querySelectorAll('.cell-p')].map(x => x.scrollTop) : [];
     lastTab = tab;
     const nav = (items, side) => `<nav class="ribbons ribbons-${side}" aria-label="${side} book tabs">${items.map(([id, name]) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}" aria-current="${id === tab ? 'page' : 'false'}"><span>${name}</span></button>`).join('')}</nav>`;
-    el.innerHTML = `<div class="book" role="dialog" aria-label="Character book">
+    el.innerHTML = `<div class="book ${tab === 'bestiary' ? 'book-bestiary' : ''}" role="dialog" aria-label="Character book">
       ${nav(TOP_TABS, 'top')}${nav(LEFT_TABS, 'left')}${nav(RIGHT_TABS, 'right')}
       <div class="pages pages-${tab}">${PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;

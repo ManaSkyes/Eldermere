@@ -405,7 +405,8 @@ export function createBook(root, ctx) {
   }
   const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
-    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),\n    herbarum: pageHerbarum,
+    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
+    herbarum: pageHerbarum,
     lore: () => pageNewSection('Lore', 'Discoveries, people, factions, places and story entries will be collected here.')
   };
 

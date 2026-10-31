@@ -5,7 +5,7 @@
 //   3 Attributes  main stats, derived stats, general skills
 //   3 Life skills professions with rank, title and progress
 //   4 Combat      combat level, weapon and combat skills
-//   6 Skill trees  every skill's tree (src/data/skillTrees.js); skill names elsewhere link here
+//   6 Runes       runic-script proficiency and the future runic codex
 //   7 Magic       mana, casting skills, schools, known spells
 //
 // The figure box is see-through: play.js renders the character into that part of the game canvas
@@ -29,7 +29,7 @@ import { BODY_PARTS, HUMAN } from '../rpg/bodyState.js';
 import { RACES as BODY_RACES } from '../rpg/races.js';
 
 export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes']];
-export const LEFT_TABS = [['combat', 'Combat'], ['trees', 'Skill trees'], ['magic', 'Magic'], ['spells', 'Spells']];
+export const LEFT_TABS = [['combat', 'Combat'], ['runes', 'Runes'], ['magic', 'Magic'], ['spells', 'Spells']];
 export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['herbarum', 'Herbarum'], ['lore', 'Lore']];
 export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
 // equipment slots as laid out down the left of the page, head to toe, then hands
@@ -91,7 +91,7 @@ export function createBook(root, ctx) {
   const el = document.createElement('div');
   el.className = 'book-wrap'; el.hidden = true;
   root.appendChild(el);
-  let tab = 'character', prepMode = false;
+  let tab = 'character', prepMode = false, treeView = false, treeReturnTab = 'combat';
   const c = ctx.character;
 
   const bar = (f, cls = '') => `<span class="meter ${cls}"><i style="width:${Math.round(Math.max(0, Math.min(1, f)) * 100)}%"></i></span>`;
@@ -285,8 +285,6 @@ export function createBook(root, ctx) {
     ['Magic', id => SKILLS[id].group === 'magic' || CASTING.includes(id)], ['Life skills', id => SKILLS[id].group === 'profession'],
     ['General', id => SKILLS[id].group === 'general' && !CASTING.includes(id)]];
   function pageTrees() {
-    const held = ctx.body()?.gear.stats().weapon?.skill;
-    selSkill ||= held && SKILL_TREES[held] ? held : 'mace';
     const list = TREE_GROUPS.map(([g, test]) => {
       const ids = Object.keys(SKILL_TREES).filter(test); if (!ids.length) return '';
       return `<h4 class="tl-g">${g}</h4>` + ids.map(id => {
@@ -318,8 +316,7 @@ export function createBook(root, ctx) {
         <button class="test-train" data-train="${selSkill}" title="Test grounds only">+100 (test)</button></span></header>
       <p class="hint">${tree.generic ? '<b>Placeholder tree</b>, to be designed. ' : escapeHtml(tree.intro) + ' '} Points: one per 50 skill up to 1000, then one per 500. Paths: <b class="br-a-t">${tree.branches[bA].name}</b> (${escapeHtml(tree.branches[bA].text)}) or <b class="br-b-t">${tree.branches[bB].name}</b> (${escapeHtml(tree.branches[bB].text)}). Each node on one side locks only its opposite on the other side (same row); reset to choose again.</p>
       <div class="tree">${rows}</div>`;
-    return `<div class="pg wtree"><section class="cell-p"><ul class="wlist">${list}</ul>
-      <p class="hint">A number beside a skill is points waiting to be spent.</p></section><section class="cell-p">${right}</section></div>`;
+    return `<div class="pg wtree"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${right}</section></div>`;
   }
 
   // ---- Bestiary: a complete creature catalogue, with pages unlocked by discovery ----
@@ -387,6 +384,20 @@ export function createBook(root, ctx) {
       <div class="bst-foot"><button class="bst-regions" disabled title="Comes with the world map">Regions encountered</button></div></section></div>`;
   }
 
+  function pageRunes() {
+    const value = c.skills.runicScript ?? 0, rank = rankOf(value);
+    return `<div class="pg runes-journal">
+      <header class="runes-head"><div><h2>Runes</h2><p class="hint">A study of written magic, ancient symbols and their meanings.</p></div></header>
+      <section class="runes-overview">
+        <article class="runes-skill"><div><small>FOUNDATIONAL SKILL</small><h3>Runic Script</h3><p>Knowledge of runic forms, their written structure and the principles behind their use.</p></div>
+          <div class="runes-rank"><strong>${display(value)}</strong><span>${escapeHtml(rank.name)}</span><button class="runes-tree-link" data-tree="runicScript">Study skill tree ↗</button></div>
+        </article>
+        <section class="rune-catalogue"><div class="rune-catalogue-mark" aria-hidden="true">ᚱ</div><div><h3>Runic Catalogue</h3><p>Discovered runes, translations and known properties will be recorded here.</p><small>No runes have been catalogued yet.</small></div></section>
+        <section class="rune-inscriptions"><div class="rune-catalogue-mark" aria-hidden="true">✧</div><div><h3>Inscriptions</h3><p>Known combinations and written arrangements will be collected here when the inscription system is established.</p><small>No inscriptions recorded.</small></div></section>
+      </section>
+    </div>`;
+  }
+
   function pageHerbarum() {
     return `<div class="pg herbarum-journal">
       <header class="herbarum-head"><div><h2>Herbarum</h2>
@@ -403,7 +414,7 @@ export function createBook(root, ctx) {
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
-  const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
+  const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
     spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
     herbarum: pageHerbarum,
@@ -419,18 +430,19 @@ export function createBook(root, ctx) {
     const nav = (items, side) => `<nav class="ribbons ribbons-${side}" aria-label="${side} book tabs">${items.map(([id, name]) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}" aria-current="${id === tab ? 'page' : 'false'}"><span>${name}</span></button>`).join('')}</nav>`;
     el.innerHTML = `<div class="book book-${tab}" role="dialog" aria-label="Character book">
       ${nav(TOP_TABS, 'top')}${nav(LEFT_TABS, 'left')}${nav(RIGHT_TABS, 'right')}
-      <div class="pages pages-${tab}">${PAGES[tab]()}</div>
+      <div class="pages pages-${treeView ? 'skill-tree' : tab}">${treeView ? pageTrees() : PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;
-    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { treeView = false; tab = b.dataset.tab; render(); });
     el.querySelector('.book-close').onclick = () => ctx.onClose();
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
+    el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-train]').forEach(b => b.onclick = () => { c.skills[b.dataset.train] = (c.skills[b.dataset.train] ?? 100) + 100; render(); });
     el.querySelectorAll('.cell-p').forEach((x, i) => { if (keep[i] !== undefined) x.scrollTop = keep[i]; });
     if (!keep.length) el.querySelector('.wl.on')?.scrollIntoView({ block: 'nearest' });
     // a skill's name anywhere else in the book opens its tree
-    el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { selSkill = t.dataset.tree; resetArmed = false; tab = 'trees'; render(); });
+    el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { treeReturnTab = tab; selSkill = t.dataset.tree; resetArmed = false; treeView = true; render(); });
     el.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => { assignPoints(c, b.dataset.assign, 1); ctx.onChange?.(); render(); });
     el.querySelectorAll('.eq.full').forEach(li => li.onclick = () => {
       const body = ctx.body(); if (!body) return;
@@ -472,7 +484,7 @@ export function createBook(root, ctx) {
     turn: 0,                                          // figure rotation, from dragging
     get isOpen() { return !el.hidden; },
     get tab() { return tab; },
-    open(t) { if (t) tab = t; el.hidden = false; api.turn = 0; render(); },
+    open(t) { if (t) tab = t; treeView = false; el.hidden = false; api.turn = 0; render(); },
     close() { el.hidden = true; el.innerHTML = ''; },
     render,
     // where the figure box is on screen (for play.js to render the character into), or null

@@ -467,9 +467,5 @@ tr[data-spell] { cursor: grab; }
 }
 .figure,
 .beast-fig {
-  background:
-    linear-gradient(#755337, #755337) top / 100% 5px no-repeat,
-    linear-gradient(#755337, #755337) bottom / 100% 5px no-repeat,
-    linear-gradient(#755337, #755337) left / 5px 100% no-repeat,
-    linear-gradient(#755337, #755337) right / 5px 100% no-repeat;
+  border-width: 10px;
 }

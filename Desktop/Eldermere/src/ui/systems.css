@@ -451,13 +451,25 @@ tr[data-spell] { cursor: grab; }
 }
 
 
-/* The character and Bestiary models are rendered into the shared game canvas.
-   Keep only their dedicated model windows clear; the book and page surfaces
-   around those windows retain the normal leather and parchment backgrounds. */
-.figure,
-.beast-fig {
+/* Character and Bestiary share the game canvas. Keep the book and page
+   surfaces transparent on these two tabs; frame only the four narrow edges
+   of each live render window. The center must remain completely clear. */
+.book.book-character,
+.book.book-bestiary,
+.pages.pages-character,
+.pages.pages-bestiary,
+.bestiary .bst-right {
   background: transparent;
 }
-.bestiary .bst-right {
-  background: radial-gradient(ellipse at 50% 40%, var(--paper), var(--paper-2));
+.pages.pages-character,
+.pages.pages-bestiary {
+  box-shadow: none;
+}
+.figure,
+.beast-fig {
+  background:
+    linear-gradient(#755337, #755337) top / 100% 5px no-repeat,
+    linear-gradient(#755337, #755337) bottom / 100% 5px no-repeat,
+    linear-gradient(#755337, #755337) left / 5px 100% no-repeat,
+    linear-gradient(#755337, #755337) right / 5px 100% no-repeat;
 }

@@ -28,7 +28,10 @@ import { comboLength, heavyLength } from '../rpg/combos.js';
 import { BODY_PARTS, HUMAN } from '../rpg/bodyState.js';
 import { RACES as BODY_RACES } from '../rpg/races.js';
 
-export const TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes'], ['life', 'Life skills'], ['combat', 'Combat'], ['trees', 'Skill trees'], ['magic', 'Magic'], ['bestiary', 'Bestiary']];
+export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes']];
+export const LEFT_TABS = [['combat', 'Combat'], ['trees', 'Skill trees'], ['magic', 'Magic'], ['spells', 'Spells']];
+export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['lore', 'Lore']];
+export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
 // equipment slots as laid out down the left of the page, head to toe, then hands
 const SLOT_ORDER = ['head', 'back', 'chest', 'top', 'arms', 'hands', 'wrist', 'legs', 'bottom', 'feet', 'mainHand', 'offHand'];
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense'];
@@ -304,7 +307,14 @@ export function createBook(root, ctx) {
       <div class="bst-foot"><button class="bst-regions" disabled title="Comes with the world map">Regions encountered</button></div></section></div>`;
   }
 
-  const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic };
+  function pageNewSection(title, description) {
+    return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
+  }
+  const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
+    crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
+    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
+    lore: () => pageNewSection('Lore', 'Discoveries, people, factions, places and story entries will be collected here.')
+  };
 
   let lastTab = null;
   function render() {
@@ -312,8 +322,9 @@ export function createBook(root, ctx) {
     // keep each scrolling page where it was when the same tab re-renders (after a click inside it)
     const keep = lastTab === tab ? [...el.querySelectorAll('.cell-p')].map(x => x.scrollTop) : [];
     lastTab = tab;
+    const nav = (items, side) => `<nav class="ribbons ribbons-${side}" aria-label="${side} book tabs">${items.map(([id, name]) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}" aria-current="${id === tab ? 'page' : 'false'}"><span>${name}</span></button>`).join('')}</nav>`;
     el.innerHTML = `<div class="book" role="dialog" aria-label="Character book">
-      <nav class="ribbons">${TABS.map(([id, name], i) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}"><span>${name}</span></button>`).join('')}</nav>
+      ${nav(TOP_TABS, 'top')}${nav(LEFT_TABS, 'left')}${nav(RIGHT_TABS, 'right')}
       <div class="pages pages-${tab}">${PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;
     el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });

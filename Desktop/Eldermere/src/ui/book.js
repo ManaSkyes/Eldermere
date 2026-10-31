@@ -37,6 +37,55 @@ const SLOT_ORDER = ['head', 'back', 'chest', 'top', 'arms', 'hands', 'wrist', 'l
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense'];
 const CATEGORY_NAMES = { gathering: 'Gathering', crafting: 'Crafting', trade: 'Trade', processing: 'Processing' };
 
+const BEAST_CLASSIFICATIONS = {
+  'Essence Tiers': {
+    description: 'What a creature is at its essence.',
+    orders: {
+      'Primeval Essence': 'Ancient, almost god-like, and integral to mythology.',
+      'Mystic Essence': 'Alters its environment through magic or sheer presence; the stuff of legends.',
+      'Spectral Essence': 'Ghostly and between planes, bound to places or artifacts.',
+      'Wild Essence': 'Common but formidable beasts of the wilds, of any size.'
+    }
+  },
+  'Celestial Hierarchy': {
+    description: 'Creatures whose nature is bound to the heavens.',
+    orders: {
+      'Stellar Dominions': 'Cosmic beings shaped by the energies of stars and the void.',
+      'Solar Regents': 'Radiant creatures whose strength comes from sunlight.',
+      'Lunar Sentinels': 'Stealthy night creatures empowered by the moon.',
+      'Terrestrial Guardians': 'Earth-bound protectors of sacred or cursed places.'
+    }
+  },
+  'Elemental Circles': {
+    description: 'Creatures defined by a primal element.',
+    orders: {
+      Corefire: 'Fire, lava and heat; volatile and aggressive.',
+      Deepsea: 'The depths: leviathans, sirens and other sea-born powers.',
+      Stormwind: 'Wind and storm; harbingers of tempests.',
+      Stoneheart: 'Earth and stone, from golems to subterranean horrors.'
+    }
+  },
+  'Arcane Orders': {
+    description: 'Creatures shaped by the practice or influence of magic.',
+    orders: {
+      'Archmagi Beasts': 'Intelligent masters of several magics.',
+      'Sorcerer Fiends': 'Specialists in magic used to deceive or overpower.',
+      'Witchkin Spirits': 'Tricksters wielding dark or forbidden magic.',
+      'Runebound Minions': 'Lesser beings made or controlled by runes and spells.'
+    }
+  },
+  'Mythic Classes': {
+    description: 'Rare legendary bloodlines and powers.',
+    orders: {
+      'Titanic Overlords': 'The rarest beings, pivotal in world events.',
+      'Draconic Majesties': 'Dragons and dragon-kin.',
+      'Beastly Sovereigns': 'Alphas that lead packs and hordes.'
+    }
+  }
+};
+const BEAST_CLASSIFICATION_ORDER = Object.keys(BEAST_CLASSIFICATIONS);
+
+
 // ctx: { character, inv, body: () => viewer|null, hotbar, onUse(id), onChange(), onClose() }
 export function createBook(root, ctx) {
   const el = document.createElement('div');
@@ -282,15 +331,30 @@ export function createBook(root, ctx) {
   function pageBestiary() {
     const all = beastIds(), found = new Set(knownIds(c).filter(id => MONSTERS[id]));
     if (beastView === 'collection') {
-      const slots = all.map(id => {
+      const slot = id => {
         const M = MONSTERS[id], unlocked = found.has(id);
         const mark = unlocked ? (M.group === 'swarm' ? '✧' : M.group === 'boss' ? '♜' : M.group === 'solo' ? '◆' : '✦') : '？';
         return `<button class="beast-slot ${unlocked ? 'discovered' : 'undiscovered'}" ${unlocked ? `data-beast-open="${id}" title="Read about ${escapeHtml(M.name)}"` : 'disabled aria-label="Undiscovered creature" title="Undiscovered creature"'}>
           <span class="beast-slot-icon">${mark}</span><span class="beast-slot-name">${unlocked ? escapeHtml(M.name) : 'Unknown'}</span>
           <span class="beast-slot-state">${unlocked ? 'Discovered' : 'Not yet recorded'}</span></button>`;
+      };
+      const sections = BEAST_CLASSIFICATION_ORDER.map(family => {
+        const guide = BEAST_CLASSIFICATIONS[family];
+        const ids = all.filter(id => found.has(id) && MONSTERS[id].classification?.[0] === family);
+        if (!ids.length) return '';
+        const orders = Object.keys(guide.orders);
+        const groups = orders.map(order => {
+          const members = ids.filter(id => MONSTERS[id].classification?.[1] === order);
+          if (!members.length) return '';
+          return `<section class="beast-order"><header><h3>${escapeHtml(order)}</h3><p>${escapeHtml(guide.orders[order])}</p></header><div class="beast-grid">${members.map(slot).join('')}</div></section>`;
+        }).join('');
+        const other = ids.filter(id => !orders.includes(MONSTERS[id].classification?.[1]));
+        return `<section class="beast-family"><header class="beast-family-head"><div><h3>${escapeHtml(family)}</h3><p>${escapeHtml(guide.description)}</p></div><small>${ids.length} recorded</small></header>${groups}${other.length ? `<div class="beast-grid">${other.map(slot).join('')}</div>` : ''}</section>`;
       }).join('');
+      const unidentified = all.filter(id => !found.has(id));
+      const unknown = unidentified.length ? `<section class="beast-family beast-unidentified"><header class="beast-family-head"><div><h3>Unidentified</h3><p>These entries remain blank until you discover the creatures.</p></div><small>${unidentified.length} unknown</small></header><div class="beast-grid">${unidentified.map(slot).join('')}</div></section>` : '';
       return `<div class="pg beast-collection"><header class="beast-collection-head"><div><h2>Bestiary</h2><p class="hint">A field journal of the creatures known to the guild.</p></div><strong>${found.size} <small>/ ${all.length} discovered</small></strong></header>
-        <div class="beast-grid">${slots}</div></div>`;
+        ${sections}${unknown}</div>`;
     }
     if (!beastSel || !found.has(beastSel)) { beastView = 'collection'; return pageBestiary(); }
     const id = beastSel, M = MONSTERS[id], E = c.bestiary[id];

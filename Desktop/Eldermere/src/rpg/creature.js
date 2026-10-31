@@ -175,7 +175,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const skeleton = new THREE.Skeleton(list);
   const look = spec.look || {};
   const uniforms = { uTime: { value: 0 }, uSmoke: { value: look.smoke ?? 0.6 }, uCore: { value: look.coreGlow ?? 1 }, uNz: { value: look.shade ? noiseTexture(THREE) : null } };
-  const meshes = [];
+  const meshes = [], smokeAuraMeshes = [], membraneMeshes = []; let bodyVisible = true, partsVisible = true, attached = false, lodTier = 0, smokeAuraVisible = true, membranesVisible = true, glowsVisible = true, wispsVisible = true;
   const bodyMat = look.shade ? shadeBodyMaterial(THREE, uniforms, look) : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: look.rough ?? 0.85, metalness: 0, skinning: true });
   // Experimental A/B material: the procedural Umbrafiend body uses at most two non-zero bone weights per vertex.
   // Its alternate shader evaluates only those two influences instead of the stock four-influence skinning path.
@@ -208,17 +208,17 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const P = look.shade ? particles : null;   // (with the particle system: no shells, no aura meshes, no wisps — puffs on the bones instead)
   if (look.shade && !P) {   // the smoke round the body: a loose, flickering shell over the same skin (fallback without particles)
     for (const [inflate, alpha] of [[0.055, 0.8]]) {   // (one shell: each one is a full transparent pass over the creature)
-      const sm = new THREE.SkinnedMesh(geo, smokeMaterial(THREE, uniforms, inflate, alpha, look)); sm.frustumCulled = false; sm.renderOrder = 2; sm.userData.noReflect = true; sm.userData.noCover = true; root.add(sm); sm.bind(skeleton); meshes.push(sm);
+      const sm = new THREE.SkinnedMesh(geo, smokeMaterial(THREE, uniforms, inflate, alpha, look)); sm.frustumCulled = false; sm.renderOrder = 2; sm.userData.noReflect = true; sm.userData.noCover = true; root.add(sm); sm.bind(skeleton); meshes.push(sm); smokeAuraMeshes.push(sm);
     }
   }
   // the aura: the body's would-be flesh as a rolling purple cloud — a dark inner cloud and a faint glow round it
   if (auraGeo && !P) {
     for (const [inflate, glow] of [[0.02, false]]) {   // (one layer: the haze carries the glow at its heart itself)
-      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true;   // (the puddles show its bones, not its haze) root.add(am); am.bind(skeleton); meshes.push(am);
+      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true;   // (the puddles show its bones, not its haze) root.add(am); am.bind(skeleton); meshes.push(am); smokeAuraMeshes.push(am);
     }
   }
   // wisps: dark smoke rising off a shade's body (points that start at random bones and drift up and away)
-  let wisps = null, puffs = null;
+  let wisps = null, wispPoints = null, puffs = null;
   if (look.shade && P) puffs = shadePuffs(THREE, P, chains, byChain, look);
   if (look.shade && !P) {
     const N = 70, P = new Float32Array(N * 3), A = new Float32Array(N), seeds = Array.from({ length: N }, (_, i) => ({ b: list[1 + Math.floor(Math.random() * (list.length - 1))], o: V((Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.25), ph: Math.random(), sp: 0.5 + Math.random() * 0.7 }));
@@ -226,7 +226,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uCol: { value: new THREE.Color(look.smokeColor || '#140a22') }, uSize: { value: 260 * (look.wispSize ?? 1) } },
       vertexShader: 'attribute float aA; varying float vA; uniform float uSize; void main() { vA = aA; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize * (0.4 + 0.6 * aA) / -mv.z; gl_Position = projectionMatrix * mv; }',
       fragmentShader: 'uniform vec3 uCol; varying float vA; void main() { vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard; gl_FragColor = vec4(uCol, (1.0 - r * 2.0) * (1.0 - r * 2.0) * vA * 0.45); }' });
-    const pts = new THREE.Points(g, m); pts.frustumCulled = false; pts.renderOrder = 4; pts.userData.noReflect = true; root.add(pts);
+    const pts = new THREE.Points(g, m); wispPoints = pts; pts.frustumCulled = false; pts.renderOrder = 4; pts.userData.noReflect = true; pts.visible = wispsVisible; root.add(pts);
     const wv = V(0, 0, 0), inv = new THREE.Matrix4();
     wisps = t => {
       sync(); inv.copy(root.matrixWorld).invert();
@@ -238,7 +238,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   const webMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.DoubleSide, transparent: true, opacity: 0.94, skinning: true, emissive: new THREE.Color(look.webGlow || '#000000') });
   const smokeWebMat = look.shade ? smokeWebMaterial(THREE, uniforms, look) : null;
   // (all the membranes of one kind are one mesh: a bat's eight wing panels were eight skinned draws)
-  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); }
+  for (const w of webs) { const m = new THREE.SkinnedMesh(w.g, w.smoke && smokeWebMat ? smokeWebMat : webMat); m.castShadow = !look.shade && !(w.smoke && smokeWebMat); m.frustumCulled = false; m.visible = membranesVisible; if (w.smoke && smokeWebMat) { m.renderOrder = 1; m.userData.noReflect = true; m.userData.noCover = true; } root.add(m); m.bind(skeleton); meshes.push(m); membraneMeshes.push(m); }
   // off screen, not drawn: the bind-pose bounds grown to cover what its moves can do (a swoop, a pounce, a rear-up)
   for (const m of meshes) m.frustumCulled = true;
   // ---- parts ----
@@ -271,10 +271,27 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   root.updateMatrixWorld(true);
   root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false; for (const m of meshes) { m.updateMatrix(); m.matrixAutoUpdate = false; }
   const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
-  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) for (const h of instancedParts) instances.update(h); }
+  function sync() { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); if (instances) instances.updateMany ? instances.updateMany(instancedParts) : instancedParts.forEach(h => instances.update(h)); }
+  function applyVisibility() {
+    mesh.visible = bodyVisible;
+    for (const m of smokeAuraMeshes) m.visible = smokeAuraVisible;
+    for (const m of membraneMeshes) m.visible = membranesVisible;
+    for (const g of glows) g.visible = glowsVisible && lodTier < 2;
+    if (wispPoints) wispPoints.visible = wispsVisible;
+    if (instances) for (const h of instancedParts) instances.setVisible(h, partsVisible && attached);
+    if (puffs) { puffs.setGroupEnabled('smokeAura', smokeAuraVisible); puffs.setGroupEnabled('coreGlow', glowsVisible && lodTier < 2); puffs.setGroupEnabled('wisps', wispsVisible); }
+  }
+  applyVisibility();
   return {
     root, mesh, meshes, bones, skeleton, parts, glows, uniforms, sync,
-    setPartsVisible(visible) { if (instances) for (const h of instancedParts) instances.setVisible(h, visible); },
+    setBodyVisible(visible) { bodyVisible = !!visible; applyVisibility(); },
+    setPartsVisible(visible) { partsVisible = !!visible; applyVisibility(); },
+    setAttached(visible) { attached = !!visible; applyVisibility(); },
+    setLodTier(tier) { const next = Number.isFinite(tier) ? tier : 0; if (next === lodTier) return; lodTier = next; for (const g of glows) g.visible = glowsVisible && lodTier < 2; if (puffs) puffs.setGroupEnabled('coreGlow', glowsVisible && lodTier < 2); },
+    setSmokeAuraVisible(visible) { smokeAuraVisible = !!visible; applyVisibility(); },
+    setMembranesVisible(visible) { membranesVisible = !!visible; applyVisibility(); },
+    setGlowsVisible(visible) { glowsVisible = !!visible; applyVisibility(); },
+    setWispsVisible(visible) { wispsVisible = !!visible; applyVisibility(); },
     setSkinnedVariant(on) { if (bodyMatTwoInfluence) mesh.material = on ? bodyMatTwoInfluence : bodyMat; },
     chain: name => byChain[name] || [],
     // back to the rest pose before each frame's layers — written straight into the fields: going through
@@ -282,7 +299,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } },
     puffs,
     furOn(on) { for (const f of furShells) f.visible = on; },
-    update(t) { uniforms.uTime.value = t; wisps?.(t); if (puffs) puffs.scale = uniforms.uSmoke.value / (look.smoke ?? 0.6); },
+    update(t) { uniforms.uTime.value = t; if (wispsVisible) wisps?.(t); },
     dispose() { puffs?.remove(); bodyMatTwoInfluence?.dispose(); if (instances) for (const h of instancedParts) instances.unregister(h); if (--G.refs <= 0) { GEO_CACHE.delete(GKEY); G.geo.dispose(); G.auraGeo?.dispose(); for (const w of G.webs) w.g.dispose(); } },
   };
 }
@@ -326,12 +343,12 @@ function shadePuffs(THREE, P, chains, byChain, look) {
   const k = (look.smoke ?? 0.6) / 0.6 * (look.cheap ? 0.35 : 1) * (look.puffK ?? 1), aK = 1 + (1 - (look.puffK ?? 1)) * 0.5, smoke = look.smokeColor || '#0c0616', puffs = [];
   if (aura.length) {
     const haze = new THREE.Color(look.aura || '#1e0c40').lerp(new THREE.Color(look.auraGlow || '#5a28b8'), 0.4);   // (lifted toward the glow: it has to read against a night sky)
-    puffs.push({ on: aura, mode: 'cling', rate: 170 * k, life: [0.8, 1.4], size: [1.9, 2.8], sizeByRadius: true, color: '#' + haze.getHexString(), alpha: 0.5 * aK, rise: 0.02, drift: 0.05 });
-    puffs.push({ on: aura, mode: 'cling', rate: 70 * k, life: [0.6, 1.1], size: [1.2, 1.8], sizeByRadius: true, color: smoke, alpha: 0.55 * aK, rise: 0.01, drift: 0.03 });
-    if (core.length) puffs.push({ on: core, mode: 'cling', rate: 22 * (look.coreGlow ?? 1), life: [0.6, 1.0], size: [1.1, 1.7], sizeByRadius: true, color: look.auraGlow || '#5a28b8', alpha: 0.3, add: true, rise: 0.03, drift: 0.02 });
+    puffs.push({ group: 'smokeAura', on: aura, mode: 'cling', rate: 170 * k, life: [0.8, 1.4], size: [1.9, 2.8], sizeByRadius: true, color: '#' + haze.getHexString(), alpha: 0.5 * aK, rise: 0.02, drift: 0.05 });
+    puffs.push({ group: 'smokeAura', on: aura, mode: 'cling', rate: 70 * k, life: [0.6, 1.1], size: [1.2, 1.8], sizeByRadius: true, color: smoke, alpha: 0.55 * aK, rise: 0.01, drift: 0.03 });
+    if (core.length) puffs.push({ group: 'coreGlow', on: core, mode: 'cling', rate: 22 * (look.coreGlow ?? 1), life: [0.6, 1.0], size: [1.1, 1.7], sizeByRadius: true, color: look.auraGlow || '#5a28b8', alpha: 0.3, add: true, rise: 0.03, drift: 0.02 });
   }
-  if (hug.length) puffs.push({ on: hug, mode: 'cling', rate: (aura.length ? 30 : 70) * k, life: [0.6, 1.1], size: [1.6, 2.6], sizeByRadius: true, color: smoke, alpha: 0.38, rise: 0.05, drift: 0.04 });
-  puffs.push({ on: wing.length ? [...wing, ...aura] : null, mode: 'trail', rate: 34 * k, life: [0.9, 1.7], size: [0.07 * (look.wispSize ?? 1) / 0.6, 0.26 * (look.wispSize ?? 1) / 0.6], color: smoke, alpha: 0.32, rise: look.wispRise ?? 0.4, drift: 0.12 });
+  if (hug.length) puffs.push({ group: 'smokeAura', on: hug, mode: 'cling', rate: (aura.length ? 30 : 70) * k, life: [0.6, 1.1], size: [1.6, 2.6], sizeByRadius: true, color: smoke, alpha: 0.38, rise: 0.05, drift: 0.04 });
+  puffs.push({ group: 'wisps', on: wing.length ? [...wing, ...aura] : null, mode: 'trail', rate: 34 * k, life: [0.9, 1.7], size: [0.07 * (look.wispSize ?? 1) / 0.6, 0.26 * (look.wispSize ?? 1) / 0.6], color: smoke, alpha: 0.32, rise: look.wispRise ?? 0.4, drift: 0.12 });
   return P.attach({ anchors, puffs });
 }
 

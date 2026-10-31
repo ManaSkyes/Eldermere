@@ -1,6 +1,7 @@
 // src/game/play.js — the play screen: the 3D scene, the player, the HUD and the pause menu.
 // For now it runs the test grounds; later the same screen hosts the guild hall and dungeons.
 import { createInput, ACTIONS, keyName, loadSettings, saveSettings } from './input.js';
+import { createLodZoneScheduler } from '../gfx/lodZones.js';
 import { createController, MOVE } from './controller.js';
 import { testGroundsShapes, buildTestGrounds, testGroundsWater } from './testGrounds.js';
 import { escapeHtml } from '../ui/util.js';
@@ -41,6 +42,9 @@ import { createEnemies } from './enemies.js';
 import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../data/objects.js';
 import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
+import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
+import { runWorkerStressTest } from './workers/stressTest.js';
+import { processSnapshot, reportProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -134,7 +138,9 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const applyFx = () => { renderer.toneMapping = settings.postfx !== false ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping; };
   applyFx();
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#9fc3e6'); scene.fog = new THREE.Fog('#b9d3ea', 40, 110);
+  scene.background = new THREE.Color('#9fc3e6'); const worldFog = new THREE.Fog('#b9d3ea', 40, 110); scene.fog = worldFog;
+  // Prototype settings stay off by default so existing players keep the current look until the haze is tested.
+  const atmosphereSettings = { ...ATMOSPHERE_DEFAULTS };
   const hemi = new THREE.HemisphereLight('#dbe9ff', '#5d6b4a', 0.55); scene.add(hemi);
   const sun = new THREE.DirectionalLight('#fff1d6', 1.25); sun.position.set(18, 30, 12); sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 90 }); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.04;   // (normal bias: no dark acne patches on flat faces lit at a slant)
@@ -240,12 +246,15 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const view = fixed ? FIXED.view : S.view; if (view !== viewNow) { viewNow = view; camera.far = view; camera.updateProjectionMatrix(); }
     const sh = (fixed ? FIXED.shadows : true) && settings.shadows !== false; if (sh !== shadowNow) { shadowNow = sh; sun.castShadow = sh; }
     MOVE.gravity = 22 * (G.gravity ?? 1);
-    if (wet) { scene.fog.color.set('#1f5f7a'); scene.fog.near = 0.5; scene.fog.far = 14; }
-    else if (fixed) { scene.fog.color.set(FIXED.fog); scene.fog.near = FIXED.near; scene.fog.far = FIXED.far; }
-    else { scene.fog.color.copy(S.fog); scene.fog.near = S.near; scene.fog.far = S.far; }
+    if (wet) { worldFog.color.set('#1f5f7a'); worldFog.near = 0.5; worldFog.far = 14; }
+    else if (fixed) { worldFog.color.set(FIXED.fog); worldFog.near = FIXED.near; worldFog.far = FIXED.far; }
+    else { worldFog.color.copy(S.fog); worldFog.near = S.near; worldFog.far = S.far; }
+    // The prototype only extends ordinary outdoor visibility; water, interiors, and stronger local fog retain priority.
+    applyAtmosphericHaze(worldFog, atmosphereSettings, { fixed, wet, outdoor: OUTDOOR });
     // a screech's darkness on you: you see a tenth as far (the fog closes in, dark), less as it wears off
-    if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; scene.fog.far = scene.fog.far * (1 - k + k * sight); scene.fog.near = Math.min(scene.fog.near, scene.fog.far * 0.25); scene.fog.color.lerp(blind.col, k * 0.85); }
-    if (probe.fogOff) { scene.fog.near = 1e6; scene.fog.far = 1e6 + 1; } // diagnostic: isolate world/area fog from post-processing
+    if (blind.k > 0.001) { const k = blind.k, sight = blind.sight; worldFog.far = worldFog.far * (1 - k + k * sight); worldFog.near = Math.min(worldFog.near, worldFog.far * 0.25); worldFog.color.lerp(blind.col, k * 0.85); }
+    // Removing scene.fog disables the fog shader path entirely, unlike pushing its near/far distances out of view.
+    scene.fog = probe.fogOff ? null : worldFog;
   }
   // ---- what monsters' auras lay on you: less sight, less hearing (src/game/monsterActors.js debuff) ----
   const blind = { k: 0, t: 0, sight: 1, hearing: 1, col: new THREE.Color('#05030a') };
@@ -679,7 +688,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   addEventListener('resize', resize); resize();
 
   // ---- pause and controls ----
-  const probe = { on: false, open: false, sync: true, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, umbraParts: true, umbra2weight: true, buildings: true, ground: true, water: true, glow: true, fogOff: false, bloomOff: false, blurOff: false, toneMapOff: false, gradeOff: false, vignetteOff: false, scale: 1 };
+  const probe = { on: false, open: false, sync: true, lamps: true, crystals: true, shadows: true, bshadow: true, trees: true, small: true, batinst: true, umbraParts: true, umbraPartsVisible: true, umbraBodies: true, umbraSmokeAura: true, umbraMembranes: true, umbraGlows: true, umbraWisps: true, umbra2weight: true, buildings: true, ground: true, water: true, glow: true, fogOff: false, bloomOff: false, blurOff: false, toneMapOff: false, gradeOff: false, vignetteOff: false, scale: 1 };
   const showPause = on => { pause.hidden = !on; root.querySelector('.play').classList.toggle('is-paused', on); };
   input.on('lock', () => { probe.open = false; showPause(false); audio.start(); });
   input.on('unlock', () => { if (invOpen || probe.open) return; showPause(true); showControls(false); });
@@ -1126,23 +1135,79 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // F8: the performance panel, for finding what costs frames on your machine. Switch anything off on its own and watch
   // the fps, frame time, draw calls and triangles (a frame's, shadows included). F8 opens it and frees the mouse;
   // click the game to play on with it showing; F8 again (or Escape) closes it and puts everything back on.
-  const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0 }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
+  const probeInfo = { calls: 0, tris: 0, mainCalls: 0, otherCalls: 0, ms: 0, gpuSamples: { main: [], reflection: [] } }, probeAcc = { calls: 0, tris: 0, mainCalls: 0 };
+  // Live traversal capture: bounded per-frame samples while the player explores normally.
+  const traversalCapture = { on: false, started: 0, samples: [], distance: 0, lastPos: null, report: '', dropped: 0, maxSamples: 18000, stage: '', renderCallMs: 0, lastCameraQ: null, shadowMapHook: false, frameId: 0, glActivity: { available: [], calls: {}, ms: {} }, frameGl: null };
+  // Repeatable A/B: stationary camera sweep, first with normal foliage culling, then with foliage culling frozen.
+  const foliageBufferTest = { active: false, phase: 'idle', started: 0, startYaw: 0, durationMs: 18000, button: null, status: null };
+  // Manual F7 switch for isolating foliage culling outside the timed F8 A/B test.
+  const foliageCullFreeze = { frozen: false, button: null, status: null };
+  const lodZoneScheduler = createLodZoneScheduler();
+  const smallLodZoneScheduler = createLodZoneScheduler();
+  const refreshFoliageFreezeControl = () => {
+    if (foliageCullFreeze.button) foliageCullFreeze.button.textContent = foliageCullFreeze.frozen ? 'Resume Foliage Culling' : 'Freeze Foliage Culling';
+    if (foliageCullFreeze.status) foliageCullFreeze.status.textContent = foliageCullFreeze.frozen ? 'FROZEN · retaining the last foliage layout' : 'Active · foliage visibility updates normally';
+  };
   // shader errors, kept for the performance panel (a material that fails to compile simply isn't drawn — the panel says which)
   if (!console.__eldShader) { const ce = console.error.bind(console); console.__eldShader = true; console.error = (...a) => { const t = String(a[0] || ''); if (/shader error|THREE\.WebGLProgram/i.test(t)) probeInfo.shaderErr = t.slice(0, 600); ce(...a); }; }
   // a frame's draw calls and triangles: added up after every render (the glow pass renders several times a frame). The
   // renderer's own counter is left to reset itself each render, as three.js expects (it also uses it to update
   // skinned bodies and buffers once per frame: stopping it broke the drawing)
-  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => { r0(sc, cm); if (probe.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; } }; }
+  { const r0 = renderer.render.bind(renderer); renderer.render = (sc, cm) => {
+    const timed = traversalCapture.on, t0 = timed ? performance.now() : 0;
+    r0(sc, cm);
+    if (timed) { const elapsed = performance.now() - t0; traversalCapture.renderCallMs += elapsed; const key = traversalCapture.stage === 'reflections' ? 'reflectionCallsMs' : traversalCapture.stage === 'main+postFX' ? 'mainCallsMs' : 'otherCallsMs'; traversalCapture.frameStages[key] = (traversalCapture.frameStages[key] || 0) + elapsed; }
+    if (probe.on || traversalCapture.on) { const calls = renderer.info.render.calls; probeAcc.calls += calls; probeAcc.tris += renderer.info.render.triangles; if (sc === scene) probeAcc.mainCalls += calls; }
+  }; }
+  // Optional GL activity probes for traversal capture. These wrap existing WebGL entry points only
+  // to count/timestamp synchronous calls; rendering arguments and return values are passed through.
+  // Not every browser/context allows methods to be replaced, so report only hooks that installed.
+  {
+    const gl = renderer.getContext();
+    const glMethods = [
+      ['compileShader', 'shaderCompile'], ['linkProgram', 'programLink'],
+      ['texImage2D', 'textureUpload'], ['texSubImage2D', 'textureUpload'],
+      ['compressedTexImage2D', 'textureUpload'], ['compressedTexSubImage2D', 'textureUpload'],
+      ['copyTexImage2D', 'textureUpload'], ['copyTexSubImage2D', 'textureUpload'],
+      ['bufferData', 'bufferUpload'], ['bufferSubData', 'bufferUpload']
+    ];
+    for (const [method, category] of glMethods) {
+      try {
+        const original = gl[method];
+        if (typeof original !== 'function') continue;
+        gl[method] = function (...args) {
+          const capture = traversalCapture.on, t0 = capture ? performance.now() : 0;
+          try { return original.apply(gl, args); }
+          finally {
+            if (capture && traversalCapture.frameGl) {
+              const elapsed = performance.now() - t0, f = traversalCapture.frameGl;
+              f.glCalls[category] = (f.glCalls[category] || 0) + 1;
+              f.glMs[category] = (f.glMs[category] || 0) + elapsed;
+            }
+          }
+        };
+        if (gl[method] !== original) traversalCapture.glActivity.available.push(method);
+      } catch (_) { /* Some WebGL implementations expose non-writable methods. */ }
+    }
+  }
+  // Time the actual shadow-map update when this Three.js build exposes its internal renderer hook.
+  if (renderer.shadowMap && typeof renderer.shadowMap.render === 'function' && !renderer.shadowMap.__eldTimed) {
+    const sm = renderer.shadowMap, renderShadows = sm.render.bind(sm); sm.__eldTimed = true; traversalCapture.shadowMapHook = true;
+    sm.render = (...args) => { const timed = traversalCapture.on, t0 = timed ? performance.now() : 0; const out = renderShadows(...args); if (timed) traversalCapture.frameStages.shadowMapMs += performance.now() - t0; return out; };
+  }
   const probeEl = document.createElement('div'); probeEl.className = 'perf-probe'; probeEl.hidden = true;
   probeEl.style.cssText = 'position:absolute;top:40px;left:12px;z-index:40;background:rgba(14,16,40,.92);color:#e8e4f4;font:13px/1.5 system-ui,sans-serif;padding:10px 14px;border-radius:8px;border:1px solid #5a5490;min-width:230px;max-width:min(620px,calc(100vw - 24px));max-height:82vh;overflow:auto;pointer-events:auto';
-  const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['umbra2weight', 'Two-influence Umbrafiend skinning'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
+  const PROBE_ROWS = [['lamps', 'Lamp and torch lights'], ['crystals', 'Crystal and checkpoint lights'], ['shadows', 'Sun shadows'], ['bshadow', 'Buildings cast shadows'], ['trees', 'Trees and bushes'], ['small', 'Grass, flowers, reeds'], ['batinst', 'Instanced reserve bats'], ['umbraParts', 'Instanced Umbrafiend details'], ['umbraPartsVisible', 'Umbrafiend skeletal details'], ['umbraBodies', 'Umbrafiend body meshes'], ['umbraSmokeAura', 'Umbrafiend smoke / aura'], ['umbraMembranes', 'Umbrafiend membranes'], ['umbraGlows', 'Umbrafiend eyes / core glow'], ['umbraWisps', 'Umbrafiend wisps'], ['umbra2weight', 'Two-influence Umbrafiend skinning'], ['buildings', 'Buildings, props, rocks'], ['ground', 'Ground and roads'], ['water', 'Water'], ['glow', 'Glow pass']];
   probeEl.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap"><b>Performance (F8)</b><span style="display:flex;gap:5px"><button type="button" data-copy-data style="cursor:pointer;white-space:nowrap">Copy data to clipboard</button><button type="button" data-full-toggle style="cursor:pointer;white-space:nowrap">Full Monitor ▾</button></span></div><div class="pp-stats" style="margin:4px 0 8px;font-variant-numeric:tabular-nums"></div><section class="pp-full" hidden style="border-top:1px solid #5a5490;padding-top:8px;margin:8px 0"><b>Full performance monitor</b><div class="pp-full-content" style="font-size:12px;line-height:1.45;margin-top:6px"></div></section>` +
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<details open style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Post-processing diagnostics (A/B)</summary>` +
-    [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">Fog is scene-level, separate from postFX. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
+    [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">World / area fog is a scene shader path, separate from postFX; disabling it removes scene.fog entirely. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
+    `<details style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Atmospheric haze prototype (A/B)</summary><div style="font-size:11px;opacity:.85;margin:3px 0 5px">Extends the existing outdoor fog range; preserves the sky, weather color, indoor fog, and strong local fog. This is a tuning prototype, not volumetric scattering.</div><label style="display:block;cursor:pointer"><input type="checkbox" data-atmosphere="enabled"> Enable far-distance haze</label><label style="display:block;margin-top:4px">Start distance <input type="range" data-atmosphere="start" min="80" max="280" step="5" value="140" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="start">140</span></label><label style="display:block">End distance <input type="range" data-atmosphere="end" min="180" max="450" step="10" value="360" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="end">360</span></label><label style="display:block">Strength <input type="range" data-atmosphere="strength" min="0" max="1" step="0.05" value="0.35" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="strength">0.35</span></label></details>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
-    `<button data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +
+    `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>GPU throughput / limit breaker</b><div style="font-size:11px;opacity:.85">Repeats the exact same scene render several times inside each display callback, without advancing gameplay between repeats. This bypasses the monitor-refresh limit for render-work throughput, but is not gameplay FPS. Keep the camera still and remove enemies for a clean map baseline.</div><button type="button" data-gpu-throughput style="margin-top:5px;cursor:pointer">Run GPU throughput test</button> <span data-gpu-throughput-status style="font-size:11px">Ready · about 8 seconds</span><pre data-gpu-throughput-report style="white-space:pre-wrap;font-size:12px;margin:4px 0 0">No throughput test yet.</pre></div><div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
+    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Foliage buffer A/B test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">One click runs a repeatable stationary camera sweep: 2 s warm-up, then 8 s normal foliage culling and 8 s with culling frozen. Each phase spins at 4x the original speed (four 360° turns per phase). The player stays still. The frozen phase retains the current foliage layout, so compare performance rather than visual correctness.</p><button type="button" data-foliage-test style="cursor:pointer">Run foliage buffer test</button> <span data-foliage-test-status style="font-size:11px">Ready · about 18 seconds</span></details><details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Live traversal capture</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Start capture, close or leave the monitor open, then sprint across the largest terrain you can. Stop to report frame-time spikes, CPU/render timings, draw load, and distance travelled. Captures up to 5 minutes.</p><button type="button" data-traverse-start style="cursor:pointer">Start live capture</button> <button type="button" data-traverse-stop style="cursor:pointer" disabled>Stop &amp; report</button> <button type="button" data-traverse-copy style="cursor:pointer" disabled>Copy report</button><div data-traverse-status style="font-size:11px;margin-top:4px">Ready</div><pre data-traverse-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No traversal captured yet.</pre></details>` +
+    `<details open style="margin-top:10px;border-top:1px solid #5a5490;padding-top:7px"><summary style="cursor:pointer">Worker pool stress test</summary><p style="font-size:11px;opacity:.85;margin:4px 0">Runs the same deterministic CPU workload across different worker counts. Keep the camera still; results measure worker throughput, not full game speedup.</p><button type="button" data-worker-stress style="cursor:pointer">Run worker stress test</button> <span data-worker-stress-status style="font-size:11px">Ready</span><pre data-worker-stress-report style="white-space:pre-wrap;font-size:12px;margin:5px 0 0">No test run yet.</pre></details>` +
     `<label style="display:block;margin-top:6px">Time <input type="range" data-hour min="0" max="24" step="0.25" style="width:120px;vertical-align:middle"> <span class="pp-hour"></span></label>` +
     `<label style="display:block;cursor:pointer"><input type="checkbox" data-cycle checked> Time passes</label>` +
     `<label style="display:block;margin-top:6px">Weather <select data-wx>${Object.entries(WEATHER).map(([k, w]) => k === 'magic' ? ['low', 'medium', 'high'].map(l => `<option value="magic_${l}">${w.name} (${l})</option>`).join('') : `<option value="${k}">${w.name}</option>`).join('')}</select> <input type="range" data-wxs min="0.1" max="1.5" step="0.05" value="1" style="width:70px;vertical-align:middle"></label>` +
@@ -1151,9 +1216,481 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     `<label style="display:block">Fog <select data-fl><option value="auto">With the weather</option><option value="thin">Thin</option><option value="normal">Normal</option><option value="thick">Thick</option></select> · Aurora <select data-au><option value="auto">With the weather</option><option value="off">Never</option><option value="on">On</option></select></label>` +
     `<label style="display:block">Surfaces <select data-sf><option value="auto">With the weather</option><option value="dry">Dry</option><option value="wet">Wet</option><option value="puddles">Puddles</option><option value="snow1">Snow (light)</option><option value="snow2">Snow (deep)</option><option value="ice">Ice</option><option value="dust">Dust</option></select> · <input type="checkbox" data-ta checked> Temp auto <input type="range" data-tv min="-20" max="40" step="1" value="15" style="width:70px;vertical-align:middle"> </label>` +
     `<label style="display:block;margin-top:6px">Resolution <select data-p="scale"><option value="1">100%</option><option value="0.75">75%</option><option value="0.5">50%</option><option value="0.25">25%</option></select></label>`;
-  // Explicit button colors keep labels readable even when the game's global button theme overrides browser defaults.
-  probeEl.querySelectorAll('button').forEach(b => { b.style.color = '#e8e4f4'; b.style.background = 'rgba(90,84,144,.35)'; b.style.border = '1px solid #6a5da4'; b.style.borderRadius = '4px'; b.style.padding = '3px 6px'; });
+  // F8 owns its button palette: !important also beats global button rules that otherwise make labels unreadable.
+  const styleProbeButton = b => { b.style.setProperty('color', '#f4f0ff', 'important'); b.style.setProperty('background-color', 'rgba(90,84,144,.42)', 'important'); b.style.setProperty('border', '1px solid #9384d4', 'important'); b.style.setProperty('border-radius', '4px', 'important'); b.style.setProperty('padding', '4px 7px', 'important'); b.style.setProperty('font', 'inherit', 'important'); b.style.setProperty('text-shadow', '0 1px 2px #171329', 'important'); b.style.setProperty('opacity', '1', 'important'); };
+  probeEl.querySelectorAll('button').forEach(styleProbeButton);
+  probeEl.querySelectorAll('button').forEach(b => { if (!b.textContent.trim()) console.warn('F8 monitor button is missing a text label:', b); });
   root.querySelector('.play').appendChild(probeEl);
+  const assignmentEl = document.createElement('div');
+  assignmentEl.hidden = true;
+  assignmentEl.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(10,11,28,.99);color:#e8e4f4;font:13px/1.45 system-ui,sans-serif;padding:clamp(10px,2vw,24px);box-sizing:border-box;width:100%;height:100%;overflow:hidden;pointer-events:auto;display:none;flex-direction:column;gap:12px;border:0;border-radius:0';
+  assignmentEl.innerHTML = `<div style="display:flex;justify-content:space-between;gap:10px"><b>Worker Assignment Lab (F7)</b><button type="button" data-assignment-reset>Reset</button></div>
+    <p style="font-size:11px;opacity:.85">Dynamic scheduling workspace. LOD buffer uploads and WebGL scene changes remain on the main thread; worker mode is only active for systems with a worker-backed task route.</p>
+    <label style="display:block;margin:8px 0">Tree visibility + LOD <select data-assignment="trees"><option value="main">Main thread</option><option value="worker">Worker pool</option><option value="auto">Auto</option></select></label>
+    <label style="display:block;margin:8px 0">Worker allocation <select data-assignment-allocation><option value="auto" selected>Auto · grow with queued work</option><option value="manual">Manual · fixed count</option></select></label>
+    <label style="display:block;margin:8px 0">Worker limit / manual count <select data-assignment-workers><option value="1">1 worker</option><option value="2">2 workers</option><option value="4">4 workers</option><option value="6">6 workers</option><option value="8">8 workers</option><option value="12" selected>12 workers</option></select></label>
+    <div style="font-size:11px;opacity:.8">Auto starts small and grows the pool when a zone refresh creates more independent 1,024-tree chunks, up to the selected limit. Manual keeps the pool at the selected count. GPU uploads stay on the main thread.</div>
+    <div style="margin:12px 0;padding-top:9px;border-top:1px solid #5a5490"><b>Player-centred LOD spheres</b><p style="font-size:11px;opacity:.85;margin:4px 0">Configure large-foliage distance bands; LOD 1–3 are live in the renderer. Small foliage has its own independent LOD profile in its tab. Per-zone worker assignment is not yet implemented.</p><div data-lod-zones></div><div data-lod-zone-error style="font-size:11px;color:#ffb0a8;white-space:pre-wrap"></div><div data-lod-zone-status style="font-size:11px;opacity:.8;margin-top:5px">Policy loaded · vegetation LOD routing active</div><button type="button" data-lod-zone-reset>Reset LOD zones</button></div>
+    <div data-assignment-tree-status style="font-size:11px;padding:6px;background:rgba(255,255,255,.05);border-radius:4px;white-space:pre-wrap">Waiting for tree system…</div>
+    <label style="display:block;margin:8px 0;opacity:.7">Terrain / procedural geometry <select disabled><option>Main thread · not routed yet</option></select></label>
+    <label style="display:block;margin:8px 0;opacity:.7">World generation <select disabled><option>Main thread · not routed yet</option></select></label>
+    <label style="display:block;margin:8px 0;opacity:.7">Three.js scene + WebGL uploads <select disabled><option>Main thread required</option></select></label>
+    <div style="font-size:11px;opacity:.8;margin-top:8px">Worker routing status: <span data-assignment-pool>Not started</span></div>
+    <div style="margin-top:12px;padding-top:9px;border-top:1px solid #5a5490"><b>Foliage culling test</b><p style="font-size:11px;opacity:.85;margin:4px 0">Freeze visibility/LOD updates and keep the last foliage layout on screen. This is a diagnostic mode; plants may remain visible when they normally would be culled.</p><button type="button" data-foliage-freeze>Freeze Foliage Culling</button><div data-foliage-freeze-status style="font-size:11px;margin-top:5px">Active · foliage visibility updates normally</div></div>
+    <p style="font-size:11px;opacity:.8">Worker mode can leave the previous tree layout visible while culling runs. If a worker fails, the route falls back to the main thread and reports the error.</p>`;
+  root.querySelector('.play').appendChild(assignmentEl);
+  assignmentEl.querySelectorAll('button').forEach(styleProbeButton);
+  // Full-screen scheduler workspace. Keep existing live vegetation controls intact,
+  // and provide independent profiles for systems that will be connected incrementally.
+  const schedulerHeader = assignmentEl.firstElementChild;
+  schedulerHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;flex:0 0 auto';
+  schedulerHeader.querySelector('b').textContent = 'Dynamic Work Scheduler (F7)';
+  const schedulerClose = document.createElement('button'); schedulerClose.type = 'button'; schedulerClose.textContent = 'Close · Esc'; styleProbeButton(schedulerClose);
+  schedulerClose.addEventListener('click', () => { assignmentEl.hidden = true; assignmentEl.style.display = 'none'; if (!probe.on) input.lock(); });
+  schedulerHeader.appendChild(schedulerClose);
+  const schedulerGroupNav = document.createElement('nav');
+  schedulerGroupNav.setAttribute('aria-label', 'Scheduler sections');
+  schedulerGroupNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:2px 0 5px;position:relative;z-index:2';
+  const schedulerNav = document.createElement('nav');
+  schedulerNav.setAttribute('aria-label', 'Scheduler categories');
+  schedulerNav.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;overflow-x:auto;padding:3px 0 8px;border-bottom:1px solid #5a5490;position:relative;background:rgba(10,11,28,.99);z-index:2';
+  const schedulerWorkspace = document.createElement('div');
+  schedulerWorkspace.style.cssText = 'display:flex;flex-direction:column;align-items:stretch;position:relative;align-self:stretch;flex:1 1 0;min-height:0;min-width:0;height:auto;overflow:auto;overflow-x:hidden;width:100%;box-sizing:border-box;color:#e8e4f4;padding:0 4px 20px';
+  const schedulerLargePanel = document.createElement('section');
+  schedulerLargePanel.dataset.schedulerPanel = 'largeFoliage';
+  schedulerLargePanel.style.cssText = 'display:flex;position:relative;top:auto;transform:none;align-self:flex-start;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px';
+  const existingSchedulerContent = Array.from(assignmentEl.children).slice(1);
+  existingSchedulerContent.forEach(node => schedulerLargePanel.appendChild(node));
+  schedulerWorkspace.appendChild(schedulerLargePanel);
+  const schedulerCategories = [
+    { id:'largeFoliage', label:'Large foliage', description:'Trees, pines, dead trees and bushes. This profile currently drives the live tree/bush LOD renderer.' },
+    { id:'smallFoliage', label:'Small foliage', description:'Small-foliage LOD is already integrated through the shared live vegetation-zone policy in Large foliage. Independent worker execution for small foliage is still pending (*).' },
+    { id:'npcs', label:'NPCs', description:'Parallel worker tasks cover mesh visibility/LOD for both actor systems, actual simple-enemy animation pose math, and effect parameters. Creature skeletal pose generation and particle simulation remain main-thread work (*); Three.js scene changes and GPU uploads always stay on main.' },
+    { id:'buildings', label:'Buildings *', description:'Building and prop visibility/LOD candidates. Rendering and scene-object changes remain on the main thread until a safe worker data path is added.' },
+    { id:'weather', label:'Weather *', description:'Weather simulation and surface update scheduling. GPU/scene changes must still be applied on the main thread.' },
+    { id:'ai', label:'AI', description:'NPC AI calculation routing. The first live worker task covers editor-placed NPC/enemy actors: sensory distance, hearing candidates and proximity. Creature/monsterActors group perception (including F8-spawned monsters) also has a worker route; behavior decisions, occlusion, combat and movement remain main-thread-authoritative.' },
+    { id:'world', label:'World generation *', description:'Procedural generation candidates. Prefer workers for pure data generation, then apply generated scene objects on the main thread.' },
+    { id:'lighting', label:'Lighting / post *', description:'Lighting, shadows and post-processing candidates. WebGL renderer operations remain main-thread-only.' }
+  ];
+  const schedulerProfiles = Object.fromEntries(schedulerCategories.map((cat, index) => [cat.id, {
+    mode: ['largeFoliage', 'npcs', 'ai'].includes(cat.id) ? 'auto' : 'main',
+    priority: cat.id === 'largeFoliage' ? 2 : (cat.id === 'smallFoliage' ? 3 : 5),
+    zones: (cat.id === 'smallFoliage' ? smallLodZoneScheduler.snapshot().zones.slice(0,3) : lodZoneScheduler.snapshot().zones).map(z => ({ ...z, assignment: z.assignment || 'auto', interval: z.interval, radius: z.radius, enabled: z.enabled }))
+  }]));
+  let activeSchedulerCategory = 'largeFoliage';
+  let activeSchedulerGroup = 'Rendering';
+  const schedulerGroups = [
+    {id:'Overview', label:'Overview'},
+    {id:'Rendering', label:'Rendering'},
+    {id:'Simulation', label:'Simulation'},
+    {id:'World', label:'World'},
+    {id:'Workers', label:'Worker management'}
+  ];
+  const schedulerGroupFor = id => ({largeFoliage:'Rendering',smallFoliage:'Rendering',npcs:'Rendering',buildings:'Rendering',lighting:'Rendering',ai:'Simulation',weather:'Simulation',world:'World'})[id] || 'Rendering';
+  const schedulerTabButtons = new Map();
+  const schedulerNavModeSelects = new Map();
+  const schedulerPanelModeSelects = new Map();
+  const setSchedulerCategoryMode = (categoryId, value) => {
+    const profile = schedulerProfiles[categoryId];
+    if (!profile) return;
+    profile.mode = value;
+    const navSelect = schedulerNavModeSelects.get(categoryId);
+    if (navSelect && navSelect.value !== value) navSelect.value = value;
+    const panelSelect = schedulerPanelModeSelects.get(categoryId);
+    if (panelSelect && panelSelect.value !== value) panelSelect.value = value;
+    if (categoryId === 'largeFoliage') {
+      if (typeof largeModeSelect !== 'undefined' && largeModeSelect.value !== value) largeModeSelect.value = value;
+      dungeonLights?.foliage?.setWorkerMode?.(value);
+    }
+    if (categoryId === 'npcs') {
+      enemies?.setPresentationMode?.(value);
+      monsters?.setPresentationMode?.(value);
+    }
+    if (categoryId === 'ai') { enemies?.setAiMode?.(value); monsters?.setAiMode?.(value); }
+  };
+  // Start the already-supported CPU-only routes in Auto mode. They remain idle below their workload thresholds.
+  setSchedulerCategoryMode('npcs', 'auto');
+  setSchedulerCategoryMode('ai', 'auto');
+  const makeSchedulerSelect = (value, choices, onChange) => {
+    const select = document.createElement('select');
+    select.style.cssText = 'background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px;max-width:100%';
+    choices.forEach(([v,label]) => { const o=document.createElement('option'); o.value=v; o.textContent=label; select.appendChild(o); });
+    select.value = value; select.addEventListener('change', () => onChange(select.value)); return select;
+  };
+  const makeSchedulerNumber = (value, min, max, onChange) => {
+    const input=document.createElement('input'); input.type='number'; input.min=String(min); input.max=String(max); input.value=String(value);
+    input.style.cssText='width:100%;min-width:70px;box-sizing:border-box;background:#211d3c;color:#f4f0ff;border:1px solid #7166a8;border-radius:4px;padding:6px';
+    input.addEventListener('change',()=>{const n=Number(input.value);if(Number.isFinite(n)&&n>=min&&n<=max)onChange(n);else input.value=String(value);}); return input;
+  };
+  // Large foliage is the first fully wired task profile; mirror its mode into the
+  // existing tree worker route while priority becomes meaningful as the global queue lands.
+  const largeTaskControls = document.createElement('div');
+  largeTaskControls.style.cssText='display:flex;gap:14px;align-items:end;flex-wrap:wrap;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
+  const largeModeLabel=document.createElement('label'); largeModeLabel.textContent='Tree / bush execution mode'; largeModeLabel.style.cssText='display:flex;flex-direction:column;gap:5px';
+  const largeModeSelect=makeSchedulerSelect(schedulerProfiles.largeFoliage.mode,[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],value=>setSchedulerCategoryMode('largeFoliage',value));
+  dungeonLights?.foliage?.setWorkerMode?.(schedulerProfiles.largeFoliage.mode);
+  largeModeLabel.appendChild(largeModeSelect); largeTaskControls.appendChild(largeModeLabel);
+  const largePriorityLabel=document.createElement('label'); largePriorityLabel.textContent='Auto priority * (1 = highest, 10 = lowest)'; largePriorityLabel.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
+  const largePrioritySelect=makeSchedulerSelect(String(schedulerProfiles.largeFoliage.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),value=>schedulerProfiles.largeFoliage.priority=Number(value));
+  largePriorityLabel.appendChild(largePrioritySelect); largeTaskControls.appendChild(largePriorityLabel);
+  const largePriorityNote=document.createElement('span'); largePriorityNote.style.cssText='font-size:12px;opacity:.8;flex:1;min-width:220px'; largePriorityNote.textContent='* Priority is saved for this session but does not yet order a shared task queue.'; largeTaskControls.appendChild(largePriorityNote);
+  schedulerLargePanel.prepend(largeTaskControls);
+  const legacyTreeModeLabel = assignmentEl.querySelector('[data-assignment="trees"]')?.parentElement;
+  if (legacyTreeModeLabel) legacyTreeModeLabel.hidden = true; // the full-screen task-level mode control replaces this duplicate
+  const renderSchedulerProfile = category => {
+    const profile=schedulerProfiles[category.id], panel=document.createElement('section'); panel.dataset.schedulerPanel=category.id;
+    panel.style.cssText='display:flex;position:relative;top:auto;transform:none;align-self:flex-start;flex-direction:column;gap:14px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
+    const intro=document.createElement('div'); intro.innerHTML='<h2 style="font-size:20px;margin:0 0 4px">'+category.label+'</h2><p style="margin:0;opacity:.8">'+category.description+'</p>'; panel.appendChild(intro);
+    const settings=document.createElement('div'); settings.style.cssText='display:flex;gap:16px;flex-wrap:wrap;align-items:end;padding:12px;background:rgba(255,255,255,.04);border:1px solid #383356;border-radius:8px';
+    const modeWrap=document.createElement('label'); modeWrap.textContent=category.id==='ai'?'NPC AI calculation mode':'Execution mode'; modeWrap.style.cssText='display:flex;flex-direction:column;gap:5px';
+    const profileModeSelect=makeSchedulerSelect(profile.mode,category.id==='smallFoliage'?[['main','Main thread · current route']]:[['main','Main thread'],['worker','Worker pool'],['auto','Auto · workload-aware']],v=>setSchedulerCategoryMode(category.id,v));
+    if(category.id==='smallFoliage'){profileModeSelect.value='main';profileModeSelect.disabled=true;profile.mode='main';}
+    schedulerPanelModeSelects.set(category.id,profileModeSelect);
+    modeWrap.appendChild(profileModeSelect); settings.appendChild(modeWrap);
+    if(category.id==='ai'){const aiNote=document.createElement('div');aiNote.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:260px';aiNote.textContent='Worker tasks calculate editor-NPC sensory candidates and creature-group perception (nearest living member and threat distance). Main thread retains line-of-sight/occlusion, AI state transitions, combat, movement and all game effects.';settings.appendChild(aiNote);}
+    const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority * (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
+    const prioritySelect=makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v));
+    if(category.id==='smallFoliage'){prioritySelect.disabled=true;priorityWrap.title='Priority routing is not implemented for small foliage yet.';}
+    priorityWrap.appendChild(prioritySelect); settings.appendChild(priorityWrap);
+    const summary=document.createElement('div'); summary.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:220px'; summary.textContent=category.id==='smallFoliage'?'Small foliage has an independent LOD profile. Apply the zone settings below to update grass and small plants. Worker execution and priority routing are not available for this renderer yet.':category.id==='ai'?'Live routes: editor-NPC sensory candidates plus creature group nearest-member/threat-distance calculations run on workers. AI state transitions, occlusion checks, combat, movement and game effects remain on main.':category.id==='npcs'?'Live worker route: mesh visibility/LOD for both actor systems, simple-enemy leg/wing/arm pose calculations, emissive state and ring-effect parameters. Creature actors receive worker-computed LOD, animation cadence and particle-detail budgets. Full procedural mesh construction, creature skeletal pose calculations, particle simulation and GPU uploads remain main-thread work (*). AI perception is independent in the AI tab.':'* Profile only: this category’s mode, priority, zones, and worker assignments are stored independently for this session but do not affect live renderer/worker behavior yet.'; settings.appendChild(summary); panel.appendChild(settings);
+    const zonesDetails=document.createElement('details'); zonesDetails.open=false;
+    zonesDetails.style.cssText='border:1px solid #383356;border-radius:8px;background:rgba(255,255,255,.02);padding:8px 10px';
+    const title=document.createElement('summary'); title.textContent='Advanced · LOD zones and per-zone assignments'; title.style.cssText='font-size:14px;font-weight:600;cursor:pointer;padding:4px'; zonesDetails.appendChild(title);
+    const table=document.createElement('div'); table.style.cssText='display:grid;grid-template-columns:minmax(70px,.6fr) minmax(100px,1fr) minmax(110px,1fr) minmax(100px,1fr) minmax(150px,1.2fr);gap:8px;align-items:center;min-width:650px';
+    ['Zone','Enabled *','Radius (m) *','Every N frames *','Execution assignment *'].forEach(t=>{const h=document.createElement('b');h.textContent=t;h.style.cssText='font-size:12px;padding:7px 4px;border-bottom:1px solid #5a5490';table.appendChild(h);});
+    profile.zones.forEach((z,i)=>{
+      const name=document.createElement('div'); name.textContent='LOD '+z.id+' *'; name.style.cssText='padding:8px 4px;font-weight:600'; table.appendChild(name);
+      const enabledWrap=document.createElement('label'); enabledWrap.style.cssText='display:flex;gap:6px;align-items:center;padding:6px';
+      const enabled=document.createElement('input'); enabled.type='checkbox'; enabled.checked=z.enabled; enabled.addEventListener('change',()=>z.enabled=enabled.checked); enabledWrap.append(enabled,document.createTextNode(enabled.checked?'Enabled':'Disabled'));
+      enabled.addEventListener('change',()=>enabledWrap.lastChild.textContent=enabled.checked?'Enabled':'Disabled'); table.appendChild(enabledWrap);
+      table.appendChild(makeSchedulerNumber(z.radius,1,10000,v=>{z.radius=v;}));
+      table.appendChild(makeSchedulerNumber(z.interval,1,10000,v=>{z.interval=Math.round(v);}));
+      const assignmentSelect=makeSchedulerSelect(z.assignment,category.id==='smallFoliage'?[['main','Main thread · current route']]:[['main','Main thread'],['worker-1','Worker 1'],['worker-2','Worker 2'],['worker-3','Worker 3'],['worker-4','Worker 4'],['worker-5','Worker 5'],['worker-6','Worker 6'],['auto','Auto']],v=>z.assignment=v);
+      if(category.id==='smallFoliage'){assignmentSelect.value='main';assignmentSelect.disabled=true;z.assignment='main';}
+      table.appendChild(assignmentSelect);
+    });
+    const tableScroller=document.createElement('div'); tableScroller.style.cssText='overflow-x:auto;padding:10px;margin-top:8px;background:rgba(255,255,255,.025);border:1px solid #383356;border-radius:8px'; tableScroller.appendChild(table); zonesDetails.appendChild(tableScroller); panel.appendChild(zonesDetails);
+    const status=document.createElement('div'); status.style.cssText='padding:10px;border-radius:6px;background:rgba(255,255,255,.04);font-size:12px;opacity:.9';
+    if (category.id === 'smallFoliage') {
+      const applySmallZones = document.createElement('button'); applySmallZones.type = 'button'; applySmallZones.textContent = 'Apply small-foliage LOD zones'; styleProbeButton(applySmallZones);
+      applySmallZones.addEventListener('click', () => {
+        try {
+          const policy = smallLodZoneScheduler.configure(profile.zones.slice(0,3).map(z => ({ ...z, radius: Number(z.radius), interval: Math.round(Number(z.interval)), enabled: z.enabled !== false })));
+          dungeonLights?.foliage?.setSmallFoliageLodZonePolicy?.(policy);
+          status.textContent = 'Applied · small foliage now uses its own LOD radii, enabled states, and refresh intervals. Small-foliage culling remains on the main thread.';
+        } catch (error) { status.textContent = 'Could not apply small-foliage zones: ' + (error?.message || String(error)); }
+      });
+      panel.appendChild(applySmallZones);
+    }
+    status.textContent=category.id==='smallFoliage'?'Small foliage has an independent LOD profile. Apply its zone settings below to update small plants and grass; CPU culling and GPU buffer updates remain on the main thread.':category.id==='ai'?'Live worker pipelines: editor-placed NPC sensory candidates and F8 creature-group perception (nearest living member and threat distance). Group behavior decisions, occlusion, combat and movement remain main-thread-authoritative. Check Creature AI rows in F2.':category.id==='npcs'?'Worker mode parallelizes CPU-side visibility/LOD and simple-enemy pose/effect calculations across two workers. Creature actors use worker-computed LOD, animation cadence and effect budgets; their full bone-pose math, particle simulation, procedural mesh construction and WebGL uploads remain main-thread-only (*). Auto uses workers at 4 active actors.':'* Profile only: settings are held for this session; renderer/worker integration is not yet connected.';
+    panel.appendChild(status);
+    const reset=document.createElement('button'); reset.type='button'; reset.textContent='Reset this category'; styleProbeButton(reset); reset.addEventListener('click',()=>{schedulerProfiles[category.id]={...schedulerProfiles[category.id],mode:'main',priority:category.id==='largeFoliage'?2:5,zones:(category.id==='smallFoliage'?smallLodZoneScheduler.snapshot().zones.slice(0,3):lodZoneScheduler.snapshot().zones).map(z=>({...z}))};if(category.id==='smallFoliage'){const policy=smallLodZoneScheduler.reset();dungeonLights?.foliage?.setSmallFoliageLodZonePolicy?.(policy);}setSchedulerCategoryMode(category.id,'main');renderSchedulerTabs();}); panel.appendChild(reset);
+    return panel;
+  };
+  const schedulerLegend = document.createElement('div');
+  schedulerLegend.textContent = '* Partially implemented or not yet routed to live worker execution. Tree LOD, NPC sensory calculations, simple-enemy pose/effect calculations, and creature LOD/cadence/effect budgets use workers; creature skeletal posing, procedural mesh construction, particle simulation, and Three.js/GPU mutations remain on the main thread.';
+  schedulerLegend.style.cssText = 'display:block;flex:0 0 auto;font-size:11px;line-height:1.35;opacity:.72;padding:0 4px 6px;width:100%;box-sizing:border-box';
+  const renderSchedulerTabs = () => {
+    schedulerGroupNav.innerHTML='';
+    schedulerNav.innerHTML='';
+    schedulerWorkspace.innerHTML='';
+    schedulerWorkspace.scrollTop=0;
+    schedulerWorkspace.scrollLeft=0;
+    schedulerTabButtons.clear(); schedulerNavModeSelects.clear(); schedulerPanelModeSelects.clear();
+    schedulerGroups.forEach(group=>{
+      const button=document.createElement('button'); button.type='button'; button.textContent=group.label; styleProbeButton(button);
+      button.style.cssText+=';white-space:nowrap;flex:0 0 auto;padding:6px 12px';
+      button.style.setProperty('border-color',group.id===activeSchedulerGroup?'#d0b8ff':'#7166a8','important');
+      button.style.setProperty('background-color',group.id===activeSchedulerGroup?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)','important');
+      button.setAttribute('aria-pressed',String(group.id===activeSchedulerGroup));
+      button.addEventListener('click',()=>{
+        activeSchedulerGroup=group.id;
+        if(group.id==='Overview'||group.id==='Workers') activeSchedulerCategory='';
+        else if(schedulerGroupFor(activeSchedulerCategory)!==group.id) activeSchedulerCategory=schedulerCategories.find(c=>schedulerGroupFor(c.id)===group.id)?.id||'largeFoliage';
+        renderSchedulerTabs();
+      });
+      schedulerGroupNav.appendChild(button);
+    });
+    const visibleCategories=schedulerCategories.filter(category=>schedulerGroupFor(category.id)===activeSchedulerGroup);
+    visibleCategories.forEach(category=>{
+      const tabGroup=document.createElement('div');
+      tabGroup.style.cssText='display:flex;align-items:center;gap:5px;flex:0 0 auto;padding:3px 5px;border:1px solid '+(category.id===activeSchedulerCategory?'#d0b8ff':'#383356')+';border-radius:7px;background:rgba(90,84,144,.12)';
+      const button=document.createElement('button'); button.type='button'; button.textContent=category.label; styleProbeButton(button);
+      button.style.cssText+=';white-space:nowrap;flex:0 0 auto';
+      button.style.setProperty('border-color',category.id===activeSchedulerCategory?'#d0b8ff':'#7166a8','important');
+      button.style.setProperty('background-color',category.id===activeSchedulerCategory?'rgba(126,91,210,.5)':'rgba(90,84,144,.2)','important');
+      button.setAttribute('aria-selected',String(category.id===activeSchedulerCategory));
+      button.addEventListener('click',()=>{activeSchedulerCategory=category.id;renderSchedulerTabs();});
+      const modeSelect=makeSchedulerSelect(schedulerProfiles[category.id].mode,[['main','Main'],['worker','Worker'],['auto','Auto']],value=>setSchedulerCategoryMode(category.id,value));
+      modeSelect.setAttribute('aria-label',category.label+' execution mode'); modeSelect.title=category.label+' execution mode';
+      modeSelect.style.cssText+=';width:84px;min-width:84px;font-size:11px;padding:5px 3px';
+      schedulerNavModeSelects.set(category.id,modeSelect); tabGroup.append(button,modeSelect); schedulerNav.appendChild(tabGroup);
+      schedulerTabButtons.set(category.id,button);
+      const panel=category.id==='largeFoliage'?schedulerLargePanel:renderSchedulerProfile(category);
+      const panelActive=category.id===activeSchedulerCategory;
+      panel.hidden=!panelActive; panel.style.display=panelActive?'flex':'none'; panel.style.visibility=panelActive?'visible':'hidden'; panel.style.flex='0 0 auto';
+      schedulerWorkspace.appendChild(panel);
+    });
+    if(activeSchedulerGroup==='Overview') schedulerWorkspace.appendChild(schedulerOverview);
+    if(activeSchedulerGroup==='Workers') schedulerWorkspace.appendChild(schedulerWorkersPanel);
+  };
+  const schedulerOverview = document.createElement('section');
+  schedulerOverview.style.cssText='display:flex;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
+  schedulerOverview.innerHTML='<h2 style="font-size:20px;margin:0">Scheduler overview</h2><p style="margin:0;opacity:.8">Choose a section above to configure a subsystem. Modes are independent. Items marked * are not fully connected to live execution yet.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px"><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Rendering</b><p style="margin:5px 0 0;opacity:.8">Large and small foliage, NPC presentation, buildings, lighting and post-processing.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Simulation</b><p style="margin:5px 0 0;opacity:.8">NPC perception, creature AI, weather and other simulation jobs.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>World</b><p style="margin:5px 0 0;opacity:.8">Generation and streaming tasks as worker-safe data jobs become available.</p></div><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Worker management</b><p style="margin:5px 0 0;opacity:.8">Pool sizing, queue priorities and diagnostics. Live pool diagnostics remain available in F2.</p></div></div>';
+  const schedulerWorkersPanel = document.createElement('section');
+  schedulerWorkersPanel.style.cssText='display:flex;flex-direction:column;gap:12px;width:100%;max-width:1500px;margin:0 auto 24px;box-sizing:border-box';
+  schedulerWorkersPanel.innerHTML='<h2 style="font-size:20px;margin:0">Worker management</h2><p style="margin:0;opacity:.8">Use F2 for live worker activity, active task names, dispatch counts, errors and timings. Shared queue priorities and a global pool allocator are planned; per-category mode selectors remain independent.</p><div style="padding:12px;border:1px solid #383356;border-radius:8px"><b>Current execution rules</b><ul style="margin:6px 0 0;padding-left:20px"><li>CPU-only serializable calculations may run on workers.</li><li>Three.js scene changes, bone application and GPU uploads stay on the main thread.</li><li>Auto thresholds and pool allocation are currently system-specific, not yet controlled by a shared global scheduler.</li></ul></div>';
+  assignmentEl.appendChild(schedulerGroupNav); assignmentEl.appendChild(schedulerNav); assignmentEl.appendChild(schedulerLegend); assignmentEl.appendChild(schedulerWorkspace);
+
+  renderSchedulerTabs();
+  // F2 process monitor. Reuse stable rows and refresh at 4 Hz to avoid per-frame layout churn.
+  let processMonitorOpen = false, processMonitorLastFrameMs = 0, processMonitorLastFrameDeltaMs = 0, processMonitorLastRefresh = 0;
+  let processCaptureStartedAt = 0, processCaptureSamples = [], processCaptureStats = null;
+  let processMonitorLastReport = null;
+  const processMonitorRows = new Map();
+  const processMonitor = document.createElement('aside');
+  processMonitor.setAttribute('aria-label','Process and worker activity');
+  processMonitor.style.cssText='position:fixed;right:12px;top:12px;z-index:100001;width:340px;max-width:calc(100vw - 24px);box-sizing:border-box;max-height:70vh;overflow:auto;display:none;padding:10px;background:rgba(8,10,24,.96);color:#eee9ff;border:1px solid #6f63a8;border-radius:8px;box-shadow:0 8px 30px #0008;font:12px/1.4 system-ui,sans-serif;pointer-events:auto;contain:layout style';
+  processMonitor.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid #514777;padding-bottom:6px;margin-bottom:6px"><b>Process Monitor · F2</b><span data-process-frame>—</span></div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px"><button type="button" data-process-capture style="cursor:pointer;background:#4c4178;color:#fff;border:1px solid #a99bdc;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Capture live (3s)</button><button type="button" data-process-copy style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Copy report</button><button type="button" data-process-download style="cursor:pointer;background:#39305e;color:#fff;border:1px solid #8275b7;border-radius:4px;padding:5px 8px;font:inherit;pointer-events:auto">Download JSON</button><span data-process-feedback style="align-self:center;opacity:.8"></span></div><div data-process-list style="display:block;min-height:24px"></div><div style="opacity:.65;margin-top:7px;font-size:10px">Capture hides this panel and resumes gameplay for 3 seconds, then snapshots the live state and reopens F2.</div><div style="opacity:.65;margin-top:4px;font-size:10px">Working = active task · Idle = available · main-thread scene/GPU updates stay on main.</div>';
+  $('.play').appendChild(processMonitor);
+  const copyProcessReport = async () => {
+    if (!processMonitorLastReport) refreshProcessMonitor(true);
+    const report = JSON.stringify(processMonitorLastReport || {}, null, 2);
+    const feedback = processMonitor.querySelector('[data-process-feedback]');
+    try { await navigator.clipboard.writeText(report); if(feedback) feedback.textContent='Copied'; }
+    catch (error) { const area=document.createElement('textarea'); area.value=report; area.style.cssText='position:fixed;left:-9999px;top:0'; document.body.appendChild(area); area.select(); const ok=document.execCommand('copy'); area.remove(); if(feedback) feedback.textContent=ok?'Copied':'Copy blocked'; }
+  };
+  const downloadProcessReport = () => {
+    if (!processMonitorLastReport) refreshProcessMonitor(true);
+    const blob = new Blob([JSON.stringify(processMonitorLastReport || {}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='eldermere-performance-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const feedback=processMonitor.querySelector('[data-process-feedback]'); if(feedback) feedback.textContent='Report saved';
+  };
+  processMonitor.querySelector('[data-process-copy]').addEventListener('click', copyProcessReport);
+  processMonitor.querySelector('[data-process-download]').addEventListener('click', downloadProcessReport);
+  let processCaptureTimer = null;
+  processMonitor.querySelector('[data-process-capture]').addEventListener('click', () => {
+    if (processCaptureTimer) clearTimeout(processCaptureTimer);
+    const button = processMonitor.querySelector('[data-process-capture]');
+    const feedback = processMonitor.querySelector('[data-process-feedback]');
+    processCaptureStartedAt = performance.now(); processCaptureSamples = []; processCaptureStats = null;
+    processMonitorOpen = false;
+    processMonitor.style.display = 'none';
+    input.lock();
+    if (feedback) feedback.textContent = 'Capturing live gameplay…';
+    button.disabled = true;
+    processCaptureTimer = setTimeout(() => {
+      processCaptureTimer = null;
+      const durationMs = Math.max(1, performance.now() - processCaptureStartedAt);
+      processCaptureStartedAt = 0;
+      const sortedFrames = processCaptureSamples.map(s => s.frameMs).filter(Number.isFinite).sort((a,b)=>a-b);
+      const sortedCpu = processCaptureSamples.map(s => s.loopCpuMs).filter(Number.isFinite).sort((a,b)=>a-b);
+      const median = values => values.length ? (values.length%2 ? values[(values.length-1)/2] : (values[values.length/2-1]+values[values.length/2])/2) : 0;
+      const p95 = values => values.length ? values[Math.min(values.length-1,Math.ceil(values.length*0.95)-1)] : 0;
+      processCaptureStats = { samples:processCaptureSamples.length, durationMs, observedFps:processCaptureSamples.length/(durationMs/1000), frameMedianMs:median(sortedFrames), frameP95Ms:p95(sortedFrames), loopCpuMedianMs:median(sortedCpu) };
+      refreshProcessMonitor(true);
+      processMonitorOpen = true;
+      processMonitor.style.display = 'block';
+      input.unlock();
+      showPause(false);
+      button.disabled = false;
+      button.textContent = 'Capture again (3s)';
+      const status = processMonitor.querySelector('[data-process-feedback]');
+      if (status) status.textContent = 'Live snapshot captured';
+    }, 3000);
+  });
+  const refreshProcessMonitor = (force = false) => {
+    if (!processMonitorOpen && !force) return;
+    const now = performance.now();
+    if (!force && now - processMonitorLastRefresh < 250) return;
+    processMonitorLastRefresh = now;
+    // These pre-pool renderer records are legacy and never receive fresh updates.
+    clearProcessesByPrefix('npc-render-');
+    const rows=[];
+    const seen=new Set();
+    const addRow = row => { if (!row?.id || seen.has(row.id)) return; seen.add(row.id); rows.push(row); };
+    addRow({id:'main-thread',label:'Main thread',status:'working',task:'Game loop · AI state / combat / Three.js / GPU uploads'});
+    const summaryIds = new Set(['creature-ai-queue','npc-presentation-queue','npc-simple-presentation-queue','npc-ai-queue','shared-pool-summary']);
+    const registrySnapshot = processSnapshot().filter(process => !/^(shared-worker-|tree-worker-|shared-pool-worker-)/.test(String(process.id || '')));
+    for(const process of registrySnapshot) { const id=process.id||process.label; if (summaryIds.has(id)) continue; addRow({...process,id}); }
+    const npcState=enemies?.workerSnapshot?.();
+    if(npcState?.pool){
+      for(const w of npcState.pool.workers){const id='npc-worker-'+w.id;if(!seen.has(id)){seen.add(id);addRow({id,label:'NPC Worker '+w.id,status:w.busy?'working':'idle',task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · no task assigned')});}}
+      addRow({id:'npc-ai-queue',label:'NPC AI queue',status:npcState.pending?'working':'idle',task:npcState.pending?'Perception batch in flight':npcState.mode+' · '+npcState.npcCount+' NPCs · last worker '+(npcState.lastWorkerMs||0).toFixed(2)+' ms'});
+    }
+    const timingText = state => 'workers '+(state.pool ? state.pool.busy+'/'+state.pool.active+' busy · '+state.pool.size+' max' : '0 active')+
+      ' · queue '+(state.pool?.queued ?? 0)+' waiting'+
+      ' · last CPU '+(state.workerMs||0).toFixed(2)+' ms'+
+      ' · max queue wait '+(state.queueMs||0).toFixed(2)+' ms'+
+      ' · postMessage total '+(state.dispatchMs||0).toFixed(3)+' ms'+
+      ' · slowest round trip '+(state.roundTripMs||0).toFixed(2)+' ms'+
+      ' · batch wall '+(state.batchMs||0).toFixed(2)+' ms'+
+      (state.pending ? ' · pending '+((state.pendingAgeMs||0)/1000).toFixed(2)+' s' : '');
+    const creatureAi=monsters?.aiSnapshot?.();
+    if(creatureAi){
+      addRow({id:'creature-ai-queue',label:'Creature AI perception',status:creatureAi.lastError?'error':creatureAi.pending?'working':'idle',
+        task:creatureAi.lastError||creatureAi.mode+' · '+(creatureAi.population?.attached??0)+' in scene / '+creatureAi.actorCount+' registered · '+creatureAi.groupCount+' groups · '+creatureAi.dispatchCount+' batches · '+timingText(creatureAi)+(creatureAi.population?' · update '+creatureAi.population.updateMs.toFixed(2)+' ms (sense '+creatureAi.population.aiDispatchMs.toFixed(2)+' / groups '+creatureAi.population.groupThinkMs.toFixed(2)+' / actors '+creatureAi.population.actorLoopMs.toFixed(2)+' / dispatch '+creatureAi.population.presentationDispatchMainMs.toFixed(2)+') · alive '+creatureAi.population.alive+' · dead '+creatureAi.population.dead+' · awake '+creatureAi.population.awakeActors+'/'+creatureAi.population.alive+' · groups awake '+creatureAi.population.awakeGroups+' · attached '+creatureAi.population.attached+' · in range '+creatureAi.population.withinRenderRange+' · visible '+creatureAi.population.visible:'')+(creatureAi.pending?' · batch in flight':'')});
+    }
+    for (const [prefix, state, label] of [['npc-presentation', monsters?.presentationSnapshot?.(), 'Creature presentation'], ['npc-simple-presentation', enemies?.presentationSnapshot?.(), 'Simple NPC presentation']]) {
+      if (!state) continue;
+      const queueId = prefix + '-queue';
+      addRow({ id:queueId, label, status:state.lastError?'error':state.pending?'working':'idle',
+        task:state.lastError ? 'Error · '+state.lastError : state.mode+' · '+(state.population?.attached??0)+' in scene / '+state.actorCount+' registered · '+state.dispatchCount+' batches · '+timingText(state)+(state.population?' · update '+state.population.updateMs.toFixed(2)+' ms · batch '+state.population.presentationBatchSize:'')+(state.pending?' · batch in flight':'') });
+    }
+    // Creature AI and creature presentation share the same physical pool. Show its workers once,
+    // under their scheduler IDs, rather than implying each subsystem owns a separate set.
+    const sharedPool = dungeonLights?.foliage?.workerPoolSnapshot || creatureAi?.pool || monsters?.presentationSnapshot?.()?.pool;
+    if(sharedPool) {
+      addRow({id:'shared-pool-summary',label:'Shared creature pool',status:sharedPool.busy?'working':'idle',
+        task:sharedPool.busy+'/'+sharedPool.active+' workers busy · '+sharedPool.queued+' queued · '+sharedPool.active+' active / '+sharedPool.size+' max'});
+      for(const w of sharedPool.workers) addRow({id:'shared-pool-worker-'+w.id,label:'Shared worker '+w.id,status:w.busy?'working':'idle',
+        task:w.busy?(w.task||'Processing '+(w.jobId?'job '+w.jobId:'job')):'Idle'+(w.lastTask?' · last task: '+w.lastTask:' · waiting for work')});
+    }
+    const treeState=dungeonLights?.foliage?.workerState;
+    if(treeState)addRow({id:'tree-lod-scheduler',label:'Tree LOD scheduler',status:treeState.status?.includes('running')?'working':'idle',task:(treeState.status||'Not initialized')+' · jobs '+(treeState.jobs||0)+' · last batch '+(treeState.lastMs||0).toFixed(2)+' ms · worker CPU '+(treeState.workerMs||0).toFixed(2)+' ms · queue wait avg '+(treeState.queueMs||0).toFixed(2)+' ms · apply '+(treeState.applyMs||0).toFixed(2)+' ms'});
+    const smallFoliagePolicy=smallLodZoneScheduler.snapshot();
+    const smallFoliageZones=(smallFoliagePolicy.zones||[]).slice(0,3);
+    const smallFoliageActive=smallFoliageZones.filter(z=>z.enabled!==false);
+    addRow({id:'small-foliage-lod-scheduler',label:'Small foliage LOD',status:smallFoliageActive.length?'working':'idle',
+      task:'main-thread culling · '+smallFoliageActive.length+'/3 zones enabled · '+smallFoliageZones.map(z=>'Z'+z.id+' '+(z.enabled===false?'off':Math.round(Number(z.radius)||0)+' m / '+Math.max(1,Math.floor(Number(z.interval)||1))+'f')).join(' · ')+' · grass/plants buffer uploads on main'});
+    const creaturePopulation=monsters?.presentationSnapshot?.()?.population||null;
+    const creatureSceneCount=creaturePopulation?.attached??creaturePopulation?.total??0;
+    processMonitorLastReport = { capturedAt:new Date().toISOString(), frameMs:processCaptureStats?.frameMedianMs ?? processMonitorLastFrameDeltaMs, frameDeltaMedianMs:processCaptureStats?.frameMedianMs ?? processMonitorLastFrameDeltaMs, frameDeltaP95Ms:processCaptureStats?.frameP95Ms ?? processMonitorLastFrameDeltaMs, observedFps:processCaptureStats?.observedFps ?? (processMonitorLastFrameDeltaMs>0?1000/processMonitorLastFrameDeltaMs:0), loopCpuMs:processCaptureStats?.loopCpuMedianMs ?? processMonitorLastFrameMs, frameSamples:processCaptureStats?.samples ?? 1, captureDurationMs:processCaptureStats?.durationMs ?? 0, hardwareConcurrency:navigator.hardwareConcurrency||null, userAgent:navigator.userAgent, processes:rows.map(p=>({...p})), registry:registrySnapshot, creatureAI:creatureAi?{...creatureAi,registeredActorCount:creatureAi.actorCount,sceneActorCount:creatureAi.population?.attached??0}:null, creaturePopulation:creaturePopulation?{...creaturePopulation,registered:creaturePopulation.total,sceneCount:creatureSceneCount}:null, creatureSceneCount, creatureRegisteredCount:creaturePopulation?.total??0, creaturePresentation:monsters?.presentationSnapshot?.()||null, simpleNpcPresentation:enemies?.presentationSnapshot?.()||null, npcAI:enemies?.workerSnapshot?.()||null, foliageWorkerPool:dungeonLights?.foliage?.workerPoolSnapshot||null, smallFoliagePolicy };
+    const list=processMonitor.querySelector('[data-process-list]');
+    const activeIds=new Set(rows.map(p=>p.id));
+    for(const [id,node] of processMonitorRows){if(!activeIds.has(id)){node.remove();processMonitorRows.delete(id);}}
+    for(const p of rows){
+      let node=processMonitorRows.get(p.id);
+      if(!node){
+        node=document.createElement('div');
+        node.style.cssText='display:grid;grid-template-columns:112px 54px minmax(0,1fr);align-items:start;gap:5px;padding:5px 0;border-bottom:1px solid #ffffff12;min-height:28px;box-sizing:border-box';
+        const label=document.createElement('b');label.style.cssText='font-weight:600;overflow-wrap:anywhere';
+        const status=document.createElement('span');status.style.cssText='font-size:11px';
+        const task=document.createElement('span');task.style.cssText='opacity:.82;overflow-wrap:anywhere;min-width:0';
+        node.append(label,status,task);node._processLabel=label;node._processStatus=status;node._processTask=task;
+        processMonitorRows.set(p.id,node);list.appendChild(node);
+      }
+      node._processLabel.textContent=p.label||p.id;
+      node._processStatus.textContent=p.status||'idle';
+      node._processStatus.style.color=p.status==='working'?'#a8f0bd':p.status==='error'?'#ff9b9b':'#b8b2d0';
+      node._processTask.textContent=p.task||'No task assigned';
+    }
+    processMonitor.querySelector('[data-process-frame]').textContent='loop '+processMonitorLastFrameMs.toFixed(1)+' ms · Δ '+processMonitorLastFrameDeltaMs.toFixed(1)+' ms';
+  };
+  foliageCullFreeze.button = assignmentEl.querySelector('[data-foliage-freeze]');
+  foliageCullFreeze.status = assignmentEl.querySelector('[data-foliage-freeze-status]');
+  refreshFoliageFreezeControl();
+  foliageCullFreeze.button.addEventListener('click', () => {
+    foliageCullFreeze.frozen = !foliageCullFreeze.frozen;
+    refreshFoliageFreezeControl();
+  });
+  const lodZoneContainer = assignmentEl.querySelector('[data-lod-zones]');
+  const renderLodZoneControls = () => {
+    lodZoneContainer.innerHTML = '';
+    lodZoneScheduler.snapshot().zones.forEach(z => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:42px 1fr 1fr;gap:5px;align-items:center;margin:7px 0;padding:6px;background:rgba(255,255,255,.045);border-radius:4px';
+      row.innerHTML = '<label style="font-size:11px"><input type="checkbox" data-enabled> LOD ' + z.id + '</label>' +
+        '<label style="font-size:11px">Radius (m)<input data-radius type="number" min="1" max="10000" step="5" value="' + z.radius + '" style="width:100%;box-sizing:border-box"></label>' +
+        '<label style="font-size:11px">Every N frames<input data-interval type="number" min="1" max="10000" value="' + z.interval + '" style="width:100%;box-sizing:border-box"></label>' +
+        '<label style="grid-column:2/4;font-size:11px">Worker assignment (not yet routed)<select data-worker disabled style="width:100%;opacity:.6"><option value="main">Main thread</option><option value="worker-1">Worker 1</option><option value="worker-2">Worker 2</option><option value="worker-3">Worker 3</option><option value="worker-4">Worker 4</option><option value="worker-5">Worker 5</option><option value="worker-6">Worker 6</option><option value="auto">Auto</option></select></label>';
+      row.querySelector('[data-enabled]').checked = z.enabled;
+      row.querySelector('[data-worker]').value = z.assignment;
+      lodZoneContainer.appendChild(row);
+    });
+    const apply = () => {
+      try {
+        const next = Array.from(lodZoneContainer.children).map((row, i) => {
+          const prior = lodZoneScheduler.snapshot().zones[i];
+          return { ...prior, enabled: row.querySelector('[data-enabled]').checked,
+            radius: Number(row.querySelector('[data-radius]').value),
+            interval: Number(row.querySelector('[data-interval]').value),
+            assignment: row.querySelector('[data-worker]').value };
+        });
+        const policy = lodZoneScheduler.configure(next);
+        dungeonLights?.foliage?.setLodZonePolicy?.(policy);
+        assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
+        assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Policy applied · active LOD radii/intervals updated; per-zone worker assignment is not yet routed (*)';
+      } catch (error) {
+        assignmentEl.querySelector('[data-lod-zone-error]').textContent = error?.message || String(error);
+      }
+    };
+    lodZoneContainer.querySelectorAll('input,select').forEach(el => el.addEventListener('change', apply));
+  };
+  renderLodZoneControls();
+  dungeonLights?.foliage?.setLodZonePolicy?.(lodZoneScheduler.snapshot());
+  dungeonLights?.foliage?.setSmallFoliageLodZonePolicy?.(smallLodZoneScheduler.snapshot());
+  assignmentEl.querySelector('[data-lod-zone-reset]').addEventListener('click', () => {
+    const policy = lodZoneScheduler.reset();
+    dungeonLights?.foliage?.setLodZonePolicy?.(policy);
+    assignmentEl.querySelector('[data-lod-zone-error]').textContent = '';
+    assignmentEl.querySelector('[data-lod-zone-status]').textContent = 'Defaults restored · active vegetation LOD buffers scheduled';
+    renderLodZoneControls();
+  });
+  assignmentEl.querySelector('[data-assignment="trees"]').addEventListener('change', e => dungeonLights?.foliage?.setWorkerMode(e.target.value));
+  const workerAllocationSelect = assignmentEl.querySelector('[data-assignment-allocation]');
+  const workerLimitSelect = assignmentEl.querySelector('[data-assignment-workers]');
+  workerAllocationSelect.addEventListener('change', e => {
+    const allocation = e.target.value;
+    if (allocation === 'auto') {
+      dungeonLights?.foliage?.setWorkerAllocationMode?.('auto');
+      dungeonLights?.foliage?.setWorkerLimit?.(Number(workerLimitSelect.value));
+    } else dungeonLights?.foliage?.setWorkerCount?.(Number(workerLimitSelect.value));
+  });
+  workerLimitSelect.addEventListener('change', e => {
+    const count = Number(e.target.value);
+    if (workerAllocationSelect.value === 'auto') dungeonLights?.foliage?.setWorkerLimit?.(count);
+    else dungeonLights?.foliage?.setWorkerCount?.(count);
+  });
+  assignmentEl.querySelector('[data-assignment-reset]').addEventListener('click', () => {
+    assignmentEl.querySelector('[data-assignment="trees"]').value = 'auto';
+    schedulerProfiles.largeFoliage.mode = 'auto';
+    largeModeSelect.value = 'auto';
+    assignmentEl.querySelector('[data-assignment-allocation]').value = 'auto';
+    assignmentEl.querySelector('[data-assignment-workers]').value = '12';
+    dungeonLights?.foliage?.setWorkerMode('auto');
+    dungeonLights?.foliage?.setWorkerAllocationMode?.('auto');
+    dungeonLights?.foliage?.setWorkerLimit?.(12);
+  });
+  let assignmentRefreshAt = 0;
+  const refreshAssignmentPanel = () => {
+    if (assignmentEl.hidden || performance.now() < assignmentRefreshAt) return;
+    assignmentRefreshAt = performance.now() + 350;
+    const foliage = dungeonLights?.foliage, state = foliage?.workerState, mode = foliage?.workerMode || 'main';
+    assignmentEl.querySelector('[data-assignment-tree-status]').textContent = foliage
+      ? `Assignment: ${mode.toUpperCase()} · Status: ${state?.status || 'idle'}\nWorkers: ${state?.workerCount || foliage?.workerCount || 2} · allocation: ${state?.workerAllocationMode || foliage?.workerAllocationMode || 'auto'} · cap: ${state?.workerLimit || foliage?.workerLimit || 12} · chunk size: ${state?.chunkSize || 1024}\nBatch wall time: ${(state?.lastMs || 0).toFixed(2)} ms · avg queue wait: ${(state?.queueMs || 0).toFixed(2)} ms\nSum worker CPU: ${(state?.workerMs || 0).toFixed(2)} ms · dispatch/clone: ${(state?.dispatchMs || 0).toFixed(2)} ms · apply buffers: ${(state?.applyMs || 0).toFixed(2)} ms · batches: ${state?.jobs || 0}${state?.error ? '\\nError: ' + state.error : ''}`
+      : 'No foliage/tree system on this map.';
+    assignmentEl.querySelector('[data-assignment-pool]').textContent = state?.error || state?.status || 'Main thread (default)';
+    const select = assignmentEl.querySelector('[data-assignment="trees"]');
+    if (select.value !== mode) select.value = mode;
+    const workerSelect = assignmentEl.querySelector('[data-assignment-workers]');
+    const allocationSelect = assignmentEl.querySelector('[data-assignment-allocation]');
+    if (allocationSelect && foliage?.workerAllocationMode) allocationSelect.value = foliage.workerAllocationMode;
+    const configuredWorkers = foliage?.workerAllocationMode === 'auto' ? (foliage?.workerLimit || 12) : (state?.workerCount || foliage?.workerCount || 2);
+    if (Number(workerSelect.value) !== configuredWorkers) workerSelect.value = String(configuredWorkers);
+  };
+  const probeKeyHandler = e => {
+    if (e.code === 'F2') {
+      e.preventDefault(); processMonitorOpen=!processMonitorOpen;
+      processMonitor.style.display=processMonitorOpen?'block':'none';
+      if(processMonitorOpen){input.unlock();showPause(false);refreshProcessMonitor(true);}
+      else if(!probe.on&&assignmentEl.hidden)input.lock();
+      return;
+    }
+    if (e.code === 'F7') {
+      e.preventDefault(); assignmentEl.hidden = !assignmentEl.hidden;
+      assignmentEl.style.display = assignmentEl.hidden ? 'none' : 'flex';
+      if (!assignmentEl.hidden) { input.unlock(); showPause(false); refreshAssignmentPanel(); }
+      else if (!probe.on) input.lock();
+      return;
+    }
+    if (e.code === 'Escape' && !assignmentEl.hidden) {
+      e.preventDefault(); assignmentEl.hidden = true; assignmentEl.style.display = 'none';
+      if (!probe.on) input.lock();
+    }
+  };
+  addEventListener('keydown', probeKeyHandler);
+
   probeEl.querySelector('[data-full-toggle]').addEventListener('click', () => {
     const full = probeEl.querySelector('.pp-full');
     full.hidden = !full.hidden;
@@ -1166,6 +1703,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!full.hidden) lines.push('', 'Full performance monitor', full.querySelector('.pp-full-content').innerText);
     const benchText = probeEl.querySelector('.pp-bench').innerText.trim();
     if (benchText) lines.push('', 'Measure each part', benchText);
+    if (workerStressReport) lines.push('', 'Worker pool stress test', probeEl.querySelector('[data-worker-stress-report]').innerText);
     lines.push('', 'Feature switches');
     for (const [key, label] of PROBE_ROWS) {
       const input = probeEl.querySelector(`[data-p="${key}"]`);
@@ -1173,7 +1711,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     lines.push(`Measure GPU time: ${probeEl.querySelector('[data-p="sync"]').checked ? 'ON' : 'OFF'}`);
     lines.push('', 'Post-processing diagnostics');
-    for (const [key, label] of [['fogOff','World / area fog'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
+    for (const [key, label] of [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']]) lines.push(`${label}: ${probe[key] ? 'DISABLED' : 'enabled'}`);
+    lines.push(`Atmospheric haze prototype: ${atmosphereSettings.enabled ? 'ON' : 'OFF'} · start ${atmosphereSettings.start} · end ${atmosphereSettings.end} · strength ${atmosphereSettings.strength}`);
     lines.push('', 'Post-processing pass timings (CPU submission; not GPU)');
     for (const [name, q] of Object.entries(fx.passStats || {})) lines.push(`${name}: ${q.avgMs.toFixed(3)} ms · ${q.calls} calls · ${q.triangles} triangles`);
     const copyText = lines.join('\n');
@@ -1201,11 +1740,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       ['Lamp / torch lights', probe.lamps ? 'Enabled · ' + counts.lampLights + ' visible point lights' : 'Disabled'], ['Crystal / checkpoint lights', probe.crystals ? 'Enabled · ' + counts.crystalLights + ' visible point lights' : 'Disabled'],
       ['Sun shadow rendering', probe.shadows && sun.castShadow ? 'Enabled' : 'Disabled'], ['Building shadow casting', probe.bshadow ? 'Enabled' : 'Disabled'],
       ['Trees and bushes', !probe.trees ? 'Disabled' : counts.treeInstances ? 'Instanced · ' + counts.treeInstances + ' visible LOD instances' : 'Instanced renderer · no trees in range'], ['Grass, flowers and reeds', !probe.small ? 'Disabled' : counts.foliageInstances ? 'Instanced · ' + counts.foliageInstances + ' visible LOD instances' : 'Instanced renderer · no small plants in range'], ['Reserve bat instancing', probe.batinst ? (counts.batInstances ? 'Enabled · ' + counts.batInstances + ' proxy bats' : 'Enabled · no reserve bats currently visible') : 'Disabled · full creature models used'],
-      ['Instanced Umbrafiend details', probe.umbraParts ? 'Enabled' : 'Disabled'], ['Umbrafiend skinning variant', probe.umbra2weight ? 'Two-influence shader' : 'Standard four-influence shader'],
+      ['Instanced Umbrafiend details', probe.umbraParts ? 'Enabled' : 'Disabled'], ['Umbrafiend skeletal details', probe.umbraPartsVisible ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend body meshes', probe.umbraBodies ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend smoke / aura', probe.umbraSmokeAura ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend membranes', probe.umbraMembranes ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend eyes / core glow', probe.umbraGlows ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend wisps', probe.umbraWisps ? 'Visible' : 'Hidden (diagnostic)'], ['Umbrafiend skinning variant', probe.umbra2weight ? 'Two-influence shader' : 'Standard four-influence shader'],
       ['Buildings, props and rocks', !probe.buildings ? 'Disabled' : counts.buildings ? 'Enabled · ' + counts.buildings + ' tagged objects' : 'Enabled · no tagged objects'], ['Ground and roads', !probe.ground ? 'Disabled' : counts.ground ? 'Enabled · ' + counts.ground + ' tagged objects' : 'Enabled · no tagged objects'], ['Water', !probe.water ? 'Disabled' : counts.water ? 'Enabled · ' + counts.water + ' tagged objects' : 'Enabled · no tagged objects'],
       ['Glow / post-processing', probe.glow ? 'Enabled' : 'Disabled'], ['World / area fog', probe.fogOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Bloom extraction + blur', probe.bloomOff ? 'Disabled' : 'Enabled'], ['Bloom blur', probe.blurOff ? 'Disabled' : 'Enabled'], ['ACES tone mapping', probe.toneMapOff ? 'Disabled (diagnostic)' : 'Enabled'], ['Color grade', probe.gradeOff ? 'Disabled' : 'Enabled'], ['Vignette', probe.vignetteOff ? 'Disabled' : 'Enabled'], ['Puddle reflections', reflections && reflections.mode !== 'off' ? reflections.mode : 'Off'],
-      ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Tone-mapping route', settings.postfx !== false && !fx.probeOff ? 'Custom ACES in postFX' : 'Three.js ACESFilmicToneMapping'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
-      ['GPU timing method', tq ? 'Asynchronous GPU timer query' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured']
+      ['Post-processing path', settings.postfx !== false && !fx.probeOff ? 'Enabled' : 'Bypassed'], ['Tone-mapping route', settings.postfx !== false && !fx.probeOff ? 'Custom ACES in postFX' : 'Three.js ACESFilmicToneMapping'], ['Atmospheric haze prototype', atmosphereSettings.enabled ? `Enabled · ${atmosphereSettings.start}–${atmosphereSettings.end} · strength ${atmosphereSettings.strength}` : 'Disabled'], ['Render scale', (probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0) + '%'],
+      ['GPU timing method', tq ? 'Separate asynchronous timer queries: main scene + postFX, and reflections; rolling median of up to 30 valid samples' : probe.sync ? 'CPU readback wait (not pure GPU time)' : 'Not measured'],
+      ['GPU main + postFX', Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.main.length + ' samples' : 'Waiting for valid samples'],
+      ['GPU reflections', Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection.toFixed(2) + ' ms median · ' + probeInfo.gpuSamples.reflection.length + ' samples' : 'Waiting for valid samples']
     ];
     const timings = Object.entries(probeLaps).sort((a,b)=>b[1]-a[1]).map(([k,v])=>'<tr><td>'+k+'</td><td style="text-align:right;font-variant-numeric:tabular-nums">'+v.toFixed(2)+' ms</td></tr>').join('');
     const fxTimings = Object.entries(fx.passStats || {}).map(([k,v])=>'<tr><td>'+k+'</td><td style="text-align:right;font-variant-numeric:tabular-nums">'+v.avgMs.toFixed(3)+' ms</td><td style="text-align:right">'+v.calls+' calls</td><td style="text-align:right">'+v.triangles+' tris</td></tr>').join('');
@@ -1214,6 +1755,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:5px;margin-bottom:8px">'+tiles.map(([k,v])=>'<div style="background:rgba(90,84,144,.18);padding:5px 7px;border-radius:4px"><span style="opacity:.8">'+k+'</span><br><b>'+v+'</b></div>').join('')+'</div>'+
       '<b>Feature switches</b><table style="width:100%;border-collapse:collapse;margin:3px 0 9px">'+stateRows+'</table>'+
       '<b>CPU time by game subsystem</b><div style="opacity:.8">Smoothed time between measured checkpoints. These rows are partial timings, not a sum of all CPU work.</div><table style="width:100%;border-collapse:collapse;margin:3px 0 9px">'+(timings||'<tr><td>Collecting samples…</td></tr>')+'</table>'+
+      '<b>GPU timing interpretation</b><div style="opacity:.8">GPU timings are separate asynchronous timer-query medians over up to 30 valid samples. Main scene + postFX excludes the puddle-reflection update; reflections are shown separately. Samples from a previous diagnostic toggle are discarded. Per-pass postFX values below remain CPU submission timings, not GPU timings.</div>' +
       '<b>Post-processing pass CPU submission timings</b><div style="opacity:.8">These are CPU wall-time around renderer calls, not GPU execution time; use the A/B benchmark below to estimate GPU savings.</div><table style="width:100%;border-collapse:collapse;margin:3px 0 9px"><tr><th align="left">Pass</th><th>CPU ms</th><th>Calls</th><th>Triangles</th></tr>'+(fxTimings||'<tr><td>Collecting samples…</td></tr>')+'</table>'+ 
       '<b>Reading the numbers</b><div style="opacity:.8">Draw calls and triangles accumulate across intercepted render calls. Main-scene passes include repeated renders of the game scene (for example, glow/post-processing); other scenes are insets/previews. These are pass totals, not unique objects or a single-pass count. CPU game time is update work before rendering; sending draws is CPU time in the render path. GPU time is only a true GPU measurement when a valid timer-query result is available. “Measure each part” switches features off one at a time to estimate their impact.</div>';
   };
@@ -1227,14 +1769,126 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     sun.castShadow = probe.shadows;
     monsters.setBatInstancing(probe.batinst);
     monsters.setUmbrafiendPartInstancing(probe.umbraParts);
+    monsters.setUmbrafiendPartsVisible(probe.umbraPartsVisible);
+    monsters.setUmbrafiendBodiesVisible(probe.umbraBodies);
+    monsters.setUmbrafiendSmokeAuraVisible(probe.umbraSmokeAura);
+    monsters.setUmbrafiendMembranesVisible(probe.umbraMembranes);
+    monsters.setUmbrafiendGlowsVisible(probe.umbraGlows);
+    monsters.setUmbrafiendWispsVisible(probe.umbraWisps);
     monsters.setUmbrafiendSkinningVariant(probe.umbra2weight);
     const fl = dungeonLights?.foliage; if (fl) { fl.hideBig = !probe.trees; fl.hideSmall = !probe.small; fl.dirty = true; }
     fx.probeOff = !probe.glow;
+    scene.fog = probe.fogOff ? null : worldFog;
     // When the monitor bypasses the custom postFX path, restore Three.js ACES so the comparison doesn't silently remove tone mapping too.
     renderer.toneMapping = settings.postfx !== false && probe.glow ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     fx.probe.bloomOff = probe.bloomOff; fx.probe.blurOff = probe.blurOff; fx.probe.toneMapOff = probe.toneMapOff; fx.probe.gradeOff = probe.gradeOff; fx.probe.vignetteOff = probe.vignetteOff;
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5) * (settings.renderScale ?? 1) * probe.scale);
   };
+  let workerStressReport = null;
+  const traversalStatus = probeEl.querySelector('[data-traverse-status]');
+  const traversalReportEl = probeEl.querySelector('[data-traverse-report]');
+  const traversalStartBtn = probeEl.querySelector('[data-traverse-start]');
+  const traversalStopBtn = probeEl.querySelector('[data-traverse-stop]');
+  const traversalCopyBtn = probeEl.querySelector('[data-traverse-copy]');
+  const traversalStats = (key) => { const a = traversalCapture.samples.map(q => q[key]).filter(Number.isFinite); return { median: sortedMedian(a), p95: percentile95(a), max: a.length ? Math.max(...a) : NaN, mean: a.length ? a.reduce((x,y)=>x+y,0)/a.length : NaN }; };
+  const finishTraversalCapture = () => {
+    if (!traversalCapture.on && !traversalCapture.samples.length) return;
+    traversalCapture.on = false;
+    const foliageDiag = dungeonLights?.foliage?.diagnostics;
+    if (foliageDiag) foliageDiag.enabled = false;
+    const foliageLine = foliageDiag
+      ? `Foliage culling: ${foliageDiag.calls} recalculations · ${foliageDiag.skipped} skipped checks · ${foliageDiag.calls ? (foliageDiag.totalMs / foliageDiag.calls).toFixed(2) : '0.00'} ms avg / ${foliageDiag.maxMs.toFixed(2)} ms max · ${foliageDiag.totalMs.toFixed(1)} ms total · scan ${foliageDiag.scanMs.toFixed(1)} ms · buffer prep ${foliageDiag.bufferMs.toFixed(1)} ms · ${foliageDiag.instances.toLocaleString()} visible LOD instances · cells ${foliageDiag.cellsVisited || 0}/${foliageDiag.cellsTested || 0} visited/tested · ${foliageDiag.instancesTested || 0} tree instances checked`
+      : 'Foliage culling: diagnostics unavailable';
+    const a = traversalCapture.samples, duration = a.length ? (a[a.length - 1].t - a[0].t) / 1000 : 0;
+    const stageSummary = key => { const vals = a.map(q => q[key]).filter(Number.isFinite); return vals.length ? `median ${fmtMs(sortedMedian(vals))} · p95 ${fmtMs(percentile95(vals))} · max ${fmtMs(Math.max(...vals))}` : 'no samples'; };
+    const hitches = a.filter(q => q.frameMs >= 25).sort((x,y) => y.frameMs - x.frameMs).slice(0, 12);
+    const hitchLines = hitches.map(q => { const glFmt = (key) => `${q.glCalls?.[key] || 0} calls/${(q.glMs?.[key] || 0).toFixed(2)}ms`; return `  ${q.elapsed.toFixed(1)}s · frame ${q.frameMs.toFixed(1)} ms · logic ${q.logicMs.toFixed(1)} · ${traversalCapture.shadowMapHook ? `shadow maps ${(q.shadowMapMs||0).toFixed(1)}` : 'shadow maps n/a'} · reflection update ${q.reflectionUpdateMs.toFixed(1)} · main+postFX ${q.mainRenderMs.toFixed(1)} · renderer calls ${q.renderCallMs.toFixed(1)} (main ${(q.mainCallsMs||0).toFixed(1)}, reflection ${(q.reflectionCallsMs||0).toFixed(1)}, other ${(q.otherCallsMs||0).toFixed(1)}) · turn ${q.turnDeg.toFixed(1)}° · ${q.calls} calls · ${Math.round(q.tris).toLocaleString()} tris · GPU main ${Number.isFinite(q.gpuMainMs) ? q.gpuMainMs.toFixed(2)+'ms' : 'pending/n/a'} · GPU reflection ${Number.isFinite(q.gpuReflectionMs) ? q.gpuReflectionMs.toFixed(2)+'ms' : 'pending/n/a'} · shaders compile ${glFmt('shaderCompile')} · link ${glFmt('programLink')} · tex upload ${glFmt('textureUpload')} · buffer upload ${glFmt('bufferUpload')} · programs ${q.programsBefore}→${q.programsAfter} (Δ${q.programDelta}) · geom Δ${q.geometriesDelta} · tex Δ${q.texturesDelta}`; });
+    const f = traversalStats('frameMs'), logic = traversalStats('logicMs'), submit = traversalStats('submitMs');
+    const slow33 = a.filter(q => q.frameMs >= 33.3).length, slow50 = a.filter(q => q.frameMs >= 50).length;
+    const worst = a.reduce((m,q)=>!m || q.frameMs > m.frameMs ? q : m, null);
+    const calls = traversalStats('calls'), tris = traversalStats('tris');
+    const buckets = [];
+    for (let start = 0; start < duration; start += 10) {
+      const q = a.filter(v => v.t / 1000 >= start && v.t / 1000 < start + 10);
+      if (!q.length) continue;
+      const times = q.map(v=>v.frameMs), bucketDuration = Math.max(0.001, Math.min(start + 10, duration) - start);
+      buckets.push(`${String(start).padStart(3)}–${String(Math.min(start+10,duration)).padStart(3)}s: ${q.length} frames · ${(q.length / bucketDuration).toFixed(1)} observed FPS · p95 ${percentile95(times).toFixed(1)} ms · ${q.filter(v=>v.frameMs>=33.3).length} frames ≥33 ms`);
+    }
+    const mem = performance.memory ? `JS heap: ${(performance.memory.usedJSHeapSize/1048576).toFixed(1)} / ${(performance.memory.jsHeapSizeLimit/1048576).toFixed(0)} MB used/limit (Chromium estimate)` : 'JS heap: browser does not expose performance.memory';
+    traversalCapture.report = [
+      'ELDERMERE LIVE TRAVERSAL CAPTURE', new Date().toLocaleString(),
+      `Duration: ${duration.toFixed(1)} s · samples: ${a.length}${traversalCapture.dropped ? ` · dropped samples: ${traversalCapture.dropped}` : ''}`,
+      `Distance travelled: ${traversalCapture.distance.toFixed(1)} m · average movement speed: ${duration > 0 ? (traversalCapture.distance/duration).toFixed(2) : '0.00'} m/s`,
+      `Observed average FPS: ${duration > 0 ? (a.length / duration).toFixed(1) : '—'} · frame interval: median ${fmtMs(f.median)} · p95 ${fmtMs(f.p95)} · worst ${fmtMs(f.max)}`,
+      `Hitches: ${slow33} frames ≥33.3 ms · ${slow50} frames ≥50 ms · worst at ${worst ? `${worst.elapsed.toFixed(1)} s, position (${worst.x.toFixed(1)}, ${worst.y.toFixed(1)}, ${worst.z.toFixed(1)})` : '—'}`,
+      `Game-update CPU: median ${fmtMs(logic.median)} · p95 ${fmtMs(logic.p95)} · worst ${fmtMs(logic.max)}`,
+      `Render submission CPU: median ${fmtMs(submit.median)} · p95 ${fmtMs(submit.p95)} · worst ${fmtMs(submit.max)}`,
+      foliageLine,
+      `Render-stage CPU (whole stage, includes renderer submission): reflection update ${stageSummary('reflectionUpdateMs')} · main+postFX ${stageSummary('mainRenderMs')}`,
+      `Shadow-map update CPU: ${traversalCapture.shadowMapHook ? stageSummary('shadowMapMs') : 'hook unavailable in this renderer build'}`,
+      `GL instrumentation hooks: ${traversalCapture.glActivity.available.length ? traversalCapture.glActivity.available.join(', ') : 'none installed'}`,
+      `Hitch-frame GL timings are CPU time around WebGL calls (not GPU execution); program/geometry/texture deltas are renderer-info counts, not proof of compilation/upload cost.`,
+      `Renderer.render() CPU summed across calls: ${stageSummary('renderCallMs')} (main ${stageSummary('mainCallsMs')}; reflection ${stageSummary('reflectionCallsMs')}; other ${stageSummary('otherCallsMs')})`,
+      `Draw calls/frame: median ${Number.isFinite(calls.median)?Math.round(calls.median):'—'} · p95 ${Number.isFinite(calls.p95)?Math.round(calls.p95):'—'} · max ${Number.isFinite(calls.max)?Math.round(calls.max):'—'}`,
+      `Triangles/frame across render passes: median ${Number.isFinite(tris.median)?Math.round(tris.median).toLocaleString():'—'} · p95 ${Number.isFinite(tris.p95)?Math.round(tris.p95).toLocaleString():'—'} · max ${Number.isFinite(tris.max)?Math.round(tris.max).toLocaleString():'—'}`,
+      `GPU timer-query median: main + postFX ${probeInfo.gpuSamples.main.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.main)) : 'no valid samples'} (${probeInfo.gpuSamples.main.length} samples) · reflections ${probeInfo.gpuSamples.reflection.length ? fmtMs(sortedMedian(probeInfo.gpuSamples.reflection)) : 'no valid samples'} (${probeInfo.gpuSamples.reflection.length} samples)`,
+      mem, '', 'Foliage A/B phase comparison (same stationary camera sweep at 4x speed: four full rotations per 8-second phase; frozen phase skips foliage.cull and retains the prior foliage layout):', ...['warmup','baseline-spin','frozen-spin'].map(phase => { const q = a.filter(v => v.testPhase === phase); if (!q.length) return `  ${phase}: no samples`; const fm = q.map(v=>v.frameMs), sm = q.map(v=>v.submitMs), bu = q.map(v=>v.glMs?.bufferUpload || 0), bc = q.map(v=>v.glCalls?.bufferUpload || 0), gpu = q.map(v=>v.gpuMainMs).filter(Number.isFinite); const seconds = Math.max(.001, (q[q.length-1].t-q[0].t)/1000); return `  ${phase}: ${q.length} frames · ${(q.length / seconds).toFixed(1)} observed FPS · frame p95 ${percentile95(fm).toFixed(1)} ms · render submission p95 ${percentile95(sm).toFixed(1)} ms · buffer-upload CPU median ${sortedMedian(bu).toFixed(2)} ms / p95 ${percentile95(bu).toFixed(2)} ms · buffer-upload calls median ${sortedMedian(bc).toFixed(0)} · GPU median ${gpu.length ? sortedMedian(gpu).toFixed(2)+' ms' : 'pending/n/a'} · hitches ≥33.3 ms ${q.filter(v=>v.frameMs>=33.3).length}`; }), '', 'Worst frames ≥25 ms (stage timings are CPU wall time, not isolated GPU time):', ...(hitchLines.length ? hitchLines : ['  No frames ≥25 ms']), '', '10-second timeline:', ...(buckets.length ? buckets : ['No timeline samples']), '',
+      'Interpretation: observed average FPS is sample count divided by capture duration; it is more representative of sustained throughput than the reciprocal of median frame interval. Frame interval includes waiting for refresh and possible GPU stalls. Game-update CPU and render-submission CPU are separate measured portions, not a complete sum. Draw calls/triangles count all intercepted render passes. This capture does not by itself attribute a hitch to terrain generation unless a matching terrain build log appears in the console.'
+    ].join('\n');
+    traversalReportEl.textContent = traversalCapture.report;
+    traversalStatus.textContent = `Complete · ${duration.toFixed(1)} s · ${a.length} frames · ${slow50} severe hitches`;
+    traversalStartBtn.disabled = false; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = false;
+    if (!foliageBufferTest.active) foliageBufferTest.button.disabled = false;
+  };
+  traversalStartBtn.addEventListener('click', () => {
+    dungeonLights?.foliage?.resetDiagnostics?.();
+    if (dungeonLights?.foliage?.diagnostics) dungeonLights.foliage.diagnostics.enabled = true;
+    traversalCapture.on = true; traversalCapture.started = performance.now(); traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0; traversalCapture.lastCameraQ = camera.quaternion.clone(); traversalCapture.stage = ''; traversalCapture.renderCallMs = 0;
+    traversalReportEl.textContent = 'Capturing… Run across the terrain, then press Stop & report.';
+    traversalStatus.textContent = 'CAPTURING · move through the world normally'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = false; traversalCopyBtn.disabled = true;
+  });
+  traversalStopBtn.addEventListener('click', finishTraversalCapture);
+  foliageBufferTest.button = probeEl.querySelector('[data-foliage-test]');
+  foliageBufferTest.status = probeEl.querySelector('[data-foliage-test-status]');
+  foliageBufferTest.button.addEventListener('click', () => {
+    if (foliageBufferTest.active || traversalCapture.on || bench.on || scenarioBench.on) return;
+    const foliage = dungeonLights?.foliage;
+    if (!foliage) { foliageBufferTest.status.textContent = 'Unavailable: this scene has no foliage system.'; return; }
+    foliage.resetDiagnostics?.(); if (foliage.diagnostics) foliage.diagnostics.enabled = true;
+    // The automated A/B owns its own baseline/frozen phases; don't let the manual F7 toggle contaminate it.
+    foliageCullFreeze.frozen = false; refreshFoliageFreezeControl();
+    foliageBufferTest.active = true; foliageBufferTest.phase = 'warmup'; foliageBufferTest.started = performance.now(); foliageBufferTest.startYaw = camera.rotation.y;
+    traversalCapture.on = true; traversalCapture.started = foliageBufferTest.started; traversalCapture.samples = []; traversalCapture.distance = 0; traversalCapture.lastPos = null; traversalCapture.report = ''; traversalCapture.dropped = 0; traversalCapture.lastCameraQ = camera.quaternion.clone(); traversalCapture.stage = ''; traversalCapture.renderCallMs = 0;
+    foliageBufferTest.button.disabled = true; foliageBufferTest.status.textContent = 'Running · warm-up (2 s)…';
+    traversalReportEl.textContent = 'Automated foliage A/B test running. Results will appear in the Live traversal capture report.';
+    traversalStatus.textContent = 'CAPTURING · automated stationary camera sweep'; traversalStartBtn.disabled = true; traversalStopBtn.disabled = true; traversalCopyBtn.disabled = true;
+  });
+  traversalCopyBtn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(traversalCapture.report); traversalStatus.textContent = 'Report copied to clipboard.'; }
+    catch { traversalReportEl.focus?.(); traversalStatus.textContent = 'Clipboard blocked; select and copy the report text below.'; }
+  });
+  probeEl.querySelector('[data-worker-stress]').addEventListener('click', async event => {
+    const button = event.currentTarget, status = probeEl.querySelector('[data-worker-stress-status]'), output = probeEl.querySelector('[data-worker-stress-report]');
+    button.disabled = true; status.textContent = 'Running…'; output.textContent = 'Starting workers and warming up…';
+    try {
+      workerStressReport = await runWorkerStressTest();
+      const rows = workerStressReport.results.map(r => `  ${r.workers} worker(s): median ${r.elapsedMs.toFixed(1)} ms [${r.samplesMs.join(', ')}] · ${r.iterationsPerSecond.toLocaleString()} iterations/s · ${r.speedupVsFirst}× vs first · startup ${r.initMs.toFixed(1)} ms · warm-up ${r.warmupMs.toFixed(1)} ms · checksum ${r.valid ? 'PASS' : 'FAIL'}`);
+      output.textContent = [
+        `Logical processors reported: ${workerStressReport.hardwareConcurrency ?? 'unknown'}`,
+        `Recommended pool size: ${workerStressReport.recommendedWorkers}`,
+        `Work per run: ${workerStressReport.totalIterations.toLocaleString()} iterations`,
+        ...rows,
+        '',
+        workerStressReport.note,
+      ].join('\n');
+      status.textContent = workerStressReport.results.every(r => r.valid) ? 'Complete · checksums passed' : 'Warning · validation failed';
+    } catch (error) {
+      workerStressReport = { error: error?.message || String(error) };
+      output.textContent = `Worker test failed: ${workerStressReport.error}\nCheck the browser console and whether this page is served in a context that permits module workers.`;
+      status.textContent = 'Failed';
+    } finally { button.disabled = false; }
+  });
+  probeEl.addEventListener('change', e => { if (e.target.dataset.p !== undefined || e.target.dataset.fx !== undefined) resetGpuSamples(); });
   probeEl.addEventListener('input', e => { if (e.target.dataset.hour !== undefined) sky.setHour(+e.target.value, true); });
   probeEl.addEventListener('change', e => { if (e.target.dataset.cycle !== undefined) sky.cycle = e.target.checked; });
   probeEl.addEventListener('change', e => { if ((e.target.dataset.wx !== undefined || e.target.dataset.wxs !== undefined) && weather) weather.set(probeEl.querySelector('[data-wx]').value, +probeEl.querySelector('[data-wxs]').value, 8); });
@@ -1246,8 +1900,34 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (ds.ta !== undefined || ds.tv !== undefined) { if (ds.tv !== undefined) q('ta').checked = false; weather.temp = q('ta').checked ? null : +q('tv').value; }
     if (ds.au !== undefined) { weather.aurora = q('au').value === 'auto' ? null : q('au').value === 'on' ? 1 : 0; weather.retarget(4); } });
   probeEl.addEventListener('change', e => { const k = e.target.dataset.p; if (!k) return; probe[k] = k === 'scale' ? +e.target.value : e.target.checked; if (k !== 'sync') applyProbe(); });
+  const syncAtmosphereControls = () => {
+    const get = k => probeEl.querySelector(`[data-atmosphere="${k}"]`);
+    for (const k of ['start', 'end', 'strength']) {
+      const value = probeEl.querySelector(`[data-atmosphere-value="${k}"]`);
+      if (value) value.textContent = k === 'strength' ? atmosphereSettings[k].toFixed(2) : String(atmosphereSettings[k]);
+    }
+    const start = get('start'), end = get('end');
+    if (start && end) {
+      end.min = String(+start.value + 10);
+      if (+end.value < +end.min) { end.value = end.min; atmosphereSettings.end = +end.value; }
+    }
+    const enabled = get('enabled');
+    if (enabled) enabled.checked = atmosphereSettings.enabled;
+  };
+  const updateAtmosphereControl = e => {
+    const k = e.target.dataset.atmosphere;
+    if (!k) return;
+    if (k === 'enabled') atmosphereSettings.enabled = e.target.checked;
+    else if (k === 'start' || k === 'end' || k === 'strength') atmosphereSettings[k] = +e.target.value;
+    syncAtmosphereControls();
+    resetGpuSamples();
+  };
+  syncAtmosphereControls();
+  probeEl.addEventListener('input', updateAtmosphereControl);
+  probeEl.addEventListener('change', updateAtmosphereControl);
+
   probeEl.addEventListener('change', e => { const k = e.target.dataset.fx; if (!k) return; probe[k] = e.target.checked; applyProbe(); });
-  const closeProbe = () => { probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
+  const closeProbe = () => { if (scenarioBench?.on) restoreScenarioState(); probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
   addEventListener('keydown', e => {
     // Capture immediately with '=' while the monitor is active, without needing to click the panel.
     // Use the physical Equal key so the shortcut works regardless of Shift / keyboard layout.
@@ -1310,9 +1990,20 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the GPU's own time for the frame, where the browser offers it (a timer query); otherwise the CPU waits for the GPU
   // with a one-pixel read (a real wait: gl.finish() doesn't wait in most browsers)
   const glc = renderer.getContext(), tq = glc.getExtension && glc.getExtension('EXT_disjoint_timer_query_webgl2'), tqList = [], px1 = new Uint8Array(4);
+  const gpuModeKey = () => [...PROBE_ROWS.map(([k]) => probe[k]), probe.fogOff, probe.bloomOff, probe.blurOff, probe.toneMapOff, probe.gradeOff, probe.vignetteOff, probe.scale, atmosphereSettings.enabled, atmosphereSettings.start, atmosphereSettings.end, atmosphereSettings.strength].join(':');
+  const resetGpuSamples = () => { probeInfo.gpuSamples.main.length = 0; probeInfo.gpuSamples.reflection.length = 0; probeInfo.gpu = 0; probeInfo.gpuMain = 0; probeInfo.gpuReflection = 0; };
+  const median = values => { if (!values.length) return NaN; const a = [...values].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  const startGpuQuery = bucket => {
+    if ((!probe.on && !traversalCapture.on) || (!probe.sync && !traversalCapture.on) || !tq || tqList.length >= (traversalCapture.on ? 48 : gpuThroughput.active ? 32 : 8)) return null;
+    const q = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, q);
+    return { q, bucket, mode: gpuModeKey(), captureFrameId: traversalCapture.on ? traversalCapture.frameId : null, benchAcc: bench.on && bench.n > 40 ? bench.acc : null, throughputRunId: gpuThroughput.active ? gpuThroughput.runId : null };
+  };
+  const endGpuQuery = item => { if (item) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(item); } };
   // "Measure each part": each part of the scene switched off in turn for a moment, the GPU's and the CPU's time
   // measured with and without it — what each one costs, in one table
   const bench = { on: false, i: -1, n: 0, acc: null, res: [], base: null, hideBody: false };
+  const scenarioBench = { on: false, phase: 'idle', frame: 0, logic: [], submit: [], frameMs: [], calls: [], tris: [], report: '', saved: null, clearRestoreForce: false, restoreForce: null, restoreForceDelay: 0 };
+  const gpuThroughput = { active: false, finishing: false, started: 0, runId: 0, warmupMs: 2000, measureMs: 6000, repeats: 4, frames: 0, renders: 0, cpuSubmitMs: 0, gpuSamples: [], report: '' };
   const BENCH = [
     ...PROBE_ROWS.map(([k, t]) => ({ name: t, off: () => { probe[k] = false; applyProbe(); }, on: () => { probe[k] = true; applyProbe(); } })),
     { name: 'World / area fog', off: () => { probe.fogOff = true; applyProbe(); }, on: () => { probe.fogOff = false; applyProbe(); } },
@@ -1329,19 +2020,147 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { name: 'Far shadows', off: () => { bench.farOff = true; }, on: () => { bench.farOff = false; } },
   ];
   const benchEl = () => probeEl.querySelector('.pp-bench');
+  const scenarioStatus = () => probeEl.querySelector('.pp-scenario-status');
+  const scenarioReportEl = () => probeEl.querySelector('.pp-scenario-report');
+  const scenarioCopyButton = () => probeEl.querySelector('[data-scenario-copy]');
+  const scenarioPresets = {
+    'clear-noon': { label: 'Clear · noon', hour: 12, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
+    'late-clear': { label: 'Clear · late afternoon', hour: 17, weather: 'clear', strength: 1, surface: 'dry', temp: 15 },
+    night: { label: 'Clear · night lighting', hour: 22, weather: 'clear', strength: 1, surface: 'dry', temp: 8 },
+    rain: { label: 'Rainstorm · maximum puddles', hour: 16, weather: 'downpour', strength: 1.5, surface: 'puddles', temp: 12 },
+    snow: { label: 'Snowstorm · maximum snow', hour: 12, weather: 'snow', strength: 1.5, surface: 'snow2', temp: -5 },
+    fog: { label: 'Thick fog · afternoon', hour: 16, weather: 'fog', strength: 1, surface: 'dry', temp: 12, fog: 'thick' },
+  };
+  const surfacePresets = {
+    dry: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 0 },
+    puddles: { wet: 1, puddle: 1, gutter: 1, snow: 0, ice: 0, dust: 0 },
+    snow2: { wet: 0.3, puddle: 0, gutter: 0, snow: 1, ice: 0, dust: 0 },
+  };
+  const sortedMedian = values => {
+    const a = values.filter(Number.isFinite).slice().sort((x, y) => x - y);
+    if (!a.length) return NaN;
+    const m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+  const percentile95 = values => {
+    const a = values.filter(Number.isFinite).slice().sort((x, y) => x - y);
+    return a.length ? a[Math.min(a.length - 1, Math.ceil(a.length * 0.95) - 1)] : NaN;
+  };
+  const fmtMs = n => Number.isFinite(n) ? `${n.toFixed(2)} ms` : 'unavailable';
+  const saveScenarioState = () => ({
+    hour: sky.hour, cycle: sky.cycle, wx: { ...(weather.state || { kind: 'clear', strength: 1 }) },
+    clouds: weather.clouds == null ? null : { ...weather.clouds },
+    wind: weather.wind == null ? null : { ...weather.wind },
+    fog: weather.fog, aurora: weather.aurora, temp: weather.temp,
+    surface: weathering ? { ...weathering.state } : {},
+    force: weathering?.force == null ? null : { ...weathering.force },
+    reflectionMode: reflections?.mode || settings.reflections || 'planar',
+    ui: Object.fromEntries(['wx','wxs','cl','clc','wa','ws','fl','au','sf','ta','tv','cycle','hour'].map(k => {
+      const el = probeEl.querySelector(`[data-${k}]`); return [k, el ? (el.type === 'checkbox' ? el.checked : el.value) : null];
+    })),
+    sync: probe.sync,
+  });
+  const restoreScenarioState = () => {
+    const B = scenarioBench, old = B.saved;
+    if (!old) { B.on = false; B.phase = 'idle'; return; }
+    sky.cycle = false;
+    sky.setHour(old.hour, true);
+    weather.set(old.wx.kind || 'clear', old.wx.strength ?? 1, 0.2);
+    weather.clouds = old.clouds; weather.wind = old.wind; weather.fog = old.fog; weather.aurora = old.aurora; weather.temp = old.temp;
+    weather.retarget(0.2);
+    if (weathering) {
+      Object.assign(weathering.state, old.surface || {});
+      // One forced update restores the snow-depth texture as well as surface uniforms.
+      weathering.force = { ...(old.surface || {}) };
+      B.clearRestoreForce = true; B.restoreForce = old.force; B.restoreForceDelay = 2;
+    }
+    sky.cycle = old.cycle;
+    if (reflections) reflections.mode = old.reflectionMode || 'planar';
+    for (const [k, value] of Object.entries(old.ui || {})) {
+      const el = probeEl.querySelector(`[data-${k}]`);
+      if (el && value != null) { if (el.type === 'checkbox') el.checked = !!value; else el.value = value; }
+    }
+    probe.sync = old.sync;
+    B.on = false; B.phase = 'idle'; B.saved = null;
+    probeEl.querySelector('[data-scenario-run]').disabled = false;
+    scenarioStatus().textContent = 'Benchmark complete. Original time, weather, and surface settings restored.';
+    resetGpuSamples();
+  };
+  const startScenarioBenchmark = () => {
+    const B = scenarioBench;
+    if (B.on || bench.on || !weather || !sky || !weathering) {
+      scenarioStatus().textContent = 'Cannot start: finish the other benchmark first, and make sure weather/surface systems are available.';
+      return;
+    }
+    const preset = scenarioPresets[probeEl.querySelector('[data-scenario]').value] || scenarioPresets['clear-noon'];
+    B.saved = saveScenarioState();
+    B.on = true; B.phase = 'warmup'; B.frame = 0;
+    B.logic = []; B.submit = []; B.frameMs = []; B.calls = []; B.tris = [];
+    B.report = ''; B.clearRestoreForce = false; B.restoreForce = null; B.restoreForceDelay = 0;
+    probe.sync = true; sky.cycle = false; sky.setHour(preset.hour, true);
+    weather.set(preset.weather, preset.strength, 0.15);
+    weather.clouds = null; weather.wind = null; weather.fog = preset.fog || null; weather.aurora = null; weather.temp = preset.temp;
+    weather.retarget(0.15);
+    weathering.force = { ...surfacePresets[preset.surface] };
+    // A puddle benchmark must actually exercise the mirror pass even if the player's saved option is Off/SSR.
+    // Snow intentionally suppresses puddle reflections in reflections.js while the snow layer covers the ground.
+    if (preset.surface === 'puddles' && reflections) reflections.mode = 'planar';
+    const q = k => probeEl.querySelector(`[data-${k}]`);
+    q('hour').value = preset.hour; q('cycle').checked = false;
+    q('wx').value = preset.weather; q('wxs').value = preset.strength;
+    q('cl').value = 'auto'; q('wa').checked = true; q('fl').value = preset.fog || 'auto'; q('au').value = 'auto';
+    q('sf').value = preset.surface; q('ta').checked = false; q('tv').value = preset.temp;
+    probeEl.querySelector('[data-scenario-run]').disabled = true;
+    scenarioCopyButton().disabled = true;
+    scenarioReportEl().textContent = '';
+    scenarioStatus().textContent = `Preparing ${preset.label}: setting weather/surfaces instantly, warming shaders and reflections…`;
+    resetGpuSamples();
+  };
+  probeEl.querySelector('[data-scenario-run]').addEventListener('click', startScenarioBenchmark);
+  const throughputStatus = () => probeEl.querySelector('[data-gpu-throughput-status]');
+  const throughputReport = () => probeEl.querySelector('[data-gpu-throughput-report]');
+  probeEl.querySelector('[data-gpu-throughput]').addEventListener('click', () => {
+    if (gpuThroughput.active || bench.on || scenarioBench.on || traversalCapture.on || !tq || !probe.sync) {
+      throughputStatus().textContent = !tq ? 'Unavailable: EXT_disjoint_timer_query_webgl2 is not supported.' : !probe.sync ? 'Enable Measure GPU time first.' : 'Finish the other benchmark/capture first.';
+      return;
+    }
+    gpuThroughput.active = true; gpuThroughput.runId++; gpuThroughput.started = performance.now();
+    gpuThroughput.frames = 0; gpuThroughput.renders = 0; gpuThroughput.cpuSubmitMs = 0; gpuThroughput.gpuSamples = []; gpuThroughput.report = '';
+    probeEl.querySelector('[data-gpu-throughput]').disabled = true;
+    throughputStatus().textContent = 'Warming up shaders and render state…';
+    throughputReport().textContent = 'Warm-up: 2 seconds. Measurement: 6 seconds. The scene is rendered 4 extra times per display callback.';
+  });
+  probeEl.querySelector('[data-scenario-copy]').addEventListener('click', async () => {
+    const button = scenarioCopyButton();
+    if (!scenarioBench.report) return;
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(scenarioBench.report);
+      else {
+        const area = document.createElement('textarea'); area.value = scenarioBench.report;
+        area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area);
+        area.select(); const ok = document.execCommand('copy'); area.remove();
+        if (!ok) throw new Error('Clipboard copy was blocked');
+      }
+      button.textContent = 'Copied!';
+      setTimeout(() => { if (button.isConnected) button.textContent = 'Copy benchmark report'; }, 1600);
+    } catch (err) {
+      button.textContent = 'Copy failed — select report manually';
+      console.warn('Could not copy scenario benchmark report', err);
+    }
+  });
   probeEl.addEventListener('click', e => { const id = e.target.dataset?.spawn; if (!id) return; const st = player.state, fx = -Math.sin(st.yaw), fz = -Math.cos(st.yaw);
     monsters.spawn(id, { x: st.pos.x + fx * 8, y: st.pos.y, z: st.pos.z + fz * 8, yaw: Math.atan2(-fx, -fz) }); });
-  probeEl.addEventListener('click', e => { if (e.target.dataset.bench === undefined || bench.on) return;
-    Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, k: 0, gk: 0 }, res: [], sync: probe.sync }); probe.sync = true; benchEl().textContent = 'Measuring…'; });
+  probeEl.addEventListener('click', e => { if (e.target.dataset.bench === undefined || bench.on || scenarioBench.on) return;
+    Object.assign(bench, { on: true, i: -1, n: 0, acc: { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 }, res: [], sync: probe.sync }); probe.sync = true; resetGpuSamples(); benchEl().textContent = 'Measuring…'; });
   function benchStep(logic, submit) {
-    const B = bench; B.n++; if (B.n > 40) { B.acc.l += logic; B.acc.s += submit; B.acc.k++; }
-    if (B.n < 130) return;
-    const a = B.acc, r = { l: a.l / a.k, s: a.s / a.k, g: a.gk ? a.g / a.gk : NaN };
+    const B = bench; B.n++; if (B.n > 40 && B.n < 130) { B.acc.l += logic; B.acc.s += submit; B.acc.k++; }
+    if (B.n < 130 || (tq && tqList.some(item => item.benchAcc === B.acc))) return;
+    const a = B.acc, r = { l: a.l / a.k, s: a.s / a.k, g: a.gk ? a.g / a.gk + (a.grk ? a.gr / a.grk : 0) : NaN, gm: a.gk ? a.g / a.gk : NaN, gr: a.grk ? a.gr / a.grk : NaN };
     if (B.i === -1) B.base = r; else { BENCH[B.i].on(); if (B.i < BENCH.length) B.res.push({ name: BENCH[B.i].name, ...r }); }
-    B.i++; B.n = 0; B.acc = { l: 0, s: 0, g: 0, k: 0, gk: 0 };
+    B.i++; B.n = 0; B.acc = { l: 0, s: 0, g: 0, gk: 0, gr: 0, grk: 0, k: 0 };
     if (B.i >= BENCH.length) { B.on = false; probe.sync = B.sync; const b = B.base, f = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2);
-      benchEl().textContent = `With everything: GPU ${b.g.toFixed(2)} ms · CPU ${(b.l + b.s).toFixed(2)} ms (game ${b.l.toFixed(2)}, sending ${b.s.toFixed(2)})\nWhat switching each off saves:\n` +
-        B.res.map(q => ({ ...q, dg: b.g - q.g, dc: b.l + b.s - q.l - q.s })).sort((p, q) => (q.dg + q.dc) - (p.dg + p.dc)).map(q => `${q.name}: GPU ${f(q.dg)} · CPU ${f(q.dc)}`).join('\n');
+      benchEl().textContent = `Baseline: GPU main+postFX ${b.gm.toFixed(2)} ms · reflections ${b.gr.toFixed(2)} ms · combined ${b.g.toFixed(2)} ms\nCPU ${(b.l + b.s).toFixed(2)} ms (game ${b.l.toFixed(2)}, sending ${b.s.toFixed(2)})\nWhat switching each off saves (positive = faster):\n` +
+        B.res.map(q => ({ ...q, dg: b.g - q.g, dgm: b.gm - q.gm, dgr: b.gr - q.gr, dc: b.l + b.s - q.l - q.s })).sort((p, q) => (q.dg + q.dc) - (p.dg + p.dc)).map(q => `${q.name}: GPU ${f(q.dg)} ms (main ${f(q.dgm)}, reflections ${f(q.dgr)}) · CPU ${f(q.dc)} ms`).join('\n');
       return; }
     BENCH[B.i].off(); benchEl().textContent = `Measuring… ${B.i + 1} / ${BENCH.length}: ${BENCH[B.i].name}`;
   }
@@ -1349,9 +2168,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!running) return;
     requestAnimationFrame(frame);
     const cpu0 = performance.now(); lapT = cpu0;
+    if (traversalCapture.on) { traversalCapture.frameId++; traversalCapture.frameStages = { reflectionUpdateMs: 0, mainRenderMs: 0, shadowMapMs: 0, mainCallsMs: 0, reflectionCallsMs: 0, otherCallsMs: 0 }; traversalCapture.renderCallMs = 0; traversalCapture.frameGl = { glCalls: {}, glMs: {}, programsBefore: renderer.info.programs?.length ?? -1, geometriesBefore: renderer.info.memory.geometries, texturesBefore: renderer.info.memory.textures }; }
     if (dungeon) dungeonLights.update(now / 1000, player.state.pos, Math.min(0.1, (now - (frame.lastT || now)) / 1000), camera.getWorldDirection(camDir), activeCp?.id); frame.lastT = now;
 
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const rawFrameMs = Math.max(0, now - last); const dt = Math.min(0.05, rawFrameMs / 1000); last = now;
+    processMonitorLastFrameDeltaMs = rawFrameMs;
+    if (processCaptureStartedAt) processCaptureSamples.push({ frameMs:rawFrameMs, loopCpuMs:0 });
     lap('Lamps and torches');
     if (input.locked) {
       for (let i = 1; i <= 9; i++) if (input.pressed('hotbar' + i) && hotbar[i - 1]) { const id = hotbar[i - 1]; if (id.startsWith('spell:')) spells.request(id.slice(6), 'hotbar' + i); else drink(id); }
@@ -1429,6 +2251,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     lap('Your body (pose)');
     player.applyCamera(camera, settings.headBob ?? 1);
     tpDt = dt; if (thirdPerson) placeThirdPerson();
+    if (foliageBufferTest.active) {
+      const elapsed = performance.now() - foliageBufferTest.started;
+      foliageBufferTest.phase = elapsed < 2000 ? 'warmup' : elapsed < 10000 ? 'baseline-spin' : 'frozen-spin';
+      if (foliageBufferTest.phase === 'warmup') camera.rotation.y = foliageBufferTest.startYaw;
+      else { const phaseElapsed = foliageBufferTest.phase === 'baseline-spin' ? elapsed - 2000 : elapsed - 10000; camera.rotation.y = foliageBufferTest.startYaw + (phaseElapsed / 8000) * Math.PI * 2 * 4; }
+      foliageBufferTest.status.textContent = foliageBufferTest.phase === 'warmup' ? 'Running · warm-up (2 s)…' : foliageBufferTest.phase === 'baseline-spin' ? `Running · normal culling (${Math.min(8, (elapsed - 2000) / 1000).toFixed(1)} / 8 s)` : `Running · culling frozen (${Math.min(8, (elapsed - 10000) / 1000).toFixed(1)} / 8 s)`;
+    }
     if (body?.hairLOD) { const st = player.state, cd = thirdPerson ? Math.hypot(camera.position.x - st.pos.x, camera.position.y - st.pos.y - player.height * 0.95, camera.position.z - st.pos.z) : 0;
       body.hairLOD(cd); body.bodyLOD?.(cd);   // (the hair's and the body's detail by how far the camera is from you)
       const wv = weather?.windNow || 0, wd = sky?.weather?.windDir || [1, 0]; body.setWind(wd[0] * wv * 6, 0, wd[1] * wv * 6); }
@@ -1461,21 +2290,142 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (TG && camera.position.distanceToSquared(mirror.mesh.getWorldPosition(mirrorAt)) < 30 * 30) mirror.render(renderer, scene, camera);   // only when you're near enough to see it           // the mirror shows your whole self, face included
     lap('Mirror');
     if (!thirdPerson) body?.showHead(false);           // your own eyes don't see your head...
-    if (probe.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
-    if (dungeonLights?.foliage) dungeonLights.foliage.cull(camera);                         // trees to their levels of detail (src/gfx/trees.js)
+    if (probe.on || traversalCapture.on) { probeAcc.calls = 0; probeAcc.tris = 0; probeAcc.mainCalls = 0; }
+    if (dungeonLights?.foliage && !foliageCullFreeze.frozen && !(foliageBufferTest.active && foliageBufferTest.phase === 'frozen-spin')) dungeonLights.foliage.cull(camera);
+    refreshAssignmentPanel();                         // trees to their levels of detail (src/gfx/trees.js)
     lap('Trees (detail levels)');
     const cpu1 = performance.now();
-    let gq = null; if (probe.on && probe.sync && tq && tqList.length < 4) { gq = glc.createQuery(); glc.beginQuery(tq.TIME_ELAPSED_EXT, gq); }   // (the GPU's time for the scene and the glow)
+    const reflectionQuery = startGpuQuery('reflection');
+    const stageReflectionStart = traversalCapture.on ? performance.now() : 0;
+    if (traversalCapture.on) traversalCapture.stage = 'reflections';
     if (reflections) { const st = player.state, gs = st.groundShape;                       // the puddles' mirror: the street / ground level you're on — standing on a crate, a step or a wall doesn't move it
       if (st.onGround && (reflY == null || gs?.terrain || gs?.path || Math.abs(st.pos.y - reflY) > 2.5)) reflY = st.pos.y;
       reflections.update(camera, reflY ?? st.pos.y); }
+    if (traversalCapture.on) { traversalCapture.frameStages.reflectionUpdateMs = performance.now() - stageReflectionStart; traversalCapture.stage = ''; }
+    endGpuQuery(reflectionQuery);
     { const t0 = performance.now(); particles.update(dt, camera); if (probe.on) probeLaps['Particles'] = (probeLaps['Particles'] || 0) * 0.9 + (performance.now() - t0) * 0.1; }
+    const mainQuery = startGpuQuery('main');
+    const stageMainStart = traversalCapture.on ? performance.now() : 0;
+    if (traversalCapture.on) traversalCapture.stage = 'main+postFX';
     if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' }); else renderer.render(scene, camera);
+    if (traversalCapture.on) { traversalCapture.frameStages.mainRenderMs = performance.now() - stageMainStart; traversalCapture.stage = ''; }
+    endGpuQuery(mainQuery);
+    if (gpuThroughput.active && now - gpuThroughput.started >= gpuThroughput.warmupMs) {
+      const measureElapsed = now - gpuThroughput.started - gpuThroughput.warmupMs;
+      if (measureElapsed <= gpuThroughput.measureMs) {
+        for (let ri = 0; ri < gpuThroughput.repeats; ri++) {
+          const q = startGpuQuery('main'), rt0 = performance.now();
+          if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' });
+          else renderer.render(scene, camera);
+          gpuThroughput.cpuSubmitMs += performance.now() - rt0;
+          gpuThroughput.renders++;
+          endGpuQuery(q);
+        }
+        gpuThroughput.frames++;
+        throughputStatus().textContent = `Measuring… ${Math.min(100, measureElapsed / gpuThroughput.measureMs * 100).toFixed(0)}% · ${gpuThroughput.renders} extra renders`;
+      } else {
+        gpuThroughput.active = false; gpuThroughput.finishing = true;
+        throughputStatus().textContent = 'Measurement complete · waiting for GPU timer queries…';
+      }
+    }
     body?.showHead(true);                              // ...but everything else (hair physics, mirrors) does
     const cpu2 = performance.now();
-    if (gq) { glc.endQuery(tq.TIME_ELAPSED_EXT); tqList.push(gq); }
-    while (tqList.length && glc.getQueryParameter(tqList[0], glc.QUERY_RESULT_AVAILABLE)) { const q = tqList.shift(); if (!glc.getParameter(tq.GPU_DISJOINT_EXT)) { const gv = glc.getQueryParameter(q, glc.QUERY_RESULT) / 1e6; probeInfo.gpu = (probeInfo.gpu || 0) * 0.9 + gv * 0.1; if (bench.on && bench.n > 40) { bench.acc.g += gv; bench.acc.gk++; } } glc.deleteQuery(q); }
+    while (tqList.length && glc.getQueryParameter(tqList[0].q, glc.QUERY_RESULT_AVAILABLE)) {
+      const item = tqList.shift();
+      if (!glc.getParameter(tq.GPU_DISJOINT_EXT)) {
+        const gv = glc.getQueryParameter(item.q, glc.QUERY_RESULT) / 1e6;
+        if (item.mode === gpuModeKey()) {
+          if (item.captureFrameId != null) { const captured = traversalCapture.samples.find(q => q.frameId === item.captureFrameId); if (captured) captured[item.bucket === 'main' ? 'gpuMainMs' : 'gpuReflectionMs'] = gv; }
+          const samples = probeInfo.gpuSamples[item.bucket]; samples.push(gv); if (samples.length > 30) samples.shift();
+          probeInfo.gpuMain = median(probeInfo.gpuSamples.main); probeInfo.gpuReflection = median(probeInfo.gpuSamples.reflection);
+          probeInfo.gpu = (Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0) + (Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0);
+        }
+        if (item.benchAcc) { if (item.bucket === 'main') { item.benchAcc.g += gv; item.benchAcc.gk++; } else { item.benchAcc.gr += gv; item.benchAcc.grk++; } }
+        if (item.throughputRunId != null && item.throughputRunId === gpuThroughput.runId) gpuThroughput.gpuSamples.push(gv);
+      }
+      glc.deleteQuery(item.q);
+    }
+    if (gpuThroughput.finishing && !tqList.some(item => item.throughputRunId === gpuThroughput.runId)) {
+      gpuThroughput.finishing = false;
+      const sorted = gpuThroughput.gpuSamples.filter(Number.isFinite).sort((a,b)=>a-b), mid = sorted.length >> 1;
+      const gpuMedian = sorted.length ? (sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2) : NaN;
+      const seconds = gpuThroughput.measureMs / 1000, perSecond = gpuThroughput.renders / seconds;
+      const cpuPerRender = gpuThroughput.renders ? gpuThroughput.cpuSubmitMs / gpuThroughput.renders : NaN;
+      gpuThroughput.report = [
+        'ELDERMERE GPU THROUGHPUT TEST',
+        new Date().toLocaleString(),
+        'Mode: repeated steady-state scene renders; gameplay advances once per display callback, not once per render',
+        `Extra renders: ${gpuThroughput.renders} over ${seconds.toFixed(1)} measured seconds · ${perSecond.toFixed(1)} renders/s`,
+        `Display callbacks during measurement: ${gpuThroughput.frames} · ${(gpuThroughput.frames / seconds).toFixed(1)} callbacks/s`,
+        `Extra renders per callback: ${gpuThroughput.frames ? (gpuThroughput.renders / gpuThroughput.frames).toFixed(2) : 'n/a'}`,
+        `GPU time per render: ${Number.isFinite(gpuMedian) ? gpuMedian.toFixed(3) + ' ms median' : 'unavailable'} · ${gpuThroughput.gpuSamples.length} valid timer samples`,
+        `CPU submission per extra render: ${Number.isFinite(cpuPerRender) ? cpuPerRender.toFixed(3) + ' ms average' : 'unavailable'}`,
+        `CPU submission total: ${gpuThroughput.cpuSubmitMs.toFixed(1)} ms`,
+        `Render scale: ${(probe.scale * (settings.renderScale ?? 1) * 100).toFixed(0)}% · resolution: ${renderer.domElement.width}×${renderer.domElement.height}`,
+        `Draw calls: ${probeAcc.calls} · triangles: ${(probeAcc.tris / 1e6).toFixed(2)}M (latest game frame; repeat passes are not added to this counter)`,
+        '',
+        'Interpretation: renders/s measures how many repeated scene submissions were completed during the available display callbacks. GPU ms/render is the asynchronous GPU timer-query median. This is a steady-state renderer stress test, not uncapped gameplay FPS; requestAnimationFrame remains display-synchronized. A high CPU submission/render with low GPU time indicates submission-bound rendering.'
+      ].join('\\n');
+      throughputReport().textContent = gpuThroughput.report;
+      throughputStatus().textContent = 'Complete · copy the report text below.';
+      probeEl.querySelector('[data-gpu-throughput]').disabled = false;
+    }
     if (probe.on) { probeInfo.logic = (probeInfo.logic || 0) * 0.9 + (cpu1 - cpu0) * 0.1; probeInfo.submit = (probeInfo.submit || 0) * 0.9 + (cpu2 - cpu1) * 0.1; if (probe.sync) { if (!tq) glc.readPixels(0, 0, 1, 1, glc.RGBA, glc.UNSIGNED_BYTE, px1); } probeInfo.gpuWait = (probeInfo.gpuWait || 0) * 0.9 + (performance.now() - cpu2) * 0.1; }
+    if (scenarioBench.on) {
+      const B = scenarioBench;
+      B.frame++;
+      if (B.phase === 'warmup' && B.frame >= 120) {
+        B.phase = 'measure'; B.frame = 0;
+        B.logic = []; B.submit = []; B.frameMs = []; B.calls = []; B.tris = [];
+        resetGpuSamples();
+        scenarioStatus().textContent = 'Measuring 180 frames after warm-up…';
+      } else if (B.phase === 'measure') {
+        B.logic.push(cpu1 - cpu0); B.submit.push(cpu2 - cpu1); B.frameMs.push(rawFrameMs);
+        B.calls.push(probeAcc.calls); B.tris.push(probeAcc.tris);
+        if (B.frame >= 180) {
+          const preset = scenarioPresets[probeEl.querySelector('[data-scenario]').value] || scenarioPresets['clear-noon'];
+          const mainGpu = sortedMedian(probeInfo.gpuSamples.main), reflGpu = sortedMedian(probeInfo.gpuSamples.reflection);
+          const cpuGame = sortedMedian(B.logic), cpuSend = sortedMedian(B.submit);
+          const triMedian = sortedMedian(B.tris);
+          B.report = [
+            'ELDERMERE SCENARIO BENCHMARK',
+            new Date().toLocaleString(),
+            'Map: currently loaded map (not changed by benchmark)',
+            `Scenario: ${preset.label}`,
+            `Time: ${String(Math.floor(preset.hour)).padStart(2, '0')}:${String(Math.floor(preset.hour % 1 * 60)).padStart(2, '0')}`,
+            `Weather: ${preset.weather} · intensity ${preset.strength}`,
+            `Atmospheric haze prototype: ${atmosphereSettings.enabled ? `ON · start ${atmosphereSettings.start} · end ${atmosphereSettings.end} · strength ${atmosphereSettings.strength}` : 'OFF'}`,
+            `Surface: ${preset.surface} · instant forced state`,
+            `Reflections: ${preset.surface === 'puddles' ? 'planar mirror forced on for this test' : preset.surface === 'snow2' ? 'suppressed by snow cover (expected)' : (reflections?.mode || 'unavailable')}`,
+            'Warm-up: 120 frames · measured: 180 frames',
+            '',
+            'PERFORMANCE (median / 95th percentile)',
+            `Frame delta: ${fmtMs(sortedMedian(B.frameMs))} / ${fmtMs(percentile95(B.frameMs))}`,
+            `CPU game: ${fmtMs(cpuGame)} / ${fmtMs(percentile95(B.logic))}`,
+            `CPU draw submission: ${fmtMs(cpuSend)} / ${fmtMs(percentile95(B.submit))}`,
+            `GPU main scene + postFX: ${fmtMs(mainGpu)}`,
+            `GPU reflections: ${fmtMs(reflGpu)}`,
+            `GPU measured total: ${fmtMs(Number.isFinite(mainGpu) && Number.isFinite(reflGpu) ? mainGpu + reflGpu : NaN)}`,
+            `Draw calls per frame: ${Math.round(sortedMedian(B.calls))} median`,
+            `Triangles per frame: ${Number.isFinite(triMedian) ? (triMedian / 1e6).toFixed(3) + 'M median' : 'unavailable'}`,
+            `GPU timer samples: main ${probeInfo.gpuSamples.main.length}, reflections ${probeInfo.gpuSamples.reflection.length}`,
+            '',
+            'Notes: GPU values are asynchronous timer-query measurements when supported. CPU draw-submission time is not GPU time. FPS may be capped; compare timings with the same map, camera, resolution, and character/creature state.'
+          ].join('\n');
+          scenarioReportEl().textContent = B.report;
+          scenarioCopyButton().disabled = false;
+          scenarioStatus().textContent = 'Measurements collected. Restoring your original conditions…';
+          restoreScenarioState();
+        }
+      }
+    }
+    if (scenarioBench.clearRestoreForce && weathering) {
+      scenarioBench.restoreForceDelay--;
+      if (scenarioBench.restoreForceDelay <= 0) {
+        weathering.force = scenarioBench.restoreForce;
+        scenarioBench.clearRestoreForce = false; scenarioBench.restoreForce = null;
+      }
+    }
     if (bench.on) benchStep(cpu1 - cpu0, cpu2 - cpu1);
     if (book.isOpen && body) renderFigure();
     if (book.isOpen) renderBeast(dt);
@@ -1483,9 +2433,29 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     bar.style.setProperty('--f', Math.max(0, Math.min(1, st.stamina / S.maxStamina)).toFixed(3));
     bar.classList.toggle('exhausted', st.exhausted);
     frames++; fpsT += dt; if (fpsT > 0.5) { fps = Math.round(frames / fpsT); frames = 0; fpsT = 0; }
+    if (traversalCapture.on) {
+      const pos = player.state.pos, nowMs = performance.now(), t = nowMs - traversalCapture.started;
+      if (traversalCapture.lastPos) traversalCapture.distance += Math.hypot(pos.x - traversalCapture.lastPos.x, pos.z - traversalCapture.lastPos.z);
+      traversalCapture.lastPos = { x: pos.x, z: pos.z };
+      const turnDot = traversalCapture.lastCameraQ ? Math.max(-1, Math.min(1, Math.abs(camera.quaternion.dot(traversalCapture.lastCameraQ)))) : 1;
+      const turnDeg = 2 * Math.acos(turnDot) * 180 / Math.PI;
+      if (traversalCapture.lastCameraQ) traversalCapture.lastCameraQ.copy(camera.quaternion); else traversalCapture.lastCameraQ = camera.quaternion.clone();
+      const stages = traversalCapture.frameStages || {}, glf = traversalCapture.frameGl || { glCalls: {}, glMs: {}, programsBefore: -1, geometriesBefore: 0, texturesBefore: 0 };
+      const programsAfter = renderer.info.programs?.length ?? -1;
+      if (traversalCapture.samples.length < traversalCapture.maxSamples) {
+        traversalCapture.samples.push({ frameId: traversalCapture.frameId, gpuMainMs: NaN, gpuReflectionMs: NaN, t, elapsed: t / 1000, frameMs: rawFrameMs, logicMs: cpu1 - cpu0, submitMs: cpu2 - cpu1, reflectionUpdateMs: stages.reflectionUpdateMs || 0, mainRenderMs: stages.mainRenderMs || 0, shadowMapMs: stages.shadowMapMs || 0, renderCallMs: traversalCapture.renderCallMs || 0, mainCallsMs: stages.mainCallsMs || 0, reflectionCallsMs: stages.reflectionCallsMs || 0, otherCallsMs: stages.otherCallsMs || 0, turnDeg, calls: probeAcc.calls, tris: probeAcc.tris, programsBefore: glf.programsBefore, programsAfter, programDelta: glf.programsBefore >= 0 && programsAfter >= 0 ? programsAfter - glf.programsBefore : 0, geometriesDelta: renderer.info.memory.geometries - glf.geometriesBefore, texturesDelta: renderer.info.memory.textures - glf.texturesBefore, glCalls: { ...glf.glCalls }, glMs: { ...glf.glMs }, testPhase: foliageBufferTest.active ? foliageBufferTest.phase : null, x: pos.x, y: pos.y, z: pos.z });
+      } else { traversalCapture.dropped++; finishTraversalCapture(); }
+      traversalCapture.frameGl = null;
+      if (foliageBufferTest.active && t >= foliageBufferTest.durationMs) {
+        foliageBufferTest.active = false; foliageBufferTest.phase = 'complete'; camera.rotation.y = foliageBufferTest.startYaw;
+        finishTraversalCapture(); foliageBufferTest.button.disabled = false; foliageBufferTest.status.textContent = 'Complete · compare baseline-spin vs frozen-spin in the report.';
+      } else if (t >= 300000 && traversalCapture.on) finishTraversalCapture();
+      else if (traversalCapture.on) traversalStatus.textContent = `CAPTURING · ${(t/1000).toFixed(0)} s · ${traversalCapture.samples.length} frames · ${traversalCapture.distance.toFixed(0)} m travelled`;
+    }
     if (probe.on) { probeInfo.calls = probeAcc.calls; probeInfo.tris = probeAcc.tris; probeInfo.mainCalls = probeAcc.mainCalls; probeInfo.otherCalls = Math.max(0, probeAcc.calls - probeAcc.mainCalls); probeInfo.ms = probeInfo.ms * 0.9 + dt * 1000 * 0.1;
       if (frames === 0) { let pl = 0; scene.traverse(o => { if (o.isPointLight && o.visible) pl++; }); { const hh = sky.hour, hi = probeEl.querySelector('[data-hour]'); if (document.activeElement !== hi) hi.value = hh; probeEl.querySelector('.pp-hour').textContent = `${String(Math.floor(hh)).padStart(2, '0')}:${String(Math.floor(hh % 1 * 60)).padStart(2, '0')} · ${sky.state.phase.name}`; }
-        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(probeInfo.gpu || 0).toFixed(1)} ms (measured)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
+        probeEl.querySelector('.pp-stats').innerHTML = `<b style="font-size:16px">${fps} fps</b> · ${probeInfo.ms.toFixed(1)} ms<br>${probeInfo.calls} draw calls (main-scene passes ${probeInfo.mainCalls} · other scenes ${probeInfo.otherCalls}) · ${(probeInfo.tris / 1e6).toFixed(2)}M triangles<br>CPU: game ${(probeInfo.logic || 0).toFixed(1)} ms · sending draws ${(probeInfo.submit || 0).toFixed(1)} ms${probe.sync ? (tq ? ` · GPU ${(Number.isFinite(probeInfo.gpu) ? probeInfo.gpu : 0).toFixed(2)} ms total (median: main/postFX ${(Number.isFinite(probeInfo.gpuMain) ? probeInfo.gpuMain : 0).toFixed(2)} + reflections ${(Number.isFinite(probeInfo.gpuReflection) ? probeInfo.gpuReflection : 0).toFixed(2)}; ${probeInfo.gpuSamples.main.length}/${probeInfo.gpuSamples.reflection.length} samples)` : ` · waiting on GPU ${(probeInfo.gpuWait || 0).toFixed(1)} ms`) : ''}<br>(left over: ${Math.max(0, probeInfo.ms - (probeInfo.logic || 0) - (probeInfo.submit || 0) - (probe.sync && !tq ? probeInfo.gpuWait || 0 : 0)).toFixed(1)} ms, waiting for the next screen refresh or the GPU)<br>${pl} point lights in the shaders · ${renderer.info.programs.length} shaders${weathering ? `<br>${weather.temperature.toFixed(0)}°C · wet ${(weathering.state.wet * 100) | 0}% · puddles ${(weathering.state.puddle * 100) | 0}% · gutters ${(weathering.state.gutter * 100) | 0}% · snow ${(weathering.state.snow * 100) | 0}% · dust ${(weathering.state.dust * 100) | 0}%` : ''}<br><span style="opacity:.8;font-size:12px">Game time by part: ${Object.entries(probeLaps).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ')}${body?.perf ? `<br>Body (its own loop): cloth ${(body.perf.clothMs || 0).toFixed(1)} · hair ${(body.perf.hairSimMs || 0).toFixed(1)} · tail/cape ${(body.perf.tailCapeMs || 0).toFixed(1)} ms` : ''}</span>${body?.hairDebug ? (() => { const h = body.hairDebug(); return `<br><span style="opacity:.8;font-size:12px">Hair: ${h.info ? `${h.info.cards} cards, ${h.info.guides} guides` : 'not grown'} · ${h.vis ? 'shown' : 'hidden'} · detail ${h.lod} · body detail ${body.bodyLevel ?? 0}</span>`; })() : ''}${probeInfo.shaderErr ? `<br><span style="color:#ff8a8a;font-size:12px">Shader error: ${probeInfo.shaderErr.replace(/</g, '&lt;')}</span>` : ''}`; if (!probeEl.querySelector('.pp-full').hidden) probeEl.querySelector('.pp-full-content').innerHTML = fullMonitorHtml(); } }
+    processMonitorLastFrameMs = Math.max(0, performance.now() - cpu0); if (processCaptureStartedAt && processCaptureSamples.length) processCaptureSamples[processCaptureSamples.length-1].loopCpuMs = processMonitorLastFrameMs; if (processMonitorOpen) refreshProcessMonitor();
     dbg.textContent = `${fps} fps · ${Math.hypot(st.vel.x, st.vel.z).toFixed(1)} m/s${st.sprinting ? ' · sprint' : ''}${st.crouching ? ' · crouch' : ''}${st.sitting ? ' · sitting' : ''}${st.onGround ? '' : ' · air'}${loadFactor < 1 ? ' · overloaded' : ''}`;
   }
   requestAnimationFrame(frame);
@@ -1495,6 +2465,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   addEventListener('beforeunload', guardClose);
   function stop() {
     removeEventListener('beforeunload', guardClose);
+    removeEventListener('keydown', probeKeyHandler);
+    if (processCaptureTimer) clearTimeout(processCaptureTimer);
+    processMonitor.remove();
+    enemies?.setAiMode?.('main');
+    enemies?.setPresentationMode?.('main');
+    monsters?.setPresentationMode?.('main');
+    monsters?.setAiMode?.('main');
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

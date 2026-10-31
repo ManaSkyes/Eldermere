@@ -135,9 +135,11 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
       const on = (p.on || segs.map((_, i) => i)).filter(i => segs[i] && segs[i].slot >= 0);
       const tot = on.reduce((t, i) => t + segs[i].w, 0) || 1, cum = []; let c = 0; for (const i of on) { c += segs[i].w / tot; cum.push(c); }
       const cc = new THREE.Color(p.color || '#140a22');
-      return { ...p, on, cum, r: cc.r, g: cc.g, b: cc.b, acc: Math.random() };
+      return { ...p, enabled: true, on, cum, r: cc.r, g: cc.g, b: cc.b, acc: Math.random() };
     });
-    const h = { segs, puffs: P, scale: 1, lod: 1, removed: false,
+    const h = { segs, puffs: P, scale: 1, lod: 1, enabled: true, removed: false,
+      setEnabled(on) { h.enabled = !!on; },
+      setGroupEnabled(group, on) { for (const p of P) if (p.group === group) p.enabled = !!on; },
       remove() { if (h.removed) return; h.removed = true; bodies.splice(bodies.indexOf(h), 1); for (const s of segs) if (s.slot >= 0) { anchorData[s.slot * 8 + 3] = -1; anchorData[s.slot * 8 + 7] = -1; parked.push([s.slot, now + 4]); } anchorTex.needsUpdate = true; } };
     bodies.push(h); return h;
   }
@@ -187,8 +189,8 @@ export function createParticles(THREE, scene, { max = 16384 } = {}) {
       }
       // fewer puffs far away and off screen: nobody sees the difference, and 50 monsters cost little more than 5
       if (camera && n && !h.extLod) { sph.center.set(cx / n, cy / n, cz / n); sph.radius = 2.5; const d = sph.center.distanceTo(camPos); h.lod = (frustum.intersectsSphere(sph) ? 1 : 0.15) * (d < 15 ? 1 : d < 35 ? 0.55 : d < 70 ? 0.25 : 0.08); }
-      const k = Math.max(0, h.scale) * h.lod;
-      for (const p of h.puffs) { p.acc += p.rate * k * dt; const m = Math.floor(p.acc); if (m > 0) { p.acc -= m; emit(h, p, Math.min(m, 64)); } }
+      const k = h.enabled ? Math.max(0, h.scale) * h.lod : 0;
+      for (const p of h.puffs) { if (!h.enabled || p.enabled === false) continue; p.acc += p.rate * k * dt; const m = Math.floor(p.acc); if (m > 0) { p.acc -= m; emit(h, p, Math.min(m, 64)); } }
     }
     anchorTex.needsUpdate = bodies.length > 0 || anchorTex.needsUpdate;
     // upload only what was written this frame

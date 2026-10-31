@@ -28,6 +28,8 @@ import { createMotion } from '../rpg/creatureMotion.js';
 import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
 import { STEALTH } from '../rpg/stealth.js';
+import { getApplicationWorkerPool } from './workers/workerPool.js';
+import { reportProcess, clearProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
 const KIND_TYPE = { fire: 'fire', frost: 'frost', ice: 'frost', lunar: 'lunar', holy: 'light', light: 'light', dark: 'dark', shadow: 'dark', storm: 'storm', lightning: 'storm', earth: 'earth', arcane: 'arcane' };
@@ -41,7 +43,110 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   const actors = [], targets = [], shots = [];
   const batSwarm = createBatSwarmInstances(THREE, scene);
   const creaturePartInstances = createCreaturePartInstancing(THREE, scene);
-  let batInstancing = true, umbrafiendTwoInfluence = false;
+  let batInstancing = true, umbrafiendTwoInfluence = false, umbrafiendBodiesVisible = true, umbrafiendSmokeAuraVisible = true, umbrafiendMembranesVisible = true, umbrafiendGlowsVisible = true, umbrafiendWispsVisible = true, umbrafiendPartsVisible = true;
+  // Creature AI and presentation share one FIFO pool. Any free worker takes the next queued
+  // job, regardless of which subsystem submitted it; workers start only when workload warrants it.
+  let presentationMode = 'main';
+  let aiMode = 'main', aiGeneration = 0, aiSequence = 0, aiPending = false, aiDispatchCount = 0, aiWorkerMs = 0, aiQueueMs = 0, aiDispatchMs = 0, aiLastError = '', aiLastDispatchAt = 0;
+  let nextGroupSenseKey = 1; const groupSenseKeys = new WeakMap(), groupSenseCache = new Map();
+  let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationPendingSince = 0;
+  let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null;
+  let presentationWorkerMs = 0, presentationQueueMs = 0, presentationDispatchMs = 0, presentationRoundTripMs = 0, presentationBatchMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
+  let aiRoundTripMs = 0, aiBatchMs = 0;
+  let presentationPlans = new Map();
+  const SHARED_WORKERS = 12; // Application-wide maximum; the shared pool grows only when queued demand requires it.
+  let sharedPool = null, sharedPoolPromise = null;
+  const syncSharedWorkerProcesses = snap => {
+    clearProcessesByPrefix('shared-worker-');
+    for (const w of snap?.workers || []) reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for shared work') });
+    if (snap) reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:snap.queued||snap.busy?'busy':'idle', queued:snap.queued, task:'Shared FIFO · '+snap.busy+'/'+snap.active+' busy · '+snap.queued+' queued' });
+  };
+  const shouldUseWorkers = () => aiMode === 'worker' || presentationMode === 'worker' ||
+    (aiMode === 'auto' && actors.length >= 4) || (presentationMode === 'auto' && actors.length >= 4);
+  const ensureSharedPool = () => {
+    if (sharedPool || sharedPoolPromise || !shouldUseWorkers()) return;
+    sharedPoolPromise = (async () => {
+      const pool = getApplicationWorkerPool();
+      await pool.ready();
+      if (!shouldUseWorkers()) { pool.close(); return null; }
+      sharedPool = pool;
+      reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'idle', task:'Shared FIFO · AI perception + creature presentation' });
+      syncSharedWorkerProcesses(pool.snapshot());
+      return pool;
+    })().catch(error => {
+      aiLastError = presentationLastError = error?.message || 'Shared worker startup failed';
+      reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'error', task:aiLastError });
+      return null;
+    }).finally(() => { sharedPoolPromise = null; });
+  };
+  const maybeCloseSharedPool = () => {
+    if (aiMode !== 'main' || presentationMode !== 'main') return;
+    sharedPool = null; sharedPoolPromise = null; // Do not close the application pool: foliage may still be using it.
+    clearProcess('shared-worker-queue'); clearProcessesByPrefix('shared-worker-');
+  };
+  const ensureAiPool = ensureSharedPool;
+  const ensurePresentationPool = ensureSharedPool;
+  const setAiMode = mode => {
+    aiMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    aiGeneration++; aiPending = false; groupSenseCache.clear(); aiLastError = '';
+    if (aiMode === 'main') clearProcess('creature-ai-queue'); else ensureSharedPool();
+    maybeCloseSharedPool();
+  };
+  const setPresentationMode = mode => {
+    presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
+    if (presentationMode === 'main') clearProcess('npc-presentation-queue'); else ensureSharedPool();
+    maybeCloseSharedPool();
+  };
+  const dispatchCreatureSense = player => {
+    if (aiMode === 'main' || (aiMode === 'auto' && actors.length < 4)) return;
+    ensureSharedPool();
+    const now = performance.now();
+    // Group detection only reevaluates every 250 ms; don't serialize hundreds of member snapshots every frame.
+    if (!sharedPool || aiPending || !groups.length || now - aiLastDispatchAt < 200) return;
+    aiLastDispatchAt = now;
+    const pool = sharedPool, generation = aiGeneration, sequence = ++aiSequence, batchStartedAt = performance.now();
+    const snapshots = groups.map(G => {
+      let key = groupSenseKeys.get(G);
+      if (!key) { key = nextGroupSenseKey++; groupSenseKeys.set(G, key); }
+      return { key, members: G.members.map(m => ({ x:m.pos.x, y:m.pos.y, z:m.pos.z, alt:m.alt||0, hover:m.M?.hover||0, alive:!!m.alive })) };
+    });
+    aiPending = true; aiDispatchCount++;
+    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:pool.snapshot().queued+2, task:'AI perception · '+snapshots.length+' groups' });
+    reportProcess('creature-ai-queue', { label:'Creature AI perception', kind:'worker', status:'busy', queued:snapshots.length, task:'Nearest living member and distance calculations' });
+    const chunks = [snapshots.filter((_,i)=>i%2===0), snapshots.filter((_,i)=>i%2===1)].filter(a=>a.length);
+    Promise.all(chunks.map((chunk,i)=>pool.run('creature-ai-sense', { player:{x:player.pos.x,y:player.pos.y,z:player.pos.z}, groups:chunk, sequence, chunk:i })))
+      .then(results => {
+        if (generation !== aiGeneration || sequence !== aiSequence) return;
+        for (const result of results) for (const item of result.results || []) groupSenseCache.set(item.key, { ...item, at:performance.now() });
+        aiWorkerMs = results.reduce((n,r)=>n+(r.__timing?.workerMs||0),0);
+        aiQueueMs = Math.max(0,...results.map(r=>r.__timing?.queueMs||0));
+        aiDispatchMs = results.reduce((n,r)=>n+(r.__timing?.dispatchMs||0),0);
+        aiRoundTripMs = Math.max(0,...results.map(r=>r.__timing?.roundTripMs||0));
+        aiLastError = '';
+      })
+      .catch(error => { aiLastError=error?.message||'Creature AI perception failed'; reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:'error',task:aiLastError}); })
+      .finally(() => {
+        if (generation !== aiGeneration) return;
+        aiBatchMs = performance.now() - batchStartedAt;
+        aiPending = false;
+        const snap = pool.snapshot();
+        syncSharedWorkerProcesses(snap);
+        reportProcess('creature-ai-queue',{label:'Creature AI perception',kind:'worker',status:aiLastError?'error':'idle',task:aiLastError||aiMode+' · '+actors.length+' creatures · '+aiDispatchCount+' batches · CPU '+aiWorkerMs.toFixed(2)+' ms · queue '+aiQueueMs.toFixed(2)+' ms · transfer '+aiDispatchMs.toFixed(2)+' ms · round trip '+aiRoundTripMs.toFixed(2)+' ms'});
+      });
+  };
+  const getCreatureSense = G => {
+    const key = groupSenseKeys.get(G), result = key ? groupSenseCache.get(key) : null;
+    return result && performance.now() - result.at < 500 ? result : null;
+  };
+  const getPresentationPlan = (actor, player) => {
+    if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 4)) return null;
+    if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
+        Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
+    const plan = presentationPlans.get(actor.presentationId);
+    if (!plan || Math.hypot(actor.pos.x - plan.x, actor.pos.z - plan.z) > 2.5) return null;
+    return plan;
+  };
   const wp = new THREE.Vector3(), v2 = new THREE.Vector3();
   const motionOpts = { speed: 0, ik: false };   // reused for each actor's synchronous pose update
   // the health bar over its head (part 5 will make what's shown depend on what you know of it)
@@ -74,15 +179,15 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
     const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
-    if (id === 'umbrafiend') C.setSkinnedVariant(umbrafiendTwoInfluence);
+    if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.setBodyVisible(umbrafiendBodiesVisible); C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
     const LV = level != null && M.levels ? statsAtLevel(M, level) : null, B0 = LV ? { ...M.stats, hp: LV.hp, speed: LV.speed, aggro: LV.aggro, poise: LV.poise } : M.stats;
     const rk = LV ? 1 : RANK_K[rank || M.rank[0]] || 1, K = scale || {}, S = { ...B0, hp: B0.hp * (K.hp ?? 1), speed: B0.speed * (K.speed ?? 1), aggro: B0.aggro * (K.sight ?? 1) };
-    const A = { id, M, C, mo, S, group, level, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
+    const A = { id, M, C, mo, S, group, level, presentationId: nextPresentationActorId++, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
-      alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, bar: bar() };
-    scene.add(C.root); A.attached = true; C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
+      alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
+    scene.add(C.root); A.attached = true; C.setAttached?.(true); C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
     A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0;   // (a swarm starts up high) A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;
     mo.onCommit = (dx, dz) => { const c = Math.cos(A.yaw), s = Math.sin(A.yaw); A.pos.x += dx * c + dz * s; A.pos.z += -dx * s + dz * c; if (A.landDy) { A.pos.y += A.landDy; A.landDy = 0; } A.gx = 1e9; if (!M.flight && shapes.length) { const r = settle(A, A.pos.x, A.pos.z); A.pos.x = r.x; A.pos.z = r.z; } };
     mo.onEvent = (name, d) => {
@@ -144,11 +249,11 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     floatText?.('Slain', { x: A.target.pos.x, y: A.target.pos.y + A.target.height + 0.4, z: A.target.pos.z }, '#c8a8ff');
   }
   // the body where the actor is, facing its way; the target follows the body (a lunge carries what you can hit)
-  function placeBody(A) {
+  function placeBody(A, synchronize = true) {
     const C = A.C, M = A.M;
     const act = A.mo.action, land = act && A.landDy ? A.landDy * Math.min(1, Math.max(0, (act.u - 0.25) / 0.5)) : 0;   // (a leap's landing height, eased in over its flight)
     C.root.position.set(A.pos.x, A.pos.y + (M.hover || 0) + (A.alt || 0) + land, A.pos.z); C.root.rotation.order = 'YXZ'; C.root.rotation.y = A.yaw; C.root.rotation.x = act && A.landDy ? 0 : (A.pitch || 0);
-    C.sync();
+    if (synchronize) C.sync();
     // a flyer's dive can't go through the ground: during a move, the body is held a little above the ground under
     // where its root motion has carried it (sampled ~12 times a second, from nearby shapes only)
     if (M.flight && A.mo.action && shapes.length && C.bones.root.position.y < -0.2) {   // (only while it's diving)
@@ -249,7 +354,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       const [n1, v1] = points[i - 1], [n2, v2] = points[i];
       if (n <= n2) return v1 + (v2 - v1) * (Math.log(n / n1) / Math.log(n2 / n1));
     }
-    return points[points.length - 1][1] * (1 + 0.1 * Math.log(n / 90) / Math.log(3));
+    // Detection bonus is capped at the largest calibrated group size. Huge swarms must not
+    // gain extra vision simply because more members were placed or merged into the group.
+    return points[points.length - 1][1];
   }
   function groupThink(G, dt, player) {
     const live = G.members, n = live.length; if (!n) return;
@@ -262,11 +369,17 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
       let nearest = null, nearestD2 = Infinity, aliveCount = 0;
-      for (const member of live) {
-        if (!member.alive) continue;
-        aliveCount++;
-        const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
-        if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+      const workerSense = aiMode !== 'main' ? getCreatureSense(G) : null;
+      if (workerSense) {
+        nearestD2 = workerSense.nearestD2; aliveCount = workerSense.aliveCount;
+        nearest = workerSense.nearest ? { pos:workerSense.nearest, M:{hover:workerSense.nearest.hover}, alt:workerSense.nearest.alt } : null;
+      } else {
+        for (const member of live) {
+          if (!member.alive) continue;
+          aliveCount++;
+          const mx = p.x - member.pos.x, mz = p.z - member.pos.z, d2 = mx * mx + mz * mz;
+          if (d2 < nearestD2) { nearestD2 = d2; nearest = member; }
+        }
       }
       const detectDist = nearest ? Math.sqrt(nearestD2) : dist;
       const detectSize = groupDetectionScale(aliveCount);
@@ -278,7 +391,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       G.detectDist = detectDist; G.detectSize = detectSize;
       G.open = !blocked(eye, chest);
       G.canSee = detectDist < range * Math.max(0.2, Math.min(1, player.visibility ?? 1)) && inCone && G.open;
-      if (G.kind === 'swarm') G.seen = detectDist < range && inCone && G.open;
+      // Swarms use the same final sight test as other groups, including player visibility.
+      // Previously this bypassed the visibility multiplier applied inside G.canSee.
+      if (G.kind === 'swarm') G.seen = G.canSee;
     }
     if (M.temper === 'passive') {
       if (G.state === 'flee' && (G.fleeT -= dt) <= 0) G.state = 'idle';
@@ -595,8 +710,47 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     shadowBatch.instanceMatrix.needsUpdate = true;
     if (shadowBatch.instanceColor) shadowBatch.instanceColor.needsUpdate = true;
   }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
-  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setPartsVisible?.(on); if (on) A.C.sync(); }
+  function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setAttached?.(on); if (on) A.C.sync(); }
+  function dispatchPresentationPlan(snapshot, player) {
+    const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 4);
+    if (!snapshot.length) return;
+    if (!shouldUseWorker) {
+      if (presentationMode === 'auto') reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:`Auto threshold not reached · ${actors.length}/4 active creatures` });
+      return;
+    }
+    if (!sharedPool) { ensurePresentationPool(); return; }
+    const now = performance.now();
+    if (presentationPending || now - presentationLastDispatch < 80) {
+      const snap = sharedPool.snapshot();
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:presentationPending?'busy':'idle', queued:snap.queued, workerMs:presentationWorkerMs, task:'Mesh LOD · animation cadence · effects · CPU '+presentationWorkerMs.toFixed(2)+' ms / queue '+presentationQueueMs.toFixed(2)+' ms / transfer '+presentationDispatchMs.toFixed(2)+' ms' });
+      syncSharedWorkerProcesses(snap);
+      return;
+    }
+    presentationPending = true; presentationPendingSince = now; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = ''; const batchStartedAt = now;
+    const generation = presentationGeneration, sequence = ++presentationSequence;
+    const playerAt = { x:player.pos.x, z:player.pos.z };
+    const chunkSize = Math.max(1, Math.ceil(snapshot.length / SHARED_WORKERS));
+    const chunks = [];
+    for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
+    reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });
+    reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing creature mesh LOD and animation/effect budgets · CPU '+presentationWorkerMs.toFixed(2)+' ms' });
+    Promise.all(chunks.map(actors => sharedPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
+      if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
+      presentationWorkerMs = results.reduce((n, result) => n + (result.__timing?.workerMs || 0), 0); presentationQueueMs = Math.max(0, ...results.map(result => result.__timing?.queueMs || 0)); presentationDispatchMs = results.reduce((n, result) => n + (result.__timing?.dispatchMs || 0), 0); presentationRoundTripMs = Math.max(0, ...results.map(result => result.__timing?.roundTripMs || 0));
+      presentationLastError = '';
+      presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
+      presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
+    }).catch(error => {
+      presentationLastError = error?.message || 'Presentation task failed';
+      reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+    }).finally(() => { if (generation === presentationGeneration) { presentationBatchMs = performance.now() - batchStartedAt; presentationPending = false; presentationPendingSince = 0; const snap=sharedPool?.snapshot?.(); if(snap) { syncSharedWorkerProcesses(snap); reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:presentationLastError?'error':'idle', queued:snap.queued, workerMs:presentationWorkerMs, task:(presentationLastError||'Plan ready')+' · '+presentationDispatchCount+' batches · CPU '+presentationWorkerMs.toFixed(2)+' ms · max queue '+presentationQueueMs.toFixed(2)+' ms · batch '+presentationBatchMs.toFixed(2)+' ms'}); } } });
+    const snap = sharedPool.snapshot();
+    snap.workers.forEach(w => reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+  }
+  let lastUpdateTelemetry = { updateMs:0, total:0, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:0 };
   function update(dt, player, hooks = {}) {
+    const updateStartedAt = performance.now();
     frameN++; if (hooks.ear) { pmat.multiplyMatrices(hooks.ear.projectionMatrix, hooks.ear.matrixWorldInverse); frustum.setFromProjectionMatrix(pmat); }
     // shadow bullets in flight
     for (let i = shots.length - 1; i >= 0; i--) {
@@ -611,6 +765,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (gone) { s.m.parent?.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); shots.splice(i, 1); }
     }
     // the groups: who's awake, what each is doing, who joins whom
+    const aiStartedAt = performance.now();
+    dispatchCreatureSense(player);
+    const senseDispatchMs = performance.now() - aiStartedAt;
+    const groupStartedAt = performance.now();
     for (const G of groups) {
       const d = Math.hypot(G.center.x - player.pos.x, G.center.z - player.pos.z);
       G.awake = d < WAKE || G.state === 'fight' || G.state === 'return' || G.state === 'flee' || G.state === 'investigate';
@@ -618,12 +776,20 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (G.awake || G.thinkDt > 1) { groupThink(G, G.thinkDt, player); G.thinkDt = 0; }
     }
     if ((joinT -= dt) <= 0) { joinT = 0.5; joinGroups(); }
+    const groupThinkMs = performance.now() - groupStartedAt;
+    const actorLoopStartedAt = performance.now();
     nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
+    // Presentation plans are rate-limited to 80 ms. Only allocate the 450-actor worker snapshot when a dispatch can actually happen.
+    const collectPresentationSnapshot = presentationMode !== 'main' && actors.length >= 4 && !presentationPending && performance.now() - presentationLastDispatch >= 80;
+    const visualSnapshots = [];
+    // Sample one actor in sixteen to estimate expensive sub-stages without calling performance.now() for every actor.
+    const actorStageMs = { visibility:0, behavior:0, ground:0, poseAndScene:0, combatAndAudio:0, sampledActors:0 };
     for (let i = actors.length - 1; i >= 0; i--) {
-      const A = actors[i]; A.player = player; A.hooks = hooks;
+      const A = actors[i], sampleActor = (i & 15) === 0; A.player = player; A.hooks = hooks;
+      if (sampleActor) actorStageMs.sampledActors++;
       if (!A.alive && A.corpse) {   // a body to harvest: it falls on its side and lies there — until skinned, or you're far away
         const K = A.corpse; K.t += dt; attach(A, true);
-        if (K.t < 1.2) { const f = Math.min(1, K.t / 0.9), e = f * f * (3 - 2 * f); A.mo.update(dt, { speed: 0, ik: false }); placeBody(A); A.C.root.rotation.z = K.side * e * Math.PI / 2; A.C.root.position.y += e * (A.M.stats.radius || 0.5) * 0.42; A.C.sync(); }   // (lifted by its girth, so it lies on the ground, not in it)
+        if (K.t < 1.2) { const f = Math.min(1, K.t / 0.9), e = f * f * (3 - 2 * f); A.mo.update(dt, { speed: 0, ik: false }); placeBody(A, false); A.C.root.rotation.z = K.side * e * Math.PI / 2; A.C.root.position.y += e * (A.M.stats.radius || 0.5) * 0.42; A.C.sync(); }   // (lifted by its girth, so it lies on the ground, not in it)
         const far = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z) > VIS + 10;
         if (K.harvested || far) { attach(A, false); if (A.barOn) scene.remove(A.bar.sp); A.C.dispose(); actors.splice(i, 1); targets.splice(targets.indexOf(A.target), 1); const G = A.group; if (G) G.members.splice(G.members.indexOf(A), 1); }
         continue;
@@ -645,27 +811,57 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       //   1 on screen within 35 m: other monsters animate every 2nd frame (feet only within 15 m)
       //   2 on screen, 35–55 m: other monsters animate every 6th frame, a trickle of smoke
       //   3 off screen or past 55 m: taken out of the scene (no draw, no matrix walk, no smoke), not animated
+      const visibilityStartedAt = sampleActor ? performance.now() : 0;
       const d = Math.hypot(A.pos.x - player.pos.x, A.pos.z - player.pos.z), fighting = G.state === 'fight';
       sph.center.set(A.pos.x, A.pos.y + 1 + (A.alt || 0), A.pos.z); const on = !hooks.ear || frustum.intersectsSphere(sph);
-      let tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 25 ? 0 : d < 35 ? 1 : 2;
-      // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
-      // Keep only the first 30 bat visuals while that merged swarm is idle; the remaining actors still exist and
-      // participate in AI/combat, and the full combat tower/display rules take over when the group engages.
-      if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
-      if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
-      if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);   // (a pack: the 8 nearest full detail, the next 8 a step down, the rest two)   // (band 2 a step down in detail, band 3 two steps; the undrawn reserve not drawn at all)
+      const presentation = getPresentationPlan(A, player);
+      let tier;
+      if (presentation) tier = presentation.tier;
+      else {
+        // Only nearby fighters need full-rate idle/combat pose work; active moves stay full-rate up to 30 m.
+        tier = A.mo.actName && d < 30 ? 0 : !on || d > VIS ? 3 : fighting && d < 15 ? 0 : d < 35 ? 1 : 2;
+        // Editor-placed swarms are capped at 30 bats each, but nearby groups can merge into a larger AI group.
+        // Keep only the first 30 bat visuals while that merged swarm is idle; their AI/combat remains active.
+        if (G.kind === 'swarm' && !fighting && A.id === 'nocturianBat' && A.slot >= 30) tier = 3;
+        if (fighting && A.layer && tier < 3) tier = A.shown === false ? 3 : Math.max(tier, A.layer);
+        if (fighting && G.kind !== 'swarm' && A.rank != null && tier < 3 && !A.mo.actName && !A.attacking) tier = Math.max(tier, A.rank < 8 ? 0 : A.rank < 16 ? 1 : 2);
+      }
+      if (sampleActor) actorStageMs.visibility += performance.now() - visibilityStartedAt;
       const isUmbrafiend = A.id === 'umbrafiend';
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
       // and distant glow sprites are reduced to make large packs affordable.
-      if (isUmbrafiend) for (const glow of A.C.glows) glow.visible = tier < 2;
-      const speed = memberThink(A, dt, player);
+      if (isUmbrafiend) A.C.setLodTier?.(tier);
+      const behaviorStartedAt = sampleActor ? performance.now() : 0;
+      // Off-screen actors still participate in combat and group behavior, but their decision/movement
+      // step only needs to run at 12 Hz. Keep elapsed time so cooldowns and movement remain time-based;
+      // active moves still use the normal path and continue advancing below.
+      let speed;
+      if (tier >= 3 && !A.mo.actName) {
+        A.behaviorLodDt = (A.behaviorLodDt || 0) + dt;
+        if (A.behaviorLodDt >= 1 / 12) {
+          const behaviorDt = Math.min(A.behaviorLodDt, 0.12);
+          A.behaviorLodDt -= behaviorDt;
+          speed = memberThink(A, behaviorDt, player);
+          A.moveSpeed = speed;
+        } else {
+          speed = A.moveSpeed || 0;
+        }
+      } else {
+        A.behaviorLodDt = 0;
+        speed = memberThink(A, dt, player);
+        A.moveSpeed = speed;
+      }
+      if (sampleActor) actorStageMs.behavior += performance.now() - behaviorStartedAt;
       if ((A.alt ?? 0) !== (A.altGoal ?? 0)) { const da = (A.altGoal || 0) - (A.alt || 0); A.alt = (A.alt || 0) + Math.sign(da) * Math.min(Math.abs(da), dt * (da < 0 ? 3.5 : 1.5)); }   // (a swarm pours down fast, climbs back slower)
       // the ground under it, when it has moved: a walker every 0.35 m; a flyer only every 1.5 m (it isn't standing on it), and
       // the upper layers of a tower not at all (they're metres up: the bottom layer's ground does)
+      const groundStartedAt = sampleActor ? performance.now() : 0;
       if (shapes.length && !(A.M.flight && A.layer) && (Math.abs(A.pos.x - (A.gx ?? 1e9)) + Math.abs(A.pos.z - (A.gz ?? 1e9)) > (A.M.flight ? 1.5 : 0.35))) groundUnder(A);
       else if (A.M.flight && A.layer) A.pos.y = A.group.center.y;
+      if (sampleActor) actorStageMs.ground += performance.now() - groundStartedAt;
       if (A.pitch !== A.pitchGoal) A.pitch = (A.pitch || 0) + ((A.pitchGoal || 0) - (A.pitch || 0)) * Math.min(1, dt * 6);
+      const poseStartedAt = sampleActor ? performance.now() : 0;
       const vis = tier < 3;
       attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
       // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
@@ -673,17 +869,41 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       if (batInstancing && A.id === 'nocturianBat' && G.kind === 'swarm' && vis && !A.mo.actName && A.alive) batSwarm.add(A);
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
-        A.C.puffs.lod = isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15); }
+        A.C.puffs.lod = presentation?.effectLod ?? (isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15)); }
       if (fighting && d < 30 && vis) { barCand.push(A); A.barD = d; }
       A.lodDt = (A.lodDt || 0) + dt;
       if (vis) {
-        const every = isUmbrafiend ? 1 : (tier === 0 ? 1 : tier === 1 ? 2 : 6);
-        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
+        // Match the worker policy when a plan is temporarily unavailable.
+        // Keep Umbrafiend moves responsive, but let distant idle poses reuse their last skeleton pose.
+        const every = presentation?.animationEvery ?? (isUmbrafiend ? (A.mo.actName ? 1 : tier === 0 ? 1 : tier === 1 ? 3 : 6) : (tier === 0 ? 1 : tier === 1 ? 3 : 10));
+        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = presentation ? presentation.ik : (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
+      if (sampleActor) actorStageMs.poseAndScene += performance.now() - poseStartedAt;
+      const combatStartedAt = sampleActor ? performance.now() : 0;
       if (tier === 0) strike(A, player, hooks);
       if (d < 30) voices(A, dt, speed);
-      if (d < 40) nearTargets.push(A.target);   // (only these go to your weapons and spells: they look through every target each frame)
+      if (d < 40) nearTargets.push(A.target);
+      if (sampleActor) actorStageMs.combatAndAudio += performance.now() - combatStartedAt;   // (only these go to your weapons and spells: they look through every target each frame)
+      if (collectPresentationSnapshot) visualSnapshots.push({ id:A.presentationId, x:A.pos.x, z:A.pos.z, distance:d, inFrustum:on, visibilityDistance:VIS,
+        fighting, act:!!A.mo.actName, swarmReserve:G.kind==='swarm'&&!fighting&&A.id==='nocturianBat'&&A.slot>=30,
+        layered:!!A.layer, layer:A.layer||0, shown:A.shown, swarm:G.kind==='swarm', rank:A.rank,
+        attacking:!!A.attacking, umbrafiend:isUmbrafiend, speed });
     }
+    const actorLoopMs = performance.now() - actorLoopStartedAt;
+    const presentationDispatchStartedAt = performance.now();
+    dispatchPresentationPlan(visualSnapshots, player);
+    const presentationDispatchMainMs = performance.now() - presentationDispatchStartedAt;
+    const telemetry = { updateMs:0, aiDispatchMs:senseDispatchMs, groupThinkMs, actorLoopMs, actorStageMs, presentationDispatchMainMs, total:actors.length, alive:0, dead:0, awakeGroups:0, awakeActors:0, attached:0, withinRenderRange:0, visible:0, presentationBatchSize:visualSnapshots.length };
+    for (const G of groups) if (G.awake) telemetry.awakeGroups++;
+    for (const A of actors) {
+      if (A.alive) telemetry.alive++; else telemetry.dead++;
+      if (A.group?.awake && A.alive) telemetry.awakeActors++;
+      if (A.attached) telemetry.attached++;
+      const dx = A.pos.x - player.pos.x, dz = A.pos.z - player.pos.z;
+      if (dx * dx + dz * dz <= VIS * VIS) telemetry.withinRenderRange++;
+      if (A.attached && A.C?.root?.visible !== false) telemetry.visible++;
+    }
+    lastUpdateTelemetry = telemetry;
     updateCreatureShadows(player);
     batSwarm.finish(performance.now() / 1000);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
@@ -691,15 +911,25 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const want = new Set(barCand.slice(0, 5));
     for (const A of barShown) if (!want.has(A)) { scene.remove(A.bar.sp); A.barOn = false; barShown.delete(A); }
     for (const A of want) { if (!barShown.has(A)) { scene.add(A.bar.sp); A.barOn = true; barShown.add(A); } A.bar.draw(A.hp / A.maxHp); }
+    lastUpdateTelemetry.updateMs = performance.now() - updateStartedAt;
   }
   return {
     spawn, actors, targets, nearTargets, groups, update,
+    presentationSnapshot() { const pool = sharedPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:actors.length, population:{...lastUpdateTelemetry}, pending:presentationPending, pendingAgeMs:presentationPending && presentationPendingSince ? Math.max(0, performance.now()-presentationPendingSince) : 0, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, queueMs:presentationQueueMs, dispatchMs:presentationDispatchMs, roundTripMs:presentationRoundTripMs, batchMs:presentationBatchMs, lastError:presentationLastError, pool }; },
+    aiSnapshot() { return { mode:aiMode, actorCount:actors.length, groupCount:groups.length, population:{...lastUpdateTelemetry}, pending:aiPending, dispatchCount:aiDispatchCount, workerMs:aiWorkerMs, queueMs:aiQueueMs, dispatchMs:aiDispatchMs, roundTripMs:aiRoundTripMs, batchMs:aiBatchMs, lastError:aiLastError, pool:sharedPool?.snapshot?.()||null }; },
+    setAiMode, setPresentationMode,
     setBatInstancing(on) { batInstancing = !!on; },
     setUmbrafiendPartInstancing(on) { creaturePartInstances.setEnabled(!!on); },
+    setUmbrafiendBodiesVisible(on) { umbrafiendBodiesVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C?.setBodyVisible?.(umbrafiendBodiesVisible); },
+    setUmbrafiendSmokeAuraVisible(on) { umbrafiendSmokeAuraVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend' && A.C?.setSmokeAuraVisible) A.C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); },
+    setUmbrafiendMembranesVisible(on) { umbrafiendMembranesVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setMembranesVisible(umbrafiendMembranesVisible); },
+    setUmbrafiendGlowsVisible(on) { umbrafiendGlowsVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setGlowsVisible(umbrafiendGlowsVisible); },
+    setUmbrafiendWispsVisible(on) { umbrafiendWispsVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setWispsVisible(umbrafiendWispsVisible); },
+    setUmbrafiendPartsVisible(on) { umbrafiendPartsVisible = !!on; for (const A of actors) if (A.id === 'umbrafiend') A.C.setPartsVisible(umbrafiendPartsVisible); },
     setUmbrafiendSkinningVariant(on) { umbrafiendTwoInfluence = !!on; for (const A of actors) if (A.M?.name === 'Umbrafiend') A.C.setSkinnedVariant(umbrafiendTwoInfluence); },
     // bodies lying to be harvested (src/game/harvest.js): { A, x, y, z, reach }
     corpses() { return actors.filter(A => A.corpse && !A.corpse.harvested && A.corpse.t > 1).map(A => ({ A, x: A.pos.x, y: A.pos.y, z: A.pos.z, reach: (A.M.stats.radius || 0.5) * 2 + 2 })); },
     harvested(A) { if (A.corpse) A.corpse.harvested = true; }, set shapesIn(f) { shapesInF = f; },
-    clear() { for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
+    clear() { setAiMode('main'); setPresentationMode('main'); for (const A of actors) { scene.remove(A.C.root); scene.remove(A.bar.sp); A.C.dispose(); } scene.remove(shadowBatch); shadowGeometry.dispose(); shadowMaterial.dispose(); shadowTexture.dispose(); batSwarm.dispose(); actors.length = 0; targets.length = 0; groups.length = 0; nearTargets.length = 0; barShown.clear(); },
   };
 }

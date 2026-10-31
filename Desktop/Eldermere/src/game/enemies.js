@@ -20,6 +20,8 @@
 // and they fall to their deaths in pits.
 import { statsOf, variantOf, OBJECTS } from '../data/objects.js';
 import { lineBlocked } from './physics.js';
+import { createWorkerPool } from './workers/workerPool.js';
+import { reportProcess, clearProcess } from './workers/processMonitor.js';
 
 const C = 10;
 const SHOTS = {
@@ -31,6 +33,56 @@ const SHOTS = {
 };
 
 export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {}) {
+  let aiMode = 'main', aiPool = null, aiPoolPromise = null, aiGeneration = 0, aiFrame = 0, aiPending = false, aiLastPlayer = null, aiLastDispatch = 0, aiLastWorkerMs = 0;
+  const AI_WORKERS = 2;
+  let presentationMode = 'main', presentationPool = null, presentationPoolPromise = null;
+  let presentationGeneration = 0, presentationSequence = 0, presentationPending = false, presentationFrame = 0;
+  let presentationLastDispatch = 0, presentationPlanAt = 0, presentationPlayerAt = null, presentationWorkerMs = 0;
+  let presentationPlans = new Map(), presentationDispatchCount = 0, presentationLastError = '', nextPresentationId = 1;
+  const PRESENTATION_WORKERS = 2;
+  const ensurePresentationPool = () => {
+    if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
+    const generation = presentationGeneration;
+    presentationPoolPromise = (async () => {
+      const pool = createWorkerPool(PRESENTATION_WORKERS); await pool.ready();
+      if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
+      presentationPool = pool;
+      for (const w of pool.snapshot().workers) reportProcess('npc-render-worker-'+w.id, { label:'NPC presentation worker '+w.id, kind:'worker', status:'idle', task:'Ready · waiting for presentation batch' });
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:'Visual LOD and effect scheduling' });
+      return pool;
+    })().catch(error => {
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+      return null;
+    }).finally(() => { presentationPoolPromise = null; });
+  };
+  const setPresentationMode = mode => {
+    presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
+    presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
+    if (presentationMode === 'main') {
+      presentationPool?.close(); presentationPool = null; presentationPoolPromise = null;
+      clearProcess('npc-render-queue'); for (let i=1;i<=PRESENTATION_WORKERS;i++) clearProcess('npc-render-worker-'+i);
+      for (const u of units) { u.root.visible = true; }
+    } else ensurePresentationPool();
+    return presentationMode;
+  };
+  const getPresentationPlan = (unit, player) => {
+    if (presentationMode === 'main' || (presentationMode === 'auto' && units.length < 4)) return null;
+    if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
+        Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
+    const plan = presentationPlans.get(unit.presentationId);
+    return plan && Math.hypot(unit.pos.x - plan.x, unit.pos.z - plan.z) <= 2.5 ? plan : null;
+  };
+  const setAiMode = mode => {
+    aiMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+    aiGeneration++; aiPending = false; aiLastPlayer = null;
+    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
+    else if (!aiPoolPromise) {
+      aiPoolPromise = (async () => { const pool = createWorkerPool(AI_WORKERS); await pool.ready(); if (aiMode === 'main') { pool.close(); return null; } aiPool = pool; return pool; })().catch(error => { reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' }); aiPoolPromise = null; return null; });
+    }
+    return aiMode;
+  };
+  const workerSnapshot = () => ({ mode: aiMode, pool: aiPool?.snapshot?.() || null, pending: aiPending, lastWorkerMs: aiLastWorkerMs, npcCount: units?.length || 0 });
   const placed = (d.objects || []).filter(o => OBJECTS[o.type]?.cat === 'enemy');
   // walls to bump into: the solid boxes near each 10 m cell, looked up by cell
   const grid = new Map(), gk = (x, z) => `${Math.floor(x / C)},${Math.floor(z / C)}`;
@@ -222,7 +274,40 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   // player.sneak: Sneak skill (how fast staying hidden makes them lose you: steeply worse at low skill)
   // returns { detection (0–1, the most any enemy has on you: up to 0.5 suspicious, above that hunting you),
   //           unaware (enemies close by who don't know you're there), escaped (enemies that just gave up on you) }
+  function dispatchPresentationPlan(snapshot, player) {
+    const useWorker = presentationMode === 'worker' || (presentationMode === 'auto' && units.length >= 4);
+    if (!snapshot.length) return;
+    if (!useWorker) {
+      if (presentationMode === 'auto') reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:`Auto threshold not reached · ${units.length}/4 active NPCs` });
+      return;
+    }
+    if (!presentationPool) { ensurePresentationPool(); return; }
+    const now = performance.now();
+    if (presentationPending || now - presentationLastDispatch < 100) return;
+    presentationPending = true; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = '';
+    const generation = presentationGeneration, sequence = ++presentationSequence;
+    const playerAt = { x:player.pos.x, z:player.pos.z };
+    const chunkSize = Math.ceil(snapshot.length / PRESENTATION_WORKERS);
+    const chunks = [];
+    for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
+    reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'busy', queued:chunks.length, workerMs:presentationWorkerMs, task:'Computing mesh LOD, animation pose and effect parameters' });
+    Promise.all(chunks.map(actors => presentationPool.run('npc-presentation-plan', { generation, sequence, actors }))).then(results => {
+      if (generation !== presentationGeneration || results.some(result => result.generation !== generation || result.sequence !== sequence)) return;
+      presentationWorkerMs = Math.max(0, ...results.map(result => result.__timing?.workerMs || 0));
+      presentationLastError = '';
+      presentationPlans = new Map(results.flatMap(result => result.plans || []).map(plan => [plan.id, plan]));
+      presentationPlanAt = performance.now(); presentationPlayerAt = playerAt;
+    }).catch(error => {
+      presentationLastError = error?.message || 'Presentation task failed';
+      reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'error', task:error?.message || 'Presentation task failed' });
+      if (presentationMode === 'auto') setPresentationMode('main');
+    }).finally(() => { if (generation === presentationGeneration) presentationPending = false; });
+    const poolState = presentationPool.snapshot();
+    poolState.workers.forEach(w => reportProcess('npc-render-worker-'+w.id, { label:'NPC presentation worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task || (w.lastTask ? 'Idle · last task: '+w.lastTask : 'Idle · no task assigned'), workerMs:presentationWorkerMs }));
+  }
   function update(dt, player, { hurt, tryBlock, pits = [] }) {
+    presentationFrame++;
+    const visualSnapshots = [];
     let detection = 0, unaware = 0, escaped = 0;
     const p = player.pos, ph = player.height, chest = { x: p.x, y: p.y + ph * 0.6, z: p.z };
     const seen = Math.min(1, Math.max(0.12, player.light ?? 1)) * (player.visibility ?? 1);
@@ -235,10 +320,13 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
           if (u.dead > 2.5) { u.root.visible = false; u.dead = -1; } }
         continue;
       }
-      const st = u.st, dx = p.x - u.pos.x, dz = p.z - u.pos.z, dist = Math.hypot(dx, dz);
+      const st = u.st, dx = p.x - u.pos.x, dz = p.z - u.pos.z;
+      const cachedSense = u._workerSense, senseFresh = cachedSense && performance.now() - cachedSense.at < 180 && Math.hypot(p.x - cachedSense.px, p.z - cachedSense.pz) < 2.5;
+      const dist = senseFresh ? cachedSense.dist : Math.hypot(dx, dz);
+      const visualPlan = getPresentationPlan(u, player);
       // noticing you: by sight, or by hearing (your noise carries `loudness` metres; their hearing stretches it)
-      const saw = sees(u, p, ph, seen), heard = dist < (player.loudness || 0) * (st.hearing * (st.perception ?? 1) / 14) && Math.abs(p.y - u.pos.y) < 5;
-      const close = Math.max(0, 1 - dist / Math.max(1, st.sight * (st.perception ?? 1)));
+      const saw = sees(u, p, ph, seen), heard = senseFresh ? cachedSense.heard : (dist < (player.loudness || 0) * (st.hearing * (st.perception ?? 1) / 14) && Math.abs(p.y - u.pos.y) < 5);
+      const close = senseFresh ? cachedSense.close : Math.max(0, 1 - dist / Math.max(1, st.sight * (st.perception ?? 1)));
       // Staying hidden wears their hold on you down, much faster with real Sneak skill: (hidden)² × skill^1.6
       const conceal = 1 - seen, drain = conceal * conceal * Math.min(1.5, Math.pow(Math.max(0, player.sneak ?? 0) / 100, 1.6)) * 0.45;
       if (u.state !== 'fight') {
@@ -335,20 +423,32 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
         u.alive = false; u.fell = true; u.dead = 0.001; u.parts.bar.visible = false; break;
       }
       if (!u.alive) continue;
-      // the model: where it is, which way it faces, a walk cycle, the wind-up pose, a flash when hit
+      // The worker controls mesh visibility/LOD, animation update cadence and effect refresh
+      // from serializable state. Position and gameplay continue updating every frame on main.
       const P = u.parts, bob = Math.sin(u.step * 5);
-      const hop = u.air ? Math.sin(Math.PI * u.air.t / u.air.len) * 2.2 * Math.min(1, u.air.len) : 0;   // launched: up and back down
+      const hop = u.air ? Math.sin(Math.PI * u.air.t / u.air.len) * 2.2 * Math.min(1, u.air.len) : 0;
       u.root.position.set(u.pos.x, u.pos.y + hop + (u.v.look.shape === 'bat' ? Math.sin(performance.now() / 300 + u.home.x) * 0.15 : 0), u.pos.z); u.root.rotation.y = u.yaw;
-      u.root.rotation.x = u.down > 0 && u.arch !== 'swarm' ? -1.3 * Math.min(1, u.down / 0.25) : 0;   // knocked flat on its back
-      if (P.legL) { P.legL.rotation.x = speed ? bob * 0.6 : 0; P.legR.rotation.x = speed ? -bob * 0.6 : 0; }
-      if (P.wingL) { const f = Math.sin(performance.now() / 60); P.wingL.rotation.z = f * 0.7; P.wingR.rotation.z = -f * 0.7; }
-      if (P.arm) P.arm.rotation.x = u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2;
-      for (const m of P.mats) m.emissive?.set(u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000');
+      u.root.rotation.x = u.down > 0 && u.arch !== 'swarm' ? -1.3 * Math.min(1, u.down / 0.25) : 0;
+      const visualEvery = visualPlan?.animationEvery || 1;
+      if (!visualPlan || presentationFrame % visualEvery === 0 || u.flash > 0 || u.wind > 0) {
+        const pose = visualPlan?.pose;
+        if (P.legL) { P.legL.rotation.x = pose ? pose.legL : (speed ? bob * 0.6 : 0); P.legR.rotation.x = pose ? pose.legR : (speed ? -bob * 0.6 : 0); }
+        if (P.wingL) { const f = pose ? pose.wingL : Math.sin(performance.now() / 60) * 0.7; P.wingL.rotation.z = f; P.wingR.rotation.z = pose ? pose.wingR : -f; }
+        if (P.arm) P.arm.rotation.x = pose ? pose.arm : (u.wind > 0 ? (RANGED[u.arch] ? -1.4 : -2.4) : u.cool > 0.9 ? 0.9 : -0.2);
+        if (!visualPlan || visualPlan.effectLod >= 0.35 || u.flash > 0 || u.wind > 0) for (const m of P.mats) m.emissive?.set(pose ? (pose.emissive === 2 ? '#ff3a2a' : pose.emissive === 1 ? '#4a1a10' : '#000000') : (u.flash > 0 ? '#ff3a2a' : u.wind > 0 && !RANGED[u.arch] ? '#4a1a10' : '#000000'));
+        if (u.ring && (!visualPlan || visualPlan.effectLod > 0.1)) u.ring.material.opacity = pose ? pose.ringOpacity : 0.35 + 0.35 * Math.sin(performance.now() / 80);
+      }
+      if (visualPlan) u.root.visible = visualPlan.meshVisible;
+      else u.root.visible = true;
       u.flash = Math.max(0, u.flash - dt);
       const showBar = u.hp < st.hp || u.state === 'fight';
-      P.bar.visible = showBar; if (showBar) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }
-      if (u.ring) { u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z); u.ring.material.opacity = 0.35 + 0.35 * Math.sin(performance.now() / 80); }
+      P.bar.visible = showBar && (!visualPlan || visualPlan.meshVisible); if (showBar && P.bar.visible) { P.bar.position.set(u.pos.x, u.pos.y + u.height + 0.35, u.pos.z); if (u._bar !== Math.round(u.hp)) { u._bar = Math.round(u.hp); drawBar(u); } }
+      if (u.ring) u.ring.position.set(u.pos.x, u.pos.y + 0.05, u.pos.z);
+      visualSnapshots.push({ id:u.presentationId, x:u.pos.x, z:u.pos.z, distance:Math.hypot(u.pos.x-p.x,u.pos.z-p.z), inFrustum:true, visibilityDistance:65,
+        fighting:u.state==='fight', act:u.wind>0, swarmReserve:false, layered:false, layer:0, shown:true, swarm:u.arch==='swarm', rank:null, attacking:u.wind>0, umbrafiend:false, speed,
+        step:u.step, time:performance.now(), wind:u.wind, cool:u.cool, flash:u.flash, ranged:!!RANGED[u.arch], simpleAnimation:true });
     }
+    dispatchPresentationPlan(visualSnapshots, player);
     // missiles
     for (let i = shots.length - 1; i >= 0; i--) {
       const s = shots[i]; s.life -= dt;
@@ -363,6 +463,40 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
       }
       if (s.life <= 0 || blocked(s.p, n)) { scene.remove(s.mesh); shots.splice(i, 1); continue; }
       s.p = n; s.mesh.position.set(n.x, n.y, n.z);
+    }
+    // Dispatch pure sensory-distance work asynchronously. Results are consumed on later frames only
+    // while the player remains nearby; combat, collision, animation and scene mutation stay on main.
+    aiFrame++;
+    if (aiMode !== 'main' && units.length >= (aiMode === 'auto' ? 24 : 1) && !aiPending &&
+        (aiFrame % 4 === 0 || !aiLastPlayer || Math.hypot(p.x - aiLastPlayer.x, p.z - aiLastPlayer.z) > 1.25)) {
+      const generation = aiGeneration, playerSnap = { x:p.x, y:p.y, z:p.z, loudness:player.loudness || 0 };
+      const npcs = units.map((u,index)=>({ index, x:u.pos.x, y:u.pos.y, z:u.pos.z, sight:u.st.sight || 1, hearing:u.st.hearing || 14, perception:u.st.perception || 1, alive:u.alive })).filter(n=>n.alive);
+      aiLastPlayer = { ...playerSnap }; aiLastDispatch = performance.now(); aiPending = true;
+      reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'queued', task:`${npcs.length} NPC sensory candidates`, queued:1 });
+      (async () => {
+        try {
+          const pool = aiPool || await aiPoolPromise;
+          if (!pool || generation !== aiGeneration) return;
+          const result = await pool.run('npc-ai-sense', { player:playerSnap, npcs });
+          if (generation !== aiGeneration || !result || Math.hypot(p.x - playerSnap.x, p.z - playerSnap.z) > 2.5) return;
+          const at = performance.now(), timing = result.__timing || {};
+          aiLastWorkerMs = Number(timing.workerMs) || 0;
+          for (const row of result.results || []) {
+            const u = units[row.index]; if (!u || !u.alive || !Number.isFinite(row.dist)) continue;
+            u._workerSense = { dist:row.dist, close:row.close, heard:row.heard, px:playerSnap.x, pz:playerSnap.z, at };
+          }
+        } catch (error) {
+          reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Task failed' });
+          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; aiPool?.close(); aiPool = null; aiPoolPromise = null; for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
+        } finally {
+          aiPending = false;
+          if (aiMode !== 'main') reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'idle', task:`last ${aiLastWorkerMs.toFixed(2)} ms` });
+        }
+      })();
+    }
+    if (aiPool) {
+      const snap = aiPool.snapshot();
+      for (const w of snap.workers) reportProcess(`npc-worker-${w.id}`, { label:`NPC Worker ${w.id}`, kind:'worker', status:w.busy?'working':'idle', task:w.task || '', queued:snap.queued });
     }
     return { detection, unaware, escaped };
   }
@@ -394,5 +528,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     }
     void kind;
   }
-  return { targets, update, reset, units, noise };
+  return { targets, update, reset, units, noise, setAiMode, setPresentationMode, workerSnapshot,
+    presentationSnapshot() { const pool = presentationPool?.snapshot?.() || null; return { mode:presentationMode, actorCount:units.length, pending:presentationPending, dispatchCount:presentationDispatchCount, workerMs:presentationWorkerMs, lastError:presentationLastError, pool }; },
+    clearPresentation() { setPresentationMode('main'); } };
 }

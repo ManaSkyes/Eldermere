@@ -24,6 +24,7 @@
 
 const VIEWS = 16, TILE_PX = 128, ATLAS_COLS = 16, ATLAS_ROWS = 16;          // impostor pictures: 16 angles × up to 16 species
 const NEAR_SHADOW = 45;
+const TREE_CELL_SIZE = 32;
 const LODS = { tree: [45, 130, 300], pine: [45, 130, 300], dead: [45, 120, 260], bush: [30, 80, 180] };
 
 const rng = seed => () => { seed = (seed * 16807 + 11) % 2147483647; return seed / 2147483647; };
@@ -226,6 +227,27 @@ const TREE_WIND = TILE => `${windCore(TILE)}
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
+  let workerMode = 'main', workerAllocationMode = 'auto', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerLimit = 12, workerGeneration = 0;
+  const TREE_WORKER_CHUNK_SIZE = 4096;
+  const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, workerLimit, workerAllocationMode, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
+  const ensureWorker = async (queuedTasks = 1) => {
+    if (workerAllocationMode === 'auto') {
+      // Grow only when a batch has enough independent chunks to keep more workers busy.
+      // Auto mode scales up to the configured cap and stays there to avoid pool churn.
+      const desired = Math.max(workerCount, Math.min(workerLimit, Math.max(1, Math.floor(queuedTasks))));
+      workerCount = desired;
+      workerState.workerCount = workerCount;
+    }
+    if (!workerPool) {
+      const { getApplicationWorkerPool } = await import('../game/workers/workerPool.js');
+      workerPool = getApplicationWorkerPool();
+      workerState.status = 'starting';
+      await workerPool.ready();
+      workerCount = workerPool.size;
+      workerState.workerCount = workerCount;
+    }
+    return workerPool;
+  };
   const sets = [];
   if (!plants.some(p => SPECIES[p.k])) return { hidden: false, sets, bake() {}, cull() {} };
   const A = atlas(THREE);
@@ -267,6 +289,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   for (const p of plants) { const list = SPECIES[p.k]; if (!list) continue; const v = Math.abs(p.v || 0) % list.length, key = p.k + v; (byKey.get(key) || byKey.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p); }
   let row = 0;
   for (const { k, v, list } of byKey.values()) {
+    // Spatial order makes each 64 m cell a contiguous range in the source arrays.
+    list.sort((a, b) => Math.floor(a.x / TREE_CELL_SIZE) - Math.floor(b.x / TREE_CELL_SIZE) || Math.floor(a.z / TREE_CELL_SIZE) - Math.floor(b.z / TREE_CELL_SIZE));
     const sp = SPECIES[k][v], G = grow(k, sp, 1000 + v * 77 + k.length * 13), g0 = build(THREE, A, k, sp, G, 0, stages), g1 = build(THREE, A, k, sp, G, 1, stages);
     const bb = g0.boundingBox, hw = Math.max(-bb.min.x, bb.max.x, -bb.min.z, bb.max.z) * 1.04, y0 = bb.min.y - 0.05, y1 = bb.max.y + 0.05;
     const gi = new THREE.BufferGeometry();                                                    // the impostor quad, as big as the tree from any side
@@ -274,18 +298,57 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     gi.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
     gi.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
     gi.setAttribute('color', new THREE.Float32BufferAttribute(new Array(18).fill(1), 3)); gi.setAttribute('aRow', new THREE.Float32BufferAttribute(new Array(6).fill(row), 1));
-    const n = list.length, X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), Sc = new Float32Array(n), Ro = new Float32Array(n), Co = new Float32Array(n * 3), Rn = new Float32Array(n);
-    list.forEach((p, i) => { X[i] = p.x; Y[i] = p.y; Z[i] = p.z; Sc[i] = p.s || 1; Ro[i] = p.r || 0; const c = p.c || [1, 1, 1]; Co.set(c, i * 3); const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; Rn[i] = h - Math.floor(h); });
+    const n = list.length, X = new Float32Array(n), Y = new Float32Array(n), Z = new Float32Array(n), Sc = new Float32Array(n), Ro = new Float32Array(n), Co = new Float32Array(n * 3), Rn = new Float32Array(n), cells = [];
+    let cell = null;
+    list.forEach((p, i) => {
+      const gx = Math.floor(p.x / TREE_CELL_SIZE), gz = Math.floor(p.z / TREE_CELL_SIZE), key = gx + ',' + gz;
+      if (!cell || cell.key !== key) {
+        cell = { key, gx, gz, start: i, end: i + 1, x0: gx * TREE_CELL_SIZE, x1: (gx + 1) * TREE_CELL_SIZE, z0: gz * TREE_CELL_SIZE, z1: (gz + 1) * TREE_CELL_SIZE, y0: p.y, y1: p.y, maxScale: p.s || 1 };
+        cells.push(cell);
+      } else { cell.end = i + 1; cell.y0 = Math.min(cell.y0, p.y); cell.y1 = Math.max(cell.y1, p.y); cell.maxScale = Math.max(cell.maxScale, p.s || 1); }
+      X[i] = p.x; Y[i] = p.y; Z[i] = p.z; Sc[i] = p.s || 1; Ro[i] = p.r || 0;
+      const c = p.c || [1, 1, 1]; Co.set(c, i * 3); const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; Rn[i] = h - Math.floor(h);
+    });
+    for (const c of cells) {
+      c.cx = (c.x0 + c.x1) * 0.5; c.cz = (c.z0 + c.z1) * 0.5; c.cy = (c.y0 + c.y1) * 0.5 + sp.H * 0.5;
+      c.radius = Math.hypot(TREE_CELL_SIZE * 0.7072, (c.y1 - c.y0) * 0.5 + Math.max(sp.H || 0, sp.R || 0) * c.maxScale + 2);
+    }
+    const cellLookup = new Map(cells.map(c => [c.key, c]));
     const mesh = (geo, mat, cast) => {
       geo.setAttribute('aF', new THREE.InstancedBufferAttribute(new Float32Array(n * 2), 2).setUsage(THREE.DynamicDrawUsage)); geo.setAttribute('aR', new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
       const im = new THREE.InstancedMesh(geo, mat, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = cast; im.receiveShadow = true; if (cast) im.customDepthMaterial = depthMat; im.userData.canopy = true; scene.add(im); return im;   // (canopy: src/gfx/weathering.js lets a tenth of the snow through crowns)
     };
-    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
+    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, cellLookup, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
     row++;
   }
   let baked = false;
-  const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null };
+  const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null, cellSignature: null };
+  const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
+  // F7 zone policy is shared by trees and bushes. The three actual tree meshes
+  // (near, mid, impostor) are refreshed independently; zone 4/5 remain available
+  // for future vegetation tiers rather than being falsely mapped to nonexistent meshes.
+  let lodZonePolicy = null, lodRenderFrame = 0, lodZoneNeedsInitialRefresh = true;
+  // Player-centred LOD scans are independent of camera rotation; track the last completed scan origin.
+  let lodZoneAppliedPosition = null;
+  const lodZoneWasDisabled = [false, false, false];
+  const visibleCells = (S, cx, cz, fr, far) => {
+    const out = [], reach = far + TREE_CELL_SIZE * 0.71;
+    const gx0 = Math.floor((cx - reach) / TREE_CELL_SIZE), gx1 = Math.floor((cx + reach) / TREE_CELL_SIZE);
+    const gz0 = Math.floor((cz - reach) / TREE_CELL_SIZE), gz1 = Math.floor((cz + reach) / TREE_CELL_SIZE);
+    let tested = 0;
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      tested++;
+      const cell = S.cellLookup.get(gx + ',' + gz); if (!cell) continue;
+      const dx = Math.max(cell.x0 - cx, 0, cx - cell.x1), dz = Math.max(cell.z0 - cz, 0, cz - cell.z1);
+      if (dx * dx + dz * dz > reach * reach) continue;
+      cv.set(cell.cx, cell.cy, cell.cz); sph.set(cv, cell.radius);
+      if (fr && dx * dx + dz * dz > NEAR_SHADOW * NEAR_SHADOW && !fr.intersectsSphere(sph)) continue;
+      out.push(cell);
+    }
+    out.tested = tested;
+    return out;
+  };
   return {
     hidden: false,
     sets,
@@ -317,17 +380,316 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     // each frame, just before drawing: every tree to its level of detail, those out of view dropped
     // (only redone when the camera has moved half a metre or turned ~8°: the view is culled a third wider than the screen
     // so turning doesn't show gaps between refills, and nothing is re-uploaded while you just look a little around)
+    diagnostics,
+    workerState,
+    get workerPoolSnapshot() { return workerPool?.snapshot?.() || null; },
+    get workerMode() { return workerMode; },
+    get workerCount() { return workerCount; },
+    get workerAllocationMode() { return workerAllocationMode; },
+    get workerLimit() { return workerLimit; },
+    setWorkerAllocationMode(mode) {
+      workerAllocationMode = mode === 'manual' ? 'manual' : 'auto';
+      workerState.workerAllocationMode = workerAllocationMode;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · allocation change pending' : 'pool allocation updated');
+      lodZoneNeedsInitialRefresh = true;
+      last.x = 1e9;
+    },
+    setWorkerLimit(count) {
+      workerLimit = Math.max(1, Math.min(12, Math.floor(Number(count) || 12)));
+      workerState.workerLimit = workerLimit;
+      if (workerAllocationMode === 'auto') workerCount = Math.min(workerCount, workerLimit);
+      workerState.workerCount = workerCount;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      lodZoneNeedsInitialRefresh = true;
+      last.x = 1e9;
+    },
+    setWorkerCount(count) {
+      workerCount = Math.max(1, Math.min(12, Math.floor(Number(count) || 2)));
+      workerLimit = workerCount;
+      workerAllocationMode = 'manual';
+      workerState.workerCount = workerCount;
+      workerState.workerLimit = workerLimit;
+      workerState.workerAllocationMode = workerAllocationMode;
+      workerState.status = workerMode === 'main' ? 'main thread' : (workerPending ? 'running · resize pending' : 'pool resize pending');
+      lodZoneNeedsInitialRefresh = true;
+      last.x = 1e9;
+    },
+    setWorkerMode(mode) {
+      workerMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
+      workerGeneration++; // invalidate any batch submitted under the previous execution mode
+      lodZoneNeedsInitialRefresh = true;
+      last.x = 1e9; // force the selected route to take effect even if the camera is stationary
+      if (workerMode === 'main') {
+        // The application pool is shared; switching foliage to main-thread mode must not terminate workers used by other systems.
+        workerPending = false;
+        workerCount = workerAllocationMode === 'manual' ? workerLimit : Math.min(12, workerLimit);
+        workerState.workerCount = workerCount;
+        workerState.status = 'main thread · shared pool available to other systems';
+      } else if (!workerFailed) workerState.status = workerPool ? 'ready' : 'starting';
+    },
+    resetDiagnostics() { Object.assign(diagnostics, { calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' }); Object.assign(workerState, { lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, error: '' }); },
+    setLodZonePolicy(policy) {
+      // Invalidate any worker batch created under the previous policy before buffers switch routes.
+      workerGeneration++;
+      lodZonePolicy = policy || null;
+      lodZoneNeedsInitialRefresh = true;
+      lodZoneAppliedPosition = null;
+      lodRenderFrame = 0;
+      lodZoneWasDisabled.fill(false);
+      last.x = 1e9;
+    },
     cull(camera) {
-      const hid = !!this.hidden, c0 = camera.position;
-      if (hid === last.hid && Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z) < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === last.fov) return;
+      const diag = diagnostics, timed = diag.enabled, started = timed ? performance.now() : 0;
+      const policyActive = !!lodZonePolicy?.zones?.length;
+      lodRenderFrame++;
+      const hid = !!this.hidden, c0 = camera.position, cameraMoved = Math.hypot(c0.x - last.x, c0.y - last.y, c0.z - last.z), previousHid = last.hid, previousFov = last.fov;
+      if (!policyActive && hid === previousHid && cameraMoved < 0.5 && Math.abs(camera.quaternion.dot(last.q)) > 0.9976 && camera.fov === previousFov) { if (timed) diag.skipped++; return; }
       last.hid = hid; last.x = c0.x; last.y = c0.y; last.z = c0.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
       camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);
       const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
+      if (policyActive) {
+        // Each live zone owns a separate LOD buffer and refresh interval. Worker tasks
+        // calculate serializable records only; instance buffers are always written here.
+        const zones = [1, 2, 3].map(id => lodZonePolicy.zones.find(z => z.id === id) || null);
+        // Crossfade ranges are complementary across adjacent LOD meshes. Refreshing each
+        // mesh on its own interval lets one side of a transition use newer fade values than
+        // the other, which turns the intended dither into a hard swap. Use one shared cadence
+        // for all enabled levels (the slowest configured interval), and always refresh them
+        // together. Movement during a worker batch still requests an immediate follow-up scan.
+        // No timer-based rescan: camera turns do not change player-centred distance LOD.
+        // Refresh only initially, after policy changes, or after meaningful player movement.
+        const movedSinceApplied = !lodZoneAppliedPosition || Math.hypot(
+          cx - lodZoneAppliedPosition.x, cy - lodZoneAppliedPosition.y, cz - lodZoneAppliedPosition.z
+        ) > 1.5;
+        const sharedRefreshDue = lodZoneNeedsInitialRefresh || movedSinceApplied;
+        const due = zones.map((z, i) => !!z && (sharedRefreshDue || (z.enabled === false && !lodZoneWasDisabled[i])));
+        if (!due.some(Boolean)) { if (timed) diag.skipped++; return; }
+        const policyStarted = timed ? performance.now() : 0;
+        const totalTrees = sets.reduce((n, S) => n + S.n, 0);
+        const useZoneWorkers = !workerFailed && workerMode !== 'main' && (workerMode === 'worker' || totalTrees >= 200);
+        const zoneData = sets.map(S => {
+          const baseEdges = S.edges;
+          const edges = zones.map((z, i) => Math.max(1, Number(z?.radius) || baseEdges[i]));
+          for (let i = 1; i < edges.length; i++) edges[i] = Math.max(edges[i], edges[i - 1] + 1);
+          // LOD-zone mode uses a player-centred distance sphere, not the camera frustum.
+           // Turning the camera must not evict cells or force foliage to be rebuilt.
+           return { edges, candidates: hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, null, edges[2]) };
+        });
+        let cellsTested = 0, cellsVisited = 0, instancesTested = 0, visibleInstances = 0;
+        for (const data of zoneData) { cellsTested += data.candidates.tested; cellsVisited += data.candidates.length; }
+        if (useZoneWorkers) {
+          if (workerPending) { if (timed) diag.skipped++; return; }
+          const tasks = [];
+          for (let si = 0; si < sets.length; si++) {
+            const S = sets[si], { edges, candidates } = zoneData[si];
+            for (let L = 0; L < 3; L++) {
+              if (!due[L] || !zones[L] || zones[L].enabled === false || hid || L >= (baked ? 3 : 2)) continue;
+              for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
+                const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
+                instancesTested += end - offset;
+                tasks.push({ si, lod: L, offset, type: 'tree-cull', payload: {
+                  X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
+                  cx, cy, cz, mid: S.mid, edges, hidden: false, baked, targetLod: L
+                }});
+              }
+            }
+          }
+          for (let L = 0; L < 3; L++) if (due[L] && (!zones[L] || zones[L].enabled === false || hid || L >= (baked ? 3 : 2))) {
+            for (const S of sets) S.meshes[L].count = 0;
+            lodZoneWasDisabled[L] = true;
+          }
+          for (let L = 0; L < 3; L++) if (due[L] && zones[L]?.enabled !== false && !hid && L < (baked ? 3 : 2)) lodZoneWasDisabled[L] = false;
+          if (!tasks.length) {
+            lodZoneNeedsInitialRefresh = false;
+            workerState.status = 'zone-scheduled · no worker tasks';
+            return;
+          }
+          if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
+          workerPending = true;
+          const requestGeneration = ++workerGeneration;
+          const requestPosition = camera.position.clone();
+          
+          workerState.status = 'queued · zone workers';
+          ensureWorker(tasks.length).then(pool => {
+            workerState.workerCount = workerCount;
+            workerState.status = 'running · zone workers';
+            const batchStarted = performance.now();
+            // Leave four workers of headroom for latency-sensitive creature AI and presentation.
+            // runBatch is a sliding window, so limiting tree concurrency prevents a steady tree
+            // stream from occupying every worker before creature jobs can be dispatched.
+            return pool.runBatch(tasks, 8).then(results => {
+              // Apply completed work as an interim frame even if the player moved during the batch.
+              // Discarding every result after only 0.5 m of movement starves LOD updates while running.
+              // Fade bands are distance-dependent, so refresh all LOD buffers together after modest
+              // movement; a 4 m threshold let near and mid fade ranges drift apart and visibly snap.
+              // Results are still applied first, so movement never starves the renderer of completed work.
+              const playerMoved = Math.hypot(camera.position.x - requestPosition.x, camera.position.y - requestPosition.y, camera.position.z - requestPosition.z) > 1.5;
+              if (requestGeneration !== workerGeneration) { lodZoneNeedsInitialRefresh = true; last.x = 1e9; return; }
+              workerState.lastMs = performance.now() - batchStarted;
+              workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
+              workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
+              workerState.dispatchMs = results.reduce((n, r) => n + (r.__timing?.dispatchMs || 0), 0);
+              workerState.jobs++; workerState.status = 'ready · zone workers';
+              if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
+              const applyStarted = performance.now();
+              const countsBySet = sets.map(() => [0, 0, 0]);
+              for (let ri = 0; ri < results.length; ri++) {
+                const result = results[ri], task = tasks[ri], S = sets[task.si], L = task.lod, mesh = S.meshes[L], counts = countsBySet[task.si];
+                for (const [localIndex, _lod, lo, hi] of result.records) {
+                  const i = task.offset + localIndex, j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
+                  const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
+                  a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+                  mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+                  const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+                }
+              }
+              for (let si = 0; si < sets.length; si++) for (let L = 0; L < 3; L++) {
+                if (!due[L]) continue;
+                const mesh = sets[si].meshes[L], count = countsBySet[si][L]; mesh.count = count; visibleInstances += count;
+                if (count) {
+                  const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
+                  for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+                }
+              }
+              workerState.applyMs = performance.now() - applyStarted;
+              lodZoneAppliedPosition = { x: requestPosition.x, y: requestPosition.y, z: requestPosition.z };
+              lodZoneNeedsInitialRefresh = playerMoved;
+              // Keep the request origin as the applied origin. If movement exceeded 1.5 m while
+              // workers ran, the next render tick immediately schedules a corrected sphere scan.
+              last.hid = hid; last.x = requestPosition.x; last.y = requestPosition.y; last.z = requestPosition.z; last.q.copy(camera.quaternion); last.fov = camera.fov;
+              if (timed) { const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances; }
+            });
+          }).catch(error => {
+            workerFailed = true; workerState.status = 'failed · main-thread fallback';
+            workerState.error = error?.message || String(error); diagnostics.workerError = workerState.error; workerMode = 'main'; lodZoneNeedsInitialRefresh = true;
+          }).finally(() => { workerPending = false; });
+          return;
+        }
+        for (const S of sets) {
+          const { edges, candidates } = zoneData[sets.indexOf(S)], wv = edges.map(e => Math.max(3, e * 0.1));
+          for (let L = 0; L < 3; L++) {
+            if (!due[L]) continue;
+            const zone = zones[L], mesh = S.meshes[L];
+            if (!zone || zone.enabled === false || hid || L >= (baked ? 3 : 2)) {
+              mesh.count = 0; lodZoneWasDisabled[L] = true; continue;
+            }
+            lodZoneWasDisabled[L] = false;
+            let count = 0;
+            for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
+              instancesTested++;
+              const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;
+              if (dx * dx + dy * dy + dz * dz > edges[2] * edges[2]) continue;
+              const d = Math.sqrt(dx * dx + dy * dy + dz * dz), t = [0, 0, 0];
+              for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
+              t[2] = Math.min(1, Math.max(0, (d - (edges[2] - wv[2])) / wv[2]));
+              if (!baked) t[1] = t[2];
+              const lo = L === 0 ? 0 : 1 - t[L - 1], hi = 1 - t[L];
+              if (lo >= hi) continue;
+              const j = count++, c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i], a = mesh.instanceMatrix.array, o = j * 16;
+              a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+              mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+              const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+            }
+            mesh.count = count; visibleInstances += count;
+            if (count) {
+              const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
+              for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+            }
+          }
+        }
+        lodZoneAppliedPosition = { x: cx, y: cy, z: cz };
+        lodZoneNeedsInitialRefresh = false;
+        last.hid = hid; last.x = cx; last.y = cy; last.z = cz; last.q.copy(camera.quaternion); last.fov = camera.fov;
+        if (timed) {
+          diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; diag.instances += visibleInstances;
+          const elapsed = performance.now() - policyStarted; diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed);
+        }
+        workerState.status = 'zone-scheduled · main thread';
+        return;
+      }
+      const cellCandidates = sets.map(S => hid ? Object.assign([], { tested: 0 }) : visibleCells(S, cx, cz, fr, S.edges[S.edges.length - 1]));
+      const cellSignature = cellCandidates.map((cells, si) => si + ':' + cells.map(c => c.key).join(';')).join('|');
+      if (hid === previousHid && cameraMoved < 0.5 && camera.fov === previousFov && last.cellSignature === cellSignature) { if (timed) diag.skipped++; return; }
+      last.cellSignature = cellSignature;
+      const useWorker = !workerFailed && (workerMode === 'worker' || (workerMode === 'auto' && sets.reduce((n, S) => n + S.n, 0) >= 200));
+      if (useWorker) {
+        if (workerPending) { if (timed) diag.skipped++; return; }
+        const requestGeneration = ++workerGeneration;
+        workerPending = true;
+        const queuedAt = performance.now();
+        workerState.status = 'queued';
+        // Split species into bounded chunks so large species can keep workers busy.
+        const tasks = [];
+        let cellsTested = 0, cellsVisited = 0, instancesTested = 0;
+        for (let si = 0; si < sets.length; si++) {
+          const S = sets[si], candidates = cellCandidates[si];
+          cellsTested += candidates.tested; cellsVisited += candidates.length;
+          for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
+            const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
+            instancesTested += end - offset;
+            tasks.push({ si, offset, type: 'tree-cull', payload: {
+              X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
+              cx, cy, cz, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked
+            }});
+          }
+        }
+        if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
+        ensureWorker().then(pool => {
+          workerState.status = 'running';
+          const batchStarted = performance.now();
+          return pool.runBatch(tasks, 8).then(results => {
+            // A newer camera/visibility request supersedes this batch. Never upload stale buffers.
+            if (requestGeneration !== workerGeneration) { last.x = 1e9; return; }
+            workerState.lastMs = performance.now() - batchStarted;
+            workerState.queueMs = results.length ? results.reduce((n, r) => n + (r.__timing?.queueMs || 0), 0) / results.length : 0;
+            workerState.workerMs = results.reduce((n, r) => n + (r.__timing?.workerMs || 0), 0);
+            workerState.dispatchMs = results.reduce((n, r) => n + (r.__timing?.dispatchMs || 0), 0);
+            workerState.jobs++; workerState.status = 'ready';
+            if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
+            const applyStarted = performance.now();
+            const countsBySet = sets.map(() => [0, 0, 0]);
+            for (let ri = 0; ri < results.length; ri++) {
+              const result = results[ri], task = tasks[ri], S = sets[task.si], counts = countsBySet[task.si], M = S.meshes;
+              for (const [localIndex, L, lo, hi] of result.records) {
+                const i = task.offset + localIndex;
+                const mesh = M[L], j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
+                const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
+                a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+                mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+                const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+              }
+            }
+            for (let si = 0; si < sets.length; si++) {
+              const M = sets[si].meshes, counts = countsBySet[si];
+              for (let L=0; L<3; L++) {
+                const mesh = M[L], count = counts[L]; mesh.count = count;
+                if (count) {
+                  const attrs = [[mesh.instanceMatrix, count * 16], [mesh.instanceColor, count * 3], [mesh.geometry.attributes.aF, count * 2], [mesh.geometry.attributes.aR, count]];
+                  for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+                }
+              }
+            }
+            workerState.applyMs = performance.now() - applyStarted;
+            last.x = 1e9;
+          });
+        }).catch(error => {
+          workerFailed = true; workerState.status = 'failed · main-thread fallback';
+          workerState.error = error?.message || String(error); diagnostics.workerError = workerState.error; workerMode = 'main';
+        }).finally(() => { workerPending = false; });
+        return;
+      }
+      const scanStarted = timed ? performance.now() : 0, bufferBefore = timed ? diag.bufferMs : 0;
+      let visibleInstances = 0, cellsTested = 0, cellsVisited = 0, instancesTested = 0;
       for (const S of sets) {
         const E = S.edges, wv = E.map(e => Math.max(3, e * 0.1)), far = E[E.length - 1], cnt = [0, 0, 0], M = S.meshes, lodOn = baked ? 3 : 2;
-        if (!this.hidden) for (let i = 0; i < S.n; i++) {
-          const dx = S.X[i] - cx, dz = S.Z[i] - cz, d = Math.hypot(dx, S.Y[i] + S.mid * S.Sc[i] - cy, dz); if (d > far) continue;
-          if (d > NEAR_SHADOW) { cv.set(S.X[i], S.Y[i] + S.mid * S.Sc[i], S.Z[i]); sph.set(cv, S.rad * S.Sc[i] + 1.5); if (!fr.intersectsSphere(sph)) continue; }
+        const candidates = cellCandidates[sets.indexOf(S)];
+        cellsTested += candidates.tested; cellsVisited += candidates.length;
+        for (const cell of candidates) for (let i = cell.start; i < cell.end; i++) {
+          instancesTested++;
+          const dx = S.X[i] - cx, dy = S.Y[i] + S.mid * S.Sc[i] - cy, dz = S.Z[i] - cz;
+          // Cheap spherical rejection before the square root needed for smooth LOD transitions.
+          if (dx * dx + dy * dy + dz * dz > far * far) continue;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
           // how far across each boundary this tree is (0 before it, 1 past it); the last is the fade out at the far edge
           const t = [0, 0, 0]; for (let b = 0; b < 2; b++) t[b] = Math.min(1, Math.max(0, (d - (E[b] - wv[b])) / (2 * wv[b]))); t[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
           if (!baked) { t[1] = t[2]; }                                                          // (before the pictures exist, the mid model goes all the way)
@@ -339,7 +701,26 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             const F = m.geometry.attributes.aF.array; F[j * 2] = lo; F[j * 2 + 1] = hi; m.geometry.attributes.aR.array[j] = S.Rn[i];
           }
         }
-        for (let L = 0; L < 3; L++) { const m = M[L]; m.count = cnt[L]; if (cnt[L]) { m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true; m.geometry.attributes.aF.needsUpdate = true; m.geometry.attributes.aR.needsUpdate = true; } }
+        visibleInstances += cnt[0] + cnt[1] + cnt[2];
+        const bufferStarted = timed ? performance.now() : 0;
+        for (let L = 0; L < 3; L++) {
+          const m = M[L]; m.count = cnt[L];
+          if (cnt[L]) {
+            const attrs = [[m.instanceMatrix, cnt[L] * 16], [m.instanceColor, cnt[L] * 3], [m.geometry.attributes.aF, cnt[L] * 2], [m.geometry.attributes.aR, cnt[L]]];
+            for (const [attr, length] of attrs) {
+              if (attr.clearUpdateRanges) attr.clearUpdateRanges();
+              if (attr.addUpdateRange) attr.addUpdateRange(0, length);
+              attr.needsUpdate = true;
+            }
+          }
+        }
+        if (timed) diag.bufferMs += performance.now() - bufferStarted;
+      }
+      if (timed) {
+        diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested;
+        const elapsed = performance.now() - started;
+        diag.calls++; diag.totalMs += elapsed; diag.maxMs = Math.max(diag.maxMs, elapsed); diag.instances += visibleInstances;
+        diag.scanMs += Math.max(0, performance.now() - scanStarted - (diag.bufferMs - bufferBefore));
       }
     },
   };

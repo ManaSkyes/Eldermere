@@ -174,7 +174,7 @@ export function createFoliage(THREE, scene, plants) {
   for (const p of plants) { if (!L[p.k] || BIG[p.k]) continue; const v = Math.abs(p.v || 0) % L[p.k][0][0].length, key = p.k + v; (byKV.get(key) || byKV.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p); }
   const sets = [];
   for (const { k, v, list } of byKV.values()) {
-    const ck = p => Math.floor(p.x / CHUNK) * 4096 + Math.floor(p.z / CHUNK); list.sort((a, b) => ck(a) - ck(b));
+    const gx = p => Math.floor(p.x / CHUNK), gz = p => Math.floor(p.z / CHUNK), ck = p => gx(p) + ',' + gz(p); list.sort((a, b) => gx(a) - gx(b) || gz(a) - gz(b));
     const n = list.length, MAT = new Float32Array(n * 16), COL = new Float32Array(n * 3), PR = new Float32Array(n * 4), chunks = [];
     list.forEach((p, i) => { const s2 = p.s || 1, c = Math.cos(p.r || 0) * s2, sn = Math.sin(p.r || 0) * s2; MAT.set([c, 0, -sn, 0, 0, s2, 0, 0, sn, 0, c, 0, p.x, p.y, p.z, 1], i * 16); COL.set(p.c || [1, 1, 1], i * 3);
       const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; PR.set([SWAY[k], h - Math.floor(h), 0, 0], i * 4);
@@ -182,29 +182,59 @@ export function createFoliage(THREE, scene, plants) {
       if (!last || last.key !== key) chunks.push({ key, a: i, b: i + 1, x0: p.x, x1: p.x, z0: p.z, z1: p.z, y0: p.y, y1: p.y, box: new THREE.Box3() });
       else { last.b = i + 1; last.x0 = Math.min(last.x0, p.x); last.x1 = Math.max(last.x1, p.x); last.z0 = Math.min(last.z0, p.z); last.z1 = Math.max(last.z1, p.z); last.y0 = Math.min(last.y0, p.y); last.y1 = Math.max(last.y1, p.y); } });
     for (const c of chunks) c.box.min.set(c.x0 - 1.5, c.y0 - 0.5, c.z0 - 1.5), c.box.max.set(c.x1 + 1.5, c.y1 + 2, c.z1 + 1.5);
+    const chunkLookup = new Map(chunks.map(c => [c.key, c]));
     const lods = []; let lo = 0;
     for (const [geos, hi] of L[k]) {
       const geo = geos[v % geos.length].clone(), aP = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aP', aP);
       const im = new THREE.InstancedMesh(geo, matSmall, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = false; im.receiveShadow = true; im.userData.noCover = true; scene.add(im);
-      lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1) }); lo = hi;
+      lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1), activeChunkKeys: null }); lo = hi;
     }
-    sets.push({ k, n, MAT, COL, PR, chunks, lods });
+    sets.push({ k, n, MAT, COL, PR, chunks, chunkLookup, lods });
   }
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), wide = new THREE.PerspectiveCamera(), lastCam = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0 };
+  // F7 policy is passed in by the play screen. The three small-foliage LOD buffers
+  // are independently scheduled; a missing initial buffer is always populated immediately.
+  let smallLodZonePolicy = null, lodRenderFrame = 0;
   const refill = (camera, eye) => {
+    lodRenderFrame++;
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
-    for (const S of sets) for (const Lv of S.lods) {
-      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
-      for (const c of S.chunks) {
-        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (Math.hypot(ex, ez) > Lv.hi + 1) continue;
-        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (Math.hypot(fx, fz) < Lv.from - 1) continue;
+    for (const S of sets) for (let lodIndex = 0; lodIndex < S.lods.length; lodIndex++) {
+      const Lv = S.lods[lodIndex];
+      const zoneId = lodIndex + 1;
+      const zone = smallLodZonePolicy?.zones?.find(z => z.id === zoneId);
+      const zoneInterval = Math.max(1, Math.floor(zone?.interval || 1));
+      const zoneRadius = Math.max(1, Number(zone?.radius) || Lv.hi);
+      if (zone?.enabled === false) {
+        if (Lv.im.count !== 0 || Lv.activeChunkKeys !== null) { Lv.im.count = 0; Lv.activeChunkKeys = null; }
+        continue;
+      }
+      if (Lv.activeChunkKeys !== null && lodRenderFrame % zoneInterval !== 0) continue;
+      const effectiveHi = zoneRadius;
+      const effectiveFrom = Math.min(Lv.from, Math.max(0, zoneRadius - Math.max(3, zoneRadius * 0.1)));
+      const visibleChunks = [];
+      const reach = effectiveHi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const c = S.chunkLookup.get(gx + ',' + gz); if (!c) continue;
+        const ex = Math.max(c.x0 - eye.x, 0, eye.x - c.x1), ez = Math.max(c.z0 - eye.z, 0, eye.z - c.z1); if (ex * ex + ez * ez > (effectiveHi + 1) * (effectiveHi + 1)) continue;
+        const fx = Math.max(Math.abs(eye.x - c.x0), Math.abs(eye.x - c.x1)), fz = Math.max(Math.abs(eye.z - c.z0), Math.abs(eye.z - c.z1)); if (fx * fx + fz * fz < (effectiveFrom - 1) * (effectiveFrom - 1)) continue;
         if (!fr.intersectsBox(c.box)) continue;
+        visibleChunks.push(c);
+      }
+      const sameChunks = Lv.activeChunkKeys && Lv.activeChunkKeys.length === visibleChunks.length && visibleChunks.every((c, i) => Lv.activeChunkKeys[i] === c.key);
+      if (sameChunks) continue; // camera moved/turned, but this LOD's source chunks are unchanged: reuse its GPU buffers.
+      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
+      for (const c of visibleChunks) {
         const m = c.b - c.a; M.set(S.MAT.subarray(c.a * 16, c.b * 16), cnt * 16); Cc.set(S.COL.subarray(c.a * 3, c.b * 3), cnt * 3); A.set(S.PR.subarray(c.a * 4, c.b * 4), cnt * 4);
-        for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = Lv.lo; A[q * 4 + 3] = Lv.hi; }
+        for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = effectiveFrom; A[q * 4 + 3] = effectiveHi; }
         cnt += m;
       }
-      Lv.im.count = cnt; if (cnt) { Lv.im.instanceMatrix.needsUpdate = true; Lv.im.instanceColor.needsUpdate = true; Lv.aP.needsUpdate = true; }
+      Lv.activeChunkKeys = visibleChunks.map(c => c.key);
+      Lv.im.count = cnt;
+      if (cnt) {
+        const attrs = [[Lv.im.instanceMatrix, cnt * 16], [Lv.im.instanceColor, cnt * 3], [Lv.aP, cnt * 4]];
+        for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+      }
     }
   };
   // ---- the spring grid round the player ----
@@ -233,14 +263,30 @@ export function createFoliage(THREE, scene, plants) {
   let last = null, acc = 0;
   return {
     wind, pushers, trees,
+    get workerMode() { return trees.workerMode || 'main'; },
+    get workerCount() { return trees.workerCount || 2; },
+    get workerAllocationMode() { return trees.workerAllocationMode || 'auto'; },
+    get workerLimit() { return trees.workerLimit || 12; },
+    get workerState() { return trees.workerState || { status: 'no tree instances', jobs: 0, lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, workerCount: 2, workerLimit: 12, workerAllocationMode: 'auto', chunkSize: 1024, error: '' }; },
+    setWorkerMode(mode) { trees.setWorkerMode?.(mode); },
+    setWorkerCount(count) { trees.setWorkerCount?.(count); },
+    setWorkerAllocationMode(mode) { trees.setWorkerAllocationMode?.(mode); },
+    setWorkerLimit(count) { trees.setWorkerLimit?.(count); },
+    // Expose the tree system's optional traversal counters to the F8 report.
+    get diagnostics() { return trees.diagnostics; },
+    get workerPoolSnapshot() { return trees.workerPoolSnapshot; },
+    resetDiagnostics() { trees.resetDiagnostics?.(); },
     bake(renderer) { trees.bake(renderer); },                                                       // (once, when the map's ready: the trees' impostor pictures)
     // each frame, just before drawing: the trees to their levels, and the small plants' buffers refilled when the
     // camera has moved or turned enough (or the F8 panel hid them)
+    setLodZonePolicy(policy) { trees.setLodZonePolicy?.(policy || null); },
+    setSmallFoliageLodZonePolicy(policy) { smallLodZonePolicy = policy || null; for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;
-      if (hs) { for (const S of sets) for (const Lv of S.lods) Lv.im.count = 0; lastCam.x = 1e9; return; }
-      if (!this.dirty && Math.hypot(c.x - lastCam.x, c.y - lastCam.y, c.z - lastCam.z) < 0.5 && Math.abs(camera.quaternion.dot(lastCam.q)) > 0.9976 && camera.fov === lastCam.fov) return;
+      if (hs) { for (const S of sets) for (const Lv of S.lods) { Lv.im.count = 0; Lv.activeChunkKeys = null; } lastCam.x = 1e9; return; }
+      const scheduledRefresh = !!smallLodZonePolicy?.zones?.some(z => z.id <= 3 && z.enabled !== false && (lodRenderFrame + 1) % Math.max(1, Math.floor(z.interval || 1)) === 0);
+      if (!this.dirty && !scheduledRefresh && Math.hypot(c.x - lastCam.x, c.y - lastCam.y, c.z - lastCam.z) < 0.5 && Math.abs(camera.quaternion.dot(lastCam.q)) > 0.9976 && camera.fov === lastCam.fov) return;
       this.dirty = false; lastCam.x = c.x; lastCam.y = c.y; lastCam.z = c.z; lastCam.q.copy(camera.quaternion); lastCam.fov = camera.fov;
       refill(camera, eye);
     },

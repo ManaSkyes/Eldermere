@@ -13,13 +13,13 @@ import { makeTail, makeCape } from './tailCape.js';
 import { WEAPONS, weaponMaterials } from './weapons.js';
 import { ITEMS, SLOTS, OUTFIT_PRESETS, createEquipment, traitsOf } from './equipment.js';
 import { PARTS, placePart, partAnchors, partOptions, featherTexture, tube } from './attachments.js';
-import { createHairGroom } from './hairGroom.js';
+import { createHairMeshes } from './hairMeshes.js';
 import { createLods } from './meshLod.js';
 import { MOVES } from './moves.js';
 import { comboLength, heavyLength, comboStep } from './combos.js';
 import { SWORD_CLIPS, SWORD_STANCE, SHIELD_POSES } from './swordArts.js';
 import { makeHair, DEFAULT_HAIR, BROW_STYLES, browDecal, browUVs, paintBrows, lashUVs, paintLashes } from './hair.js';
-import { buildScalpGroom, GROOM_STYLE_NAMES } from './hairScalp.js';
+import { GROOM_STYLE_NAMES } from './hairScalp.js';
 
 export function startViewer(THREE, human, ui) {
   addCustomMorphs(human); addSpeciesTargets(human);
@@ -280,31 +280,22 @@ export function startViewer(THREE, human, ui) {
     }
   }
 
-  // ---- player hair groom: fitted scalp surface, groom-native roots/strands, brows, lashes ----
+  // ---- conventional skinned hair meshes: fitted under-cap + overlapping shaped locks ----
   const hairData = makeHair(meta);
   let hairOn = true, hairColor = '#e6e1ea', hairTip = '#e6e1ea', hairBlend = 0, browColor = null;
   const hairSel = { main: 2, bangs: 1 };
   const brow = { style: 0, thickness: 0, arch: 0, tilt: 0, height: 0, length: 0 };
   const headBone = meta.skeleton.findIndex(b => b.name === 'head'), backBone = meta.skeleton.findIndex(b => b.name === 'spine01');
-  // detail levels for the body and clothes by distance (src/rpg/meshLod.js: fewer triangles over the same vertices)
   const lods = createLods(THREE, () => skinned.filter(m => m.visible && !m.userData.noLod), [{ dist: 7, cell: 0.2 }, { dist: 18, cell: 0.42 }]);
-  // the player strand groom: guide curves are simulated on the CPU; fine individual strands are moved on the GPU.
-  const hairR = createHairGroom(THREE, { headBone, skeleton: rig.skeleton, bindMatrix: () => body.bindMatrix });
-  const hairU = hairR.U;                                   // (uHairRoot, uHairTip, uHairBlend: the colour rows set them)
-  let hairWind = [0, 0, 0];
-  // the Hair lab (in the creator's hair section): the look (volume, density, curl, wave: the hair is grown again) and the
-  // feel (follow, inertia, stiffness, damping, gravity: live)
-  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: 0.6, inertia: 0.3, stiffness: 1, damping: 1, gravity: 1 };
-  let skinGlow = 1, labCombo = null;
-  let labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
-  const hairLen = { main: 0, bangs: 0 };       // independent main hairstyle and fringe lengths (-1..1)
+  const hairR = createHairMeshes(THREE, { headBone, skeleton: rig.skeleton });
+  const hairMeshes = hairR.meshes;
+  for (const m of hairMeshes) { m.renderOrder = 2; root.add(m); }
+  const hairU = {};
+  let hairWind = [0,0,0];
+  const hairLook = { volume: 1, coverage: 1, hairlineCoverage: 1, density: 1, curl: 1, wave: 0 }, hairPhys = { follow: .6, inertia: .3, stiffness: 1, damping: 1, gravity: 1 };
+  let skinGlow = 1, labCombo = null, labTest = null, labT = 0, labWind = 0, labInfo = null, rootBaseY = 0;
+  const hairLen = { main: 0, bangs: 0 };
   let hairHead = null;
-  const dynamicSkinned = (mat) => {
-    const geo = new THREE.BufferGeometry();
-    const m = new THREE.SkinnedMesh(geo, mat); m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; root.add(m);
-    return m;
-  };
-  const groomMesh = hairR.mesh; groomMesh.renderOrder = 2; root.add(groomMesh);
   // brows: a decal cut from the skin around the brows, with the brows painted into its texture
   const decal = browDecal(meta), browG = makeGarment(meta, decal.def);
   const browCanvas = document.createElement('canvas'); browCanvas.width = 1024; browCanvas.height = 460;
@@ -379,79 +370,28 @@ export function startViewer(THREE, human, ui) {
     return out;
   }
   function fitHair(P, Nrm, busy = false) {
-    const eyesC = ['left', 'right'].map(sd => { const ids = meta.eyes[sd]; return [0, 1, 2].map(a => ids.reduce((t, i) => t + P[i * 3 + a], 0) / ids.length); });
-    const hairShown = hairOn && gearRules.hair !== 'hide';
-    groomMesh.visible = hairShown;
-    if (hairShown) {
-      // The fitted scalp is a sampling surface for every groom; it is never rendered as a cap.
+    const shown = hairOn && gearRules.hair !== 'hide';
+    for (const m of hairMeshes) m.visible = shown;
+    if (shown) {
       fitGarment(hairData.scalp, P, Nrm);
       const key = JSON.stringify([hairSel, hairLen, hairLook]);
-      if (key !== hairBuilt.key) {
-        // a new style or length: grow the hair (slow, ~0.5 s), then remember where it sits on the head
-        const lengths = Object.fromEntries(Object.entries(hairLen).map(([k, v]) => [k, Math.exp(v * 0.69)]));
-        const groomData = buildScalpGroom(hairData.scalp, hairData.headIds, P, Nrm, eyesC[0][1], hairSel, lengths, hairLook);
-        groomMesh.updateMatrixWorld(true); hairR.build(groomData.guides, groomData.head, hairLook, { positions: hairData.scalp.positions, triangles: hairData.scalp.tris }); hairR.info.coverage = groomData.coverage; Object.assign(hairR.sim.params, hairPhys); hairHead = groomData.head; labInfo?.();
-        hairBuilt = { key, P: Float32Array.from(P) };
+      if (key !== hairBuilt.key || !hairBuilt.P) {
+        hairR.build(hairData.scalp, hairData.headIds, P, Nrm, hairSel, hairLen, hairLook);
+        hairBuilt = { key, P: Float32Array.from(P) }; hairHead = hairData.headIds; labInfo?.();
       } else {
-        // the head changed shape: when the change settles, the hair is grown again for it (~0.3 s)
-        let moved = 0; const HP = hairBuilt.P; for (const i of hairData.headIds) { moved = Math.max(moved, Math.abs(P[i * 3] - HP[i * 3]) + Math.abs(P[i * 3 + 1] - HP[i * 3 + 1]) + Math.abs(P[i * 3 + 2] - HP[i * 3 + 2])); if (moved > 1e-3) break; }
-        if (moved > 1e-3 && !busy) { hairBuilt.key = null; fitHair(P, Nrm, busy); return; }
+        let moved=0; const HP=hairBuilt.P;
+        for(const i of hairData.headIds){moved=Math.max(moved,Math.abs(P[i*3]-HP[i*3])+Math.abs(P[i*3+1]-HP[i*3+1])+Math.abs(P[i*3+2]-HP[i*3+2]));if(moved>1e-3)break;}
+        if(moved>1e-3&&!busy){hairBuilt.key=null;fitHair(P,Nrm,busy);return;}
       }
     }
-    // lash cards need their own normals (they're not part of the body's surface), or lighting turns them black
-    // Lighting normals for the lash cards face forward (the usual trick for lashes): the upper
-    // cards face down toward the eye, so their own normals left them unlit whatever the color.
-    for (const lp of lashParts) {
-      const g = lp.mesh.geometry;
-      if (!g.attributes.normal) g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
-      const nrm = g.attributes.normal.array;
-      for (const i of lashVerts) { nrm[i * 3] = 0; nrm[i * 3 + 1] = 0.35; nrm[i * 3 + 2] = 0.94; }
-      g.attributes.normal.needsUpdate = true;
-    }
     fitGarment(browG, P, Nrm); browPiece.attr.needsUpdate = true; browPiece.geo.computeVertexNormals();
-    const bk = JSON.stringify(brow); if (bk !== browKey) { browKey = bk; repaintBrows(); }
+    const bk=JSON.stringify(brow);if(bk!==browKey){browKey=bk;repaintBrows();}
   }
-  // Compact head-only triangle proxy, refreshed from the skinned body into groom rest space.
-  const headVertexMap = new Int32Array(meta.vertexCount); headVertexMap.fill(-1);
-  const headProxyIds = [], headProxyTris = [];
-  for (const id of hairData.headIds) { headVertexMap[id] = headProxyIds.length; headProxyIds.push(id); }
-  for (let t = 0; t < meta.bodyTris.length; t += 3) {
-    const a = headVertexMap[meta.bodyTris[t]], b = headVertexMap[meta.bodyTris[t + 1]], c = headVertexMap[meta.bodyTris[t + 2]];
-    if (a >= 0 && b >= 0 && c >= 0) headProxyTris.push(a, b, c);
-  }
-  const headProxyPositions = new Float32Array(headProxyIds.length * 3);
-  const headProxy = { positions: headProxyPositions, triangles: new Uint32Array(headProxyTris) };
-  const headProxyV = new THREE.Vector3(), headProxyWorld = new THREE.Vector3();
-  const headProxyInv = new THREE.Matrix4(), headProxyRest = new THREE.Matrix4();
-  function updateHeadCollisionProxy() {
-    body.updateMatrixWorld(true); groomMesh.updateMatrixWorld(true);
-    const bone = rig.skeleton.bones[headBone];
-    headM.multiplyMatrices(meshInv.copy(groomMesh.matrixWorld).invert(), bone.matrixWorld)
-      .multiply(rig.skeleton.boneInverses[headBone]).multiply(groomMesh.bindMatrix);
-    headProxyRest.multiplyMatrices(groomMesh.matrixWorld, headM);
-    headProxyInv.copy(headProxyRest).invert();
-    for (let i = 0; i < headProxyIds.length; i++) {
-      body.boneTransform(headProxyIds[i], headProxyV);
-      headProxyWorld.copy(headProxyV).applyMatrix4(body.matrixWorld).applyMatrix4(headProxyInv);
-      const o = i * 3; headProxyPositions[o] = headProxyWorld.x; headProxyPositions[o + 1] = headProxyWorld.y; headProxyPositions[o + 2] = headProxyWorld.z;
-    }
-  }
-  // Hair physics: the head's skinning matrix this frame (rest -> now, in the character's space)
-  const headM = new THREE.Matrix4(), headMi = new THREE.Matrix4(), meshInv = new THREE.Matrix4();
-  let hairSimulationEnabled = true; // game camera can pause simulation independently of temporary render visibility
-  function simulateHair(dt) {
-    if (!hairSimulationEnabled || !hairOn || gearRules.hair === 'hide' || !hairR.sim || !groomMesh.visible) return;   // hidden hair is paused and resets safely when shown again
-    root.updateMatrixWorld(true);
-    const bone = rig.skeleton.bones[headBone];
-    meshInv.copy(groomMesh.matrixWorld).invert();
-    headM.multiplyMatrices(meshInv, bone.matrixWorld).multiply(rig.skeleton.boneInverses[headBone]).multiply(groomMesh.bindMatrix);
-    updateHeadCollisionProxy();
-    hairR.step(dt, groomMesh.matrixWorld, headM, capsules().filter(c => c.hair || c.torso), { headSurface: headProxy, wind: game ? hairWind : [labWind * 8, 0, labWind * 3], time: clock.elapsedTime });   // (neck, shoulders and back: arms and legs don't reach the hair)
-  }
+  function simulateHair(dt) { /* ordinary skinned hair: no per-frame strand simulation or collision */ }
   // root and tip colors; brows follow the root color unless given their own
   function setHairColor(root, tip = root) {
     hairColor = root; hairTip = tip;
-    hairU.uHairRoot.value.copy(lin(root)); hairU.uHairTip.value.copy(lin(tip));
+    hairR.setColors(root, tip, hairBlend);
     if (!browColor) browMat.color.copy(lin(root)).multiplyScalar(0.6);
     if (pickers.root) { pickers.root.value = root; pickers.tip.value = tip; }
   }
@@ -1345,8 +1285,8 @@ export function startViewer(THREE, human, ui) {
     rig.fit(P);
     root.updateMatrixWorld(true);
     rig.skeleton.calculateInverses();
-    { const moved = !groomMesh.bindMatrix.equals(groomMesh.matrixWorld);
-      for (const m of [...skinned, groomMesh]) { m.bindMatrix.copy(m.matrixWorld); m.bindMatrixInverse.copy(m.matrixWorld).invert(); }   // (the hair too: a stale bind put it a body-length off the head)
+    { const moved = !hairMeshes[0].bindMatrix.equals(hairMeshes[0].matrixWorld);
+      for (const m of [...skinned, ...hairMeshes]) { m.bindMatrix.copy(m.matrixWorld); m.bindMatrixInverse.copy(m.matrixWorld).invert(); }   // (the hair too: a stale bind put it a body-length off the head)
       if (moved) hairR.reset(); }   // (its physics starts again from the style only when the binding really moved)
     ['left', 'right'].forEach((side, n) => {
       const ids = meta.eyes[side];
@@ -1512,7 +1452,7 @@ export function startViewer(THREE, human, ui) {
   hairSec.appendChild(hc);
   pickers.root = colorRow(hairSec, 'Root color', () => hairColor, v => setHairColor(v, hairTip));
   pickers.tip = colorRow(hairSec, 'Tip color', () => hairTip, v => setHairColor(hairColor, v));
-  makeRow(hairSec, 'Tip blend', -1, 1, () => hairBlend, v => { hairBlend = v; hairU.uHairBlend.value = 0.55 - 0.4 * v; });
+  makeRow(hairSec, 'Tip blend', -1, 1, () => hairBlend, v => { hairBlend = v; hairBlend = v; hairR.setColors(hairColor, hairTip, hairBlend); });
 
   // ---- Hair lab: look, feel, motion tests, detail levels ----
   label(hairSec, 'Hair lab — look');
@@ -1523,14 +1463,14 @@ export function startViewer(THREE, human, ui) {
   makeRow(hairSec, 'Curl', 0, 3, () => hairLook.curl, v => { hairLook.curl = v; });
   makeRow(hairSec, 'Wave', 0, 1, () => hairLook.wave, v => { hairLook.wave = v; });
   label(hairSec, 'Hair lab — movement');
-  const phys = (lab, k, mn, mx) => makeRow(hairSec, lab, mn, mx, () => hairPhys[k], v => { hairPhys[k] = v; if (hairR.sim) hairR.sim.params[k] = v; });
+  const phys = (lab, k, mn, mx) => makeRow(hairSec, lab, mn, mx, () => hairPhys[k], v => { hairPhys[k] = v; if (false) {} });
   phys('Follow turns', 'follow', 0, 1); phys('Inertia', 'inertia', 0, 1); phys('Stiffness', 'stiffness', 0.3, 1.6); phys('Damping', 'damping', 0.3, 2.5); phys('Gravity', 'gravity', 0, 2);
   makeRow(hairSec, 'Test wind', 0, 2, () => labWind, v => { labWind = v; });
   pressRow(hairSec, ['Shake head', 'Turn', 'Jump', 'Run'], -1, i => { labTest = { kind: ['shake', 'turn', 'jump', 'run'][i], t0: clock.elapsedTime, len: i === 3 ? 4 : 3 }; });
   label(hairSec, 'Detail level (what a distant camera sees)');
-  pressRow(hairSec, ['Auto', 'Near', 'Mid', 'Far'], 0, i => { hairR.lodForce = i === 0 ? null : 3 - i; });
+  pressRow(hairSec, ['Auto', 'Near', 'Mid', 'Far'], 0, i => { hairR.setLod(i === 0 ? null : 3 - i); });
   const labOut = document.createElement('div'); labOut.style.cssText = 'color:var(--muted);font-size:0.85em;margin:0.3rem 0'; hairSec.appendChild(labOut);
-  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.strands.toLocaleString()} strands · ${(f.tris / 1000).toFixed(1)}k tris · ${f.guides} guides · scalp ${f.coverage?.roots ?? f.guides} roots`; };
+  labInfo = () => { const f = hairR.info; if (f) labOut.textContent = `${f.locks} hair masses · ${(f.tris / 1000).toFixed(1)}k tris · fitted scalp underlayer`; };
   labInfo();
   setHairColor(hairColor);
   const detailSec = section('Skin details', false);
@@ -1715,7 +1655,7 @@ export function startViewer(THREE, human, ui) {
   }
   perfSec.appendChild(tg);
   function applyPerfToggles() {
-    groomMesh.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
+    for (const m of hairMeshes) m.visible = hairOn && gearRules.hair !== 'hide' && !perf.off.hair;
     if (renderer) renderer.shadowMap.enabled = !perf.off.shadows;
     scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
     for (const m of Object.values(partMeshes)) m.visible = m.visible && !perf.off.parts;
@@ -2056,11 +1996,11 @@ export function startViewer(THREE, human, ui) {
     setTurn(a) { rotY = a; },
     act(name, opts = {}) { return startAction('move', { move: name, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
-    hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: groomMesh.visible, sim: hairR.sim?.dbg?.(), parent: groomMesh.parent?.type, draw: groomMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
+    hairLOD(d) { hairR.setLod(d); }, setHairSimulationEnabled(on) {}, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: hairMeshes[0].visible }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {
       const h = rig.byName.head; if (!h) return;
       h.scale.setScalar(on ? 1 : 0.001); h.updateMatrixWorld(true);
-      groomMesh.visible = on && hairOn && gearRules.hair !== 'hide';
+      for (const m of hairMeshes) m.visible = on && hairOn && gearRules.hair !== 'hide';
     },
     // game mode: the pose ('idle', 'walk', ...), its clock (advance it with stride for walking), and
     // whether the head is hidden for a first-person camera
@@ -2129,7 +2069,7 @@ export function startViewer(THREE, human, ui) {
           const savedLen = a.hair.len || {};
           if (savedLen.main != null || savedLen.bangs != null) Object.assign(hairLen, savedLen);
           else { hairLen.main = savedLen.back ?? savedLen.top ?? 0; hairLen.bangs = savedLen.bangs ?? 0; }
-          Object.assign(hairLook, a.hair.look || {}); Object.assign(hairPhys, a.hair.phys || {}); if (hairR.sim) Object.assign(hairR.sim.params, hairPhys);
+          Object.assign(hairLook, a.hair.look || {}); Object.assign(hairPhys, a.hair.phys || {}); 
           hairBlend = a.hair.blend ?? hairBlend;
           setHairColor(a.hair.color ?? hairColor, a.hair.tip ?? a.hair.color ?? hairTip);
           if (a.hair.brow) Object.assign(brow, a.hair.brow); browColor = a.hair.browColor ?? browColor;

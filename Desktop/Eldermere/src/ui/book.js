@@ -30,7 +30,7 @@ import { RACES as BODY_RACES } from '../rpg/races.js';
 
 export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes']];
 export const LEFT_TABS = [['combat', 'Combat'], ['trees', 'Skill trees'], ['magic', 'Magic'], ['spells', 'Spells']];
-export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['lore', 'Lore']];
+export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['herbarum', 'Herbarum'], ['lore', 'Lore']];
 export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
 // equipment slots as laid out down the left of the page, head to toe, then hands
 const SLOT_ORDER = ['head', 'back', 'chest', 'top', 'arms', 'hands', 'wrist', 'legs', 'bottom', 'feet', 'mainHand', 'offHand'];
@@ -387,12 +387,25 @@ export function createBook(root, ctx) {
       <div class="bst-foot"><button class="bst-regions" disabled title="Comes with the world map">Regions encountered</button></div></section></div>`;
   }
 
+  function pageHerbarum() {
+    return `<div class="pg herbarum-journal">
+      <header class="herbarum-head"><div><h2>Herbarum</h2>
+        <p class="hint">A field journal of the flora known to the guild.</p></div></header>
+      <section class="herbarum-empty">
+        <span class="herbarum-mark" aria-hidden="true">❧</span>
+        <h3>The botanical catalogue</h3>
+        <p>Plants, herbs, fungi and other flora will be recorded here as they are discovered.</p>
+        <small>No specimens have been catalogued yet.</small>
+      </section>
+    </div>`;
+  }
+
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
   const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
-    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
+    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),\n    herbarum: pageHerbarum,
     lore: () => pageNewSection('Lore', 'Discoveries, people, factions, places and story entries will be collected here.')
   };
 

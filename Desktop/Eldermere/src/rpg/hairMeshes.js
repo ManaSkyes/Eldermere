@@ -133,7 +133,8 @@ export function createHairMeshes(THREE, { headBone, skeleton }) {
       const a=new THREE.Color(root), z=new THREE.Color(tip);
       const attr=locks.geometry.getAttribute('color');
       if(attr) for(let i=0;i<attr.count;i++){
-        const sides=lodLevel>=2?6:8, segs=lodLevel>=2?4:lodLevel===1?6:8;\n        const t=Math.floor(i/sides)/segs;
+        const sides=lodLevel>=2?6:8, segs=lodLevel>=2?4:lodLevel===1?6:8;
+        const t=Math.floor(i/sides)/segs;
         const q=a.clone().lerp(z,clamp(t*.55+b*.15,0,1)); attr.setXYZ(i,q.r,q.g,q.b);
       }
       if(attr) attr.needsUpdate=true;

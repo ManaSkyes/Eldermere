@@ -54,14 +54,14 @@ export function createHairMeshes(THREE, { headBone, skeleton }) {
     const rear=choose(a=>a.z<-.30&&a.y>-.35,0);
     const sideL=choose(a=>a.x<-.48&&a.y>-.48,-.72);
     const sideR=choose(a=>a.x>.48&&a.y>-.48,.72);
-    const pick=(arr,i)=>arr.length?arr[Math.min(arr.length-1,Math.floor((i+.5)*arr.length/Math.max(1,arr.length)))]:roots[Math.floor(roots.length*.5)];
+    const pick=(arr,i,count=1)=>arr.length?arr[Math.min(arr.length-1,Math.floor((i+.5)*arr.length/Math.max(1,count)))]:roots[Math.floor(roots.length*.5)];
     const style=Number(sel.main)||0, mainScale=Math.exp((len.main||0)*.69);
     const volume=clamp(Number(look.volume)||1,.8,1.35);
     const paths=[];
     // Two crown-to-back panels overlap over the skull and continue behind the shoulders.
-    for(let i=0;i<2;i++){const a=pick(crown,i);if(a)paths.push({a,kind:'back',side:i?1:-1,length:(style===8?.95:style===9?1.4:style===10?.55:2.35)*mainScale,width:.48*volume});}
+    for(let i=0;i<2;i++){const a=pick(crown,i,2);if(a)paths.push({a,kind:'back',side:i?1:-1,length:(style===8?.95:style===9?1.4:style===10?.55:2.35)*mainScale,width:.48*volume});}
     // Rear panels form one continuous back silhouette rather than a hanging tube column.
-    for(let i=0;i<3;i++){const a=pick(rear,i);if(a)paths.push({a,kind:'back',side:(i-1)*.55,length:(style===8?.92:style===10?.55:2.5)*mainScale,width:.52*volume});}
+    for(let i=0;i<3;i++){const a=pick(rear,i,3);if(a)paths.push({a,kind:'back',side:(i-1)*.55,length:(style===8?.92:style===10?.55:2.5)*mainScale,width:.52*volume});}
     // Side panels follow the temples outward and then fall beside the face/neck.
     for(const [arr,s] of [[sideL,-1],[sideR,1]]){const a=pick(arr,0);if(a)paths.push({a,kind:'side',side:s,length:(style===8?.92:style===10?.55:2.05)*mainScale,width:.34*volume});}
     // Front hairline is swept backward over the crown; it never hangs over the face.

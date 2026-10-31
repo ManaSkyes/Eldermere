@@ -34,13 +34,22 @@ export function createHairMeshes(THREE, { headBone, skeleton }) {
     const R=vec((bounds[3]-bounds[0])/2,(bounds[4]-bounds[1])/2,(bounds[5]-bounds[2])/2);
     const frontZ=C.z+R.z*.12, crownY=C.y+R.y*.2;
     // Select evenly distributed scalp anchors, then assign each a deliberate region and flow.
-    const stride=Math.max(1,Math.floor(headIds.length/160)), anchors=[];
-    for(let n=0;n<headIds.length;n+=stride){
-      const i=headIds[n], p=vec(P[i*3],P[i*3+1],P[i*3+2]);
-      if(p.y<C.y-R.y*.55) continue;
+    // Root locks on the actual fitted scalp surface, never on arbitrary face/head vertices.
+    // Each scalp vertex retains its source-head interpolation, so its normal follows morphs.
+    const anchors=[];
+    for(let n=0;n<scalp.verts.length;n++){
+      const v=scalp.verts[n];
+      if(!v || v.inner) continue;
+      const p=vec(scalp.positions[n*3],scalp.positions[n*3+1],scalp.positions[n*3+2]);
+      const a=v.a*3,b=v.b*3,t=v.t||0;
+      const normal=norm(vec(
+        N[a]+(N[b]-N[a])*t,
+        N[a+1]+(N[b+1]-N[a+1])*t,
+        N[a+2]+(N[b+2]-N[a+2])*t
+      ));
       const x=(p.x-C.x)/(R.x||1), z=(p.z-C.z)/(R.z||1), y=(p.y-C.y)/(R.y||1);
-      const front=z>.16, side=Math.abs(x)>.48, rear=z<-.28;
-      anchors.push({p,x,z,y,front,side,rear});
+      const front=z>.12, side=Math.abs(x)>.48, rear=z<-.30;
+      anchors.push({p,normal,x,z,y,front,side,rear});
     }
     const density = lodLevel===1 ? .68 : lodLevel>=2 ? .36 : 1;
     const maxLocks = Math.max(12, Math.round((lodLevel===0?64:lodLevel===1?42:24)*density));
@@ -79,15 +88,26 @@ export function createHairMeshes(THREE, { headBone, skeleton }) {
       if(isBang)L=(.34+bangScale*.30);
       const width=(isBang?.15:side?.235:.27)*volume*(lodLevel>=2?.92:1);
       // Locks hug the skull initially, then fall with gravity. Side locks sweep around the cheeks.
-      const normal=norm(vec((p.x-C.x)/(R.x||1),(p.y-C.y)/(R.y||1),(p.z-C.z)/(R.z||1)));
-      const tangent=norm(vec(sign*(side?.34:.10),-.72,rear?-.12:front?.24:-.34));
-      const start=add(p,normal,.018);
-      const control1=add(add(start,normal,.07),tangent,.16);
+      const normal=a.normal;
+      // Front roots are swept backward over the crown before they descend. They must never
+      // grow forward/down across the eyes, nose or mouth. Side roots leave the cheek plane.
+      const tangent=norm(front?vec(sign*.08,.18,-1):side?vec(sign*.72,-.42,-.34):vec(sign*.08,-.70,-.18));
+      const start=add(p,normal,.024);
+      const control1=add(add(start,normal,.025),tangent,front?.22:.10);
       let end;
-      if(isBang) end=vec(p.x+sign*.025,p.y-L*.85,p.z+.12);
-      else if(front||side) end=vec(p.x+sign*(side?.16:.10),p.y-L,p.z-.04);
-      else end=vec(p.x+sign*.035,p.y-L,p.z-.10);
-      const control2=mix(start,end,.62); control2.x+=sign*(side?.12:.035); control2.z-=.10;
+      if(isBang) {
+        // Bangs are the only front-facing fall, and terminate above the brow line.
+        end=vec(p.x+sign*.035,Math.max(p.y-.34,7.72),p.z+.035);
+      } else if(front) {
+        end=vec(p.x+sign*.10,p.y-L*.72,p.z-Math.max(.38,R.z*.62));
+      } else if(side) {
+        end=vec(p.x+sign*(.20+L*.08),p.y-L,p.z-.18);
+      } else {
+        end=vec(p.x+sign*.025,p.y-L,p.z-.12);
+      }
+      const control2=mix(start,end,.62);
+      if(front){control2.z-=Math.max(.22,R.z*.34);control2.y+=.10;}
+      else if(side){control2.x+=sign*.12;control2.z-=.06;}
       const base=positions.length/3;
       for(let s=0;s<=segs;s++){
         const t=s/segs,u=1-t;

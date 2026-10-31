@@ -468,10 +468,15 @@ tr[data-spell] { cursor: grab; }
 /* Keep the shared-canvas render windows clear. Slightly thicken the book's
    inner frame instead of drawing a shadow over the character or creature. */
 .pages.pages-character,
-.pages.pages-bestiary { background: transparent; }
+.pages.pages-bestiary {
+  background: transparent;
+  inset: 0.3rem 0.3rem 0.3rem 0.62rem;
+}
 .book.book-character,
 .book.book-bestiary { border-width: 1.05rem; }
 @media (max-width: 760px) {
+  .pages.pages-character,
+  .pages.pages-bestiary { inset: 0.2rem 0.2rem 0.2rem 0.48rem; }
   .book.book-character,
   .book.book-bestiary { border-width: 0.8rem; }
 }

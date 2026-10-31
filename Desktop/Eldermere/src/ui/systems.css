@@ -347,3 +347,105 @@ tr[data-spell] { cursor: grab; }
 .beast-fig { position: relative; flex: 1; min-height: 260px; border: 6px solid #6e4a2e; box-shadow: inset 0 0 0 2px #2c1a10, 0 0 0 1px var(--rule); cursor: grab; touch-action: none; }
 .beast-fig:active { cursor: grabbing; }
 .bst-regions { align-self: center; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 4px; background: rgba(255,250,240,.4); opacity: .6; }
+
+
+/* ---------- Character book: leather cover and proper parchment leaves ---------- */
+.book {
+  --paper: #f2e7cd;
+  --paper-2: #e8d8b5;
+  --ink-b: #342519;
+  --ink-soft: #79634c;
+  --rule: rgba(91, 65, 39, 0.24);
+  --accent: #79352b;
+  isolation: isolate;
+  background:
+    linear-gradient(115deg, rgba(255,220,160,.12), transparent 22%, rgba(20,8,2,.18) 78%, rgba(255,220,160,.08)),
+    repeating-linear-gradient(7deg, rgba(255,255,255,.018) 0 2px, rgba(0,0,0,.025) 2px 4px),
+    linear-gradient(135deg, #69442d 0%, #3b2418 18%, #593823 48%, #2e1b12 100%);
+  border: 0.9rem solid transparent;
+  border-image: linear-gradient(135deg, #795438, #392116 28%, #65432c 52%, #2d1a11 82%, #68452d) 1;
+  border-radius: 12px 16px 16px 12px;
+  box-shadow:
+    0 0 0 2px #21130d,
+    0 2px 0 3px #98704a,
+    0 8px 0 4px #2d1a11,
+    0 22px 52px rgba(0,0,0,.62),
+    inset 0 0 0 2px rgba(18,9,4,.75),
+    inset 0 0 0 5px rgba(190,145,91,.18);
+}
+.book::before {
+  left: -0.9rem;
+  top: -0.9rem;
+  bottom: -0.9rem;
+  width: 1.45rem;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,220,170,.08) 0 1px, transparent 1px 5px),
+    linear-gradient(90deg, #21130d 0%, #543521 24%, #805b3b 48%, #392216 82%, #21130d 100%);
+  box-shadow: 2px 0 4px rgba(0,0,0,.4), inset -2px 0 3px rgba(0,0,0,.45);
+  z-index: 2;
+}
+.book::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  right: -0.72rem;
+  top: 0.28rem;
+  bottom: 0.28rem;
+  width: 0.72rem;
+  border-radius: 0 3px 3px 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(104,76,45,.32) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, #c8b58e, #f0e4c7 42%, #a88c63);
+  box-shadow: 2px 3px 3px rgba(0,0,0,.35);
+}
+.pages {
+  inset: 0.28rem 0.3rem 0.28rem 0.62rem;
+  background:
+    linear-gradient(90deg, rgba(66,43,24,.24), transparent 4%, transparent 96%, rgba(76,52,30,.12)),
+    repeating-linear-gradient(0deg, rgba(122,91,54,.10) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, #d6c39d, #f2e8d1 4%, #eee2c5 50%, #e8d8b6 96%, #cbb58c);
+  box-shadow:
+    inset 0 0 0 1px rgba(104,75,43,.38),
+    inset 0 0 18px rgba(91,62,32,.16),
+    0 0 0 1px rgba(28,16,9,.65);
+}
+.pg.two > .cell-p + .cell-p {
+  border-left: 1px solid rgba(105,76,46,.28);
+  box-shadow:
+    inset 14px 0 20px -16px rgba(45,27,13,.58),
+    inset 1px 0 0 rgba(255,255,255,.32);
+}
+.cell-p {
+  background:
+    radial-gradient(ellipse at 48% 35%, rgba(255,252,235,.5), transparent 72%),
+    repeating-linear-gradient(0deg, rgba(116,86,49,.035) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(91deg, rgba(255,255,255,.045) 0 1px, transparent 1px 7px),
+    radial-gradient(ellipse at 50% 42%, #f4e9d0 0%, var(--paper) 58%, var(--paper-2) 100%);
+}
+.book h3 {
+  text-shadow: 0 1px 0 rgba(255,255,255,.45);
+}
+.book .note {
+  background: linear-gradient(90deg, rgba(121,53,43,.13), rgba(121,53,43,.045));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(91,56,31,.08);
+}
+.eq, .cell, .case li, .node {
+  background-image: linear-gradient(145deg, rgba(255,255,255,.24), rgba(139,105,63,.035));
+}
+.figure, .beast-fig {
+  border-color: #755337;
+  box-shadow:
+    inset 0 0 0 2px #2d1b10,
+    inset 0 0 0 5px rgba(210,169,111,.2),
+    0 0 0 1px rgba(92,62,35,.35),
+    0 3px 7px rgba(51,31,15,.22);
+}
+.book-close {
+  border-color: #21130d;
+  background: linear-gradient(145deg, #805b3b, #3d2417);
+  box-shadow: 0 2px 5px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,220,170,.2);
+}
+@media (max-width: 760px) {
+  .book { border-width: 0.65rem; }
+  .pages { inset: 0.2rem 0.2rem 0.2rem 0.48rem; }
+}

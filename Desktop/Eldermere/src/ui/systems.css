@@ -451,32 +451,13 @@ tr[data-spell] { cursor: grab; }
 }
 
 
-/* The bestiary model is drawn into the game's shared canvas behind the book UI.
-   Keep this page's right-hand render window transparent so parchment cannot cover it. */
-.bestiary .bst-right { background: transparent; }
-
-
-/* The Bestiary creature is rendered into the shared game canvas beneath the book.
-   Let that viewport show through the book's interior while preserving the leather frame. */
-.book.book-bestiary { background: transparent; }
-
-
-/* The character portrait is also rendered into the shared game canvas.
-   The journal's leather and parchment textures must not cover that viewport. */
-.book.book-character { background: transparent; }
-
-/* Keep the shared-canvas render windows clear. Slightly thicken the book's
-   inner frame instead of drawing a shadow over the character or creature. */
-.pages.pages-character,
-.pages.pages-bestiary {
+/* The character and Bestiary models are rendered into the shared game canvas.
+   Keep only their dedicated model windows clear; the book and page surfaces
+   around those windows retain the normal leather and parchment backgrounds. */
+.figure,
+.beast-fig {
   background: transparent;
-  inset: 0.3rem 0.3rem 0.3rem 0.62rem;
 }
-.book.book-character,
-.book.book-bestiary { border-width: 1.05rem; }
-@media (max-width: 760px) {
-  .pages.pages-character,
-  .pages.pages-bestiary { inset: 0.2rem 0.2rem 0.2rem 0.48rem; }
-  .book.book-character,
-  .book.book-bestiary { border-width: 0.8rem; }
+.bestiary .bst-right {
+  background: radial-gradient(ellipse at 50% 40%, var(--paper), var(--paper-2));
 }

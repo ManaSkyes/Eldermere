@@ -328,9 +328,24 @@ export function createBook(root, ctx) {
   const resWord = v => v === 0 ? 'Immune' : v < 0.5 ? `Resists (×${v})` : v < 1 ? `Hardy (×${v})` : v > 1 ? `Weak (×${v})` : 'Normal';
   const range = (a, b) => a == null ? '—' : a === b ? `${a}` : `${a} – ${b}`;
   const beastIds = () => Object.keys(MONSTERS).filter(id => MONSTERS[id]).sort((a, b) => MONSTERS[a].name.localeCompare(MONSTERS[b].name));
+  const BEAST_PAGES = BEAST_CLASSIFICATION_ORDER.flatMap(family =>
+    Object.entries(BEAST_CLASSIFICATIONS[family].orders).map(([order, description]) => ({
+      family, order, description, familyDescription: BEAST_CLASSIFICATIONS[family].description
+    }))
+  );
+  const BEAST_UNSORTED_PAGE = { family: 'Unclassified', order: 'Unidentified', description: 'Creatures not yet assigned to a recognized order.' };
+  let beastPage = 0;
   function pageBestiary() {
     const all = beastIds(), found = new Set(knownIds(c).filter(id => MONSTERS[id]));
     if (beastView === 'collection') {
+      const pages = [...BEAST_PAGES, BEAST_UNSORTED_PAGE];
+      beastPage = Math.max(0, Math.min(beastPage, pages.length - 1));
+      const current = pages[beastPage];
+      const ids = all.filter(id => {
+        const classification = MONSTERS[id].classification || [];
+        if (current === BEAST_UNSORTED_PAGE) return !BEAST_PAGES.some(p => classification[0] === p.family && classification[1] === p.order);
+        return classification[0] === current.family && classification[1] === current.order;
+      });
       const slot = id => {
         const M = MONSTERS[id], unlocked = found.has(id);
         const mark = unlocked ? (M.group === 'swarm' ? '✧' : M.group === 'boss' ? '♜' : M.group === 'solo' ? '◆' : '✦') : '？';
@@ -338,23 +353,21 @@ export function createBook(root, ctx) {
           <span class="beast-slot-icon">${mark}</span><span class="beast-slot-name">${unlocked ? escapeHtml(M.name) : 'Unknown'}</span>
           <span class="beast-slot-state">${unlocked ? 'Discovered' : 'Not yet recorded'}</span></button>`;
       };
-      const sections = BEAST_CLASSIFICATION_ORDER.map(family => {
-        const guide = BEAST_CLASSIFICATIONS[family];
-        const ids = all.filter(id => found.has(id) && MONSTERS[id].classification?.[0] === family);
-        if (!ids.length) return '';
-        const orders = Object.keys(guide.orders);
-        const groups = orders.map(order => {
-          const members = ids.filter(id => MONSTERS[id].classification?.[1] === order);
-          if (!members.length) return '';
-          return `<section class="beast-order"><header><h3>${escapeHtml(order)}</h3><p>${escapeHtml(guide.orders[order])}</p></header><div class="beast-grid">${members.map(slot).join('')}</div></section>`;
-        }).join('');
-        const other = ids.filter(id => !orders.includes(MONSTERS[id].classification?.[1]));
-        return `<section class="beast-family"><header class="beast-family-head"><div><h3>${escapeHtml(family)}</h3><p>${escapeHtml(guide.description)}</p></div><small>${ids.length} recorded</small></header>${groups}${other.length ? `<div class="beast-grid">${other.map(slot).join('')}</div>` : ''}</section>`;
-      }).join('');
-      const unidentified = all.filter(id => !found.has(id));
-      const unknown = unidentified.length ? `<section class="beast-family beast-unidentified"><header class="beast-family-head"><div><h3>Unidentified</h3><p>These entries remain blank until you discover the creatures.</p></div><small>${unidentified.length} unknown</small></header><div class="beast-grid">${unidentified.map(slot).join('')}</div></section>` : '';
-      return `<div class="pg beast-collection"><header class="beast-collection-head"><div><h2>Bestiary</h2><p class="hint">A field journal of the creatures known to the guild.</p></div><strong>${found.size} <small>/ ${all.length} discovered</small></strong></header>
-        ${sections}${unknown}</div>`;
+      const discovered = ids.filter(id => found.has(id)).length;
+      const tabs = pages.map((page, index) => `<button class="beast-page-tab ${index === beastPage ? 'on' : ''}" data-beast-page="${index}" ${index === beastPage ? 'aria-current="page"' : ''} title="${escapeHtml(page.order)}"><span>${escapeHtml(page.order)}</span></button>`).join('');
+      return `<div class="pg beast-collection">
+        <header class="beast-collection-head"><div><h2>Bestiary</h2><p class="hint">A field journal of the creatures known to the guild.</p></div><strong>${found.size} <small>/ ${all.length} discovered</small></strong></header>
+        <nav class="beast-page-nav" aria-label="Bestiary pages">
+          <button class="beast-page-arrow" data-beast-prev ${beastPage === 0 ? 'disabled' : ''} aria-label="Previous page" title="Previous page">‹</button>
+          <div class="beast-page-tabs">${tabs}</div>
+          <button class="beast-page-arrow" data-beast-next ${beastPage === pages.length - 1 ? 'disabled' : ''} aria-label="Next page" title="Next page">›</button>
+        </nav>
+        <section class="beast-type-page">
+          <header class="beast-family-head"><div><small>${escapeHtml(current.family)}</small><h3>${escapeHtml(current.order)}</h3><p>${escapeHtml(current.description)}</p></div><small>${discovered} / ${ids.length} recorded</small></header>
+          <div class="beast-grid">${ids.length ? ids.map(slot).join('') : '<p class="beast-empty">No creatures are recorded in this order yet.</p>'}</div>
+          <footer class="beast-page-count">Page ${beastPage + 1} of ${pages.length}</footer>
+        </section>
+      </div>`;
     }
     if (!beastSel || !found.has(beastSel)) { beastView = 'collection'; return pageBestiary(); }
     const id = beastSel, M = MONSTERS[id], E = c.bestiary[id];

@@ -463,9 +463,7 @@ tr[data-spell] { cursor: grab; }
 }
 .pages.pages-character,
 .pages.pages-bestiary {
+  inset: 0;
+  overflow: hidden;
   box-shadow: none;
-}
-.figure,
-.beast-fig {
-  border-width: 10px;
 }

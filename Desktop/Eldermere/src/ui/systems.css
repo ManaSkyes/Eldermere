@@ -523,3 +523,17 @@ tr[data-spell] { cursor: grab; }
 .beast-classification strong { color:var(--accent); font-size:1.12rem; }
 .beast-classification p { margin:.15rem 0 0; font-size:.8rem; color:var(--ink-soft); }
 .beast-hazard-line { margin:.25rem 0 .6rem; }
+
+/* The Bestiary's collection leaf is parchment; creature entries must stay
+   transparent so their live 3D preview continues to show through the book. */
+.pages.pages-bestiary:has(.beast-collection) {
+  background:
+    radial-gradient(ellipse at 48% 42%, rgba(255,250,235,.96), rgba(242,231,205,.97) 68%, rgba(220,201,166,.98)),
+    repeating-linear-gradient(3deg, rgba(105,76,43,.025) 0 1px, transparent 1px 5px);
+  box-shadow: inset 0 0 28px rgba(91,65,39,.16);
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection {
+  flex: 1;
+  overflow-y: auto;
+  background: transparent;
+}

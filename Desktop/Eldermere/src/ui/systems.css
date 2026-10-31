@@ -505,3 +505,21 @@ tr[data-spell] { cursor: grab; }
 .beast-slot-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.82rem; }
 .beast-slot-state { font-size:.65rem; color:var(--ink-soft); }
 .bestiary .bst-nav button { width:auto; padding:0 .65rem; font-size:.8rem; }
+
+/* Bestiary taxonomy: discovered entries are grouped by family and order. */
+.beast-family { padding: .7rem 1rem .3rem; border-bottom: 1px solid rgba(91,65,39,.2); }
+.beast-family-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.2rem 0 .5rem; }
+.beast-family-head h3 { margin:0; font-family:var(--caps); font-size:1.25rem; font-weight:500; }
+.beast-family-head p, .beast-order header p { margin:.15rem 0 0; color:var(--ink-soft); font-size:.76rem; }
+.beast-family-head small { color:var(--ink-soft); white-space:nowrap; }
+.beast-order { padding:.45rem 0 .2rem .65rem; }
+.beast-order header { display:flex; align-items:baseline; flex-wrap:wrap; gap:.25rem .7rem; }
+.beast-order h3 { margin:0; color:var(--accent); font-size:.9rem; font-weight:650; }
+.beast-order .beast-grid { padding:.5rem 0 .25rem; }
+.beast-unidentified { background:rgba(90,70,48,.035); }
+.beast-classification { display:flex; flex-direction:column; gap:.2rem; margin:.55rem 0 .8rem; padding:.65rem .8rem; border-left:3px solid var(--accent); background:rgba(121,53,43,.07); }
+.beast-classification small { color:var(--ink-soft); font-size:.62rem; letter-spacing:.12em; }
+.beast-classification b { font-family:var(--caps); font-size:.9rem; font-weight:500; }
+.beast-classification strong { color:var(--accent); font-size:1.12rem; }
+.beast-classification p { margin:.15rem 0 0; font-size:.8rem; color:var(--ink-soft); }
+.beast-hazard-line { margin:.25rem 0 .6rem; }

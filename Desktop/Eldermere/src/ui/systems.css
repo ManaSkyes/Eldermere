@@ -643,3 +643,66 @@ tr[data-spell] { cursor: grab; }
   font-size:.9rem;
   line-height:1;
 }
+
+
+/* Tighten the full Bestiary masthead and taxonomy selector vertically. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  flex:0 0 auto;
+  align-items:flex-start;
+  gap:.25rem;
+  margin:0;
+  padding:0 .55rem 0;
+  border:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > div {
+  gap:0;
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head h2,
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint,
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint {
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  flex:0 0 auto;
+  align-items:center;
+  gap:.15rem;
+  margin:0;
+  padding:.08rem .2rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+  grid-template-rows:repeat(2,auto);
+  align-content:start;
+  align-items:stretch;
+  gap:.08rem .12rem;
+  padding:0;
+  margin:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+  min-height:0;
+  height:auto;
+  margin:0;
+  padding:.08rem .04rem;
+  font-size:clamp(.46rem,.58vw,.6rem);
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-arrow {
+  flex-basis:1.45rem;
+  width:1.45rem;
+  height:1.35rem;
+  padding:0;
+  line-height:1;
+}
+@media (max-width:760px) {
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tabs { gap:.06rem .08rem; }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tab { min-height:0; padding:.06rem .02rem; font-size:.44rem; }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-nav { padding:.06rem .12rem; }
+}

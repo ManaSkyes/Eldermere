@@ -427,7 +427,7 @@ export function startViewer(THREE, human, ui) {
     body.updateMatrixWorld(true); groomMesh.updateMatrixWorld(true);
     const bone = rig.skeleton.bones[headBone];
     headM.multiplyMatrices(meshInv.copy(groomMesh.matrixWorld).invert(), bone.matrixWorld)
-      .multiply(rig.skeleton.boneInverses[headBone]).multiply(body.bindMatrix);
+      .multiply(rig.skeleton.boneInverses[headBone]).multiply(groomMesh.bindMatrix);
     headProxyRest.multiplyMatrices(groomMesh.matrixWorld, headM);
     headProxyInv.copy(headProxyRest).invert();
     for (let i = 0; i < headProxyIds.length; i++) {

@@ -460,3 +460,9 @@ tr[data-spell] { cursor: grab; }
 /* The Bestiary creature is rendered into the shared game canvas beneath the book.
    Let that viewport show through the book's interior while preserving the leather frame. */
 .book.book-bestiary { background: transparent; }
+
+
+/* The character portrait is also rendered into the shared game canvas.
+   The journal's leather and parchment textures must not cover that viewport. */
+.book.book-character { background: transparent; }
+.pages.pages-character { background: transparent; }

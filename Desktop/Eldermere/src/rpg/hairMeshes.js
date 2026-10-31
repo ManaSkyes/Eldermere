@@ -1,170 +1,135 @@
-// Conventional game hair built from a fitted under-cap and a small number of broad, overlapping locks.
-// Geometry is authored only when the hairstyle, head shape, or LOD changes. No strand simulation.
+// Game-style hair: a close scalp underlayer plus a few broad, overlapping hair panels.
+// Panels are authored in the character's bind-pose coordinates and skinned to the head.
+// No strand bundles, per-strand simulation, or face-crossing tube geometry.
 export function createHairMeshes(THREE, { headBone, skeleton }) {
-  const capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.92, side: THREE.DoubleSide });
-  const lockMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.68, side: THREE.DoubleSide, vertexColors: true });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.96, side: THREE.DoubleSide });
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.72, side: THREE.DoubleSide, vertexColors: true });
   const cap = new THREE.SkinnedMesh(new THREE.BufferGeometry(), capMat);
-  const locks = new THREE.SkinnedMesh(new THREE.BufferGeometry(), lockMat);
-  for (const m of [cap, locks]) { m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.renderOrder = 2; m.bind(skeleton); }
-  let info = { locks: 0, tris: 0 }, lodLevel = 0, colors = ['#e6e1ea', '#e6e1ea'], blend = 0, last = null;
-
-  function skin(g, count) {
-    const ids = new Uint16Array(count * 4), weights = new Float32Array(count * 4);
-    for (let i = 0; i < count; i++) { ids[i * 4] = headBone; weights[i * 4] = 1; }
-    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(ids, 4));
-    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights, 4));
+  const panels = new THREE.SkinnedMesh(new THREE.BufferGeometry(), panelMat);
+  for (const m of [cap, panels]) { m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; m.renderOrder = 2; }
+  let lodLevel=0, last=null, colors=['#e6e1ea','#e6e1ea'], blend=0;
+  let info={locks:0,tris:0};
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const V=(x,y,z)=>({x,y,z});
+  const add=(a,b,s=1)=>V(a.x+b.x*s,a.y+b.y*s,a.z+b.z*s);
+  const mix=(a,b,t)=>V(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,a.z+(b.z-a.z)*t);
+  const norm=a=>{const l=Math.hypot(a.x,a.y,a.z)||1;return V(a.x/l,a.y/l,a.z/l);};
+  const skin=g=>{
+    const n=g.getAttribute('position').count, si=new Uint16Array(n*4), sw=new Float32Array(n*4);
+    for(let i=0;i<n;i++){si[i*4]=headBone;sw[i*4]=1;}
+    g.setAttribute('skinIndex',new THREE.Uint16BufferAttribute(si,4));
+    g.setAttribute('skinWeight',new THREE.Float32BufferAttribute(sw,4));
+  };
+  function headBounds(headIds,P){
+    const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+    for(const i of headIds)for(let k=0;k<3;k++){const q=P[i*3+k];mn[k]=Math.min(mn[k],q);mx[k]=Math.max(mx[k],q);}
+    return {c:V((mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2),r:V((mx[0]-mn[0])/2,(mx[1]-mn[1])/2,(mx[2]-mn[2])/2)};
   }
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const vec = (x, y, z) => ({ x, y, z });
-  const norm = v => { const l = Math.hypot(v.x, v.y, v.z) || 1; return vec(v.x/l, v.y/l, v.z/l); };
-  const add = (a,b,s=1) => vec(a.x+b.x*s,a.y+b.y*s,a.z+b.z*s);
-  const mix = (a,b,t) => vec(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t,a.z+(b.z-a.z)*t);
+  function scalpPoint(v,P,N){
+    const a=v.a*3,b=v.b*3,t=v.t||0;
+    const p=V(P[a]+(P[b]-P[a])*t,P[a+1]+(P[b+1]-P[a+1])*t,P[a+2]+(P[b+2]-P[a+2])*t);
+    const n=norm(V(N[a]+(N[b]-N[a])*t,N[a+1]+(N[b+1]-N[a+1])*t,N[a+2]+(N[b+2]-N[a+2])*t));
+    return {p,n};
+  }
+  function build(scalp,headIds,P,N,sel,len,look){
+    last={scalp,headIds,P:Float32Array.from(P),N:Float32Array.from(N),sel:{...sel},len:{...len},look:{...look}};
+    const capGeo=new THREE.BufferGeometry();
+    capGeo.setAttribute('position',new THREE.BufferAttribute(Float32Array.from(scalp.positions),3));
+    capGeo.setIndex(scalp.tris);skin(capGeo);capGeo.computeVertexNormals();
+    cap.geometry.dispose();cap.geometry=capGeo;
 
-  function build(scalp, headIds, P, N, sel, len, look) {
-    last = { scalp, headIds, P: Float32Array.from(P), N: Float32Array.from(N), sel: {...sel}, len: {...len}, look: {...look} };
-    // The under-cap is exactly the fitted scalp surface. It is not enlarged into a helmet.
-    const cg = new THREE.BufferGeometry();
-    cg.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(scalp.positions), 3));
-    cg.setIndex(scalp.tris); skin(cg, scalp.verts.length); cg.computeVertexNormals();
-    cap.geometry.dispose(); cap.geometry = cg;
+    const {c,r}=headBounds(headIds,P);
+    // Sample the scalp map by its source-head interpolation. This avoids stale local
+    // scalp coordinates and guarantees panel roots share the exact head bind space.
+    const roots=[];
+    for(const v of scalp.verts){
+      if(!v||v.inner)continue;
+      const {p,n}=scalpPoint(v,P,N);
+      const x=(p.x-c.x)/(r.x||1),y=(p.y-c.y)/(r.y||1),z=(p.z-c.z)/(r.z||1);
+      roots.push({p,n,x,y,z});
+    }
+    const choose=(fn,target)=>roots.filter(fn).sort((a,b)=>Math.abs(a.x-target)-Math.abs(b.x-target));
+    const front=choose(a=>a.z>.20&&a.y>.05,0);
+    const crown=choose(a=>a.y>.30&&a.z<.25,0);
+    const rear=choose(a=>a.z<-.30&&a.y>-.35,0);
+    const sideL=choose(a=>a.x<-.48&&a.y>-.48,-.72);
+    const sideR=choose(a=>a.x>.48&&a.y>-.48,.72);
+    const pick=(arr,i)=>arr.length?arr[Math.min(arr.length-1,Math.floor((i+.5)*arr.length/Math.max(1,arr.length)))]:roots[Math.floor(roots.length*.5)];
+    const style=Number(sel.main)||0, mainScale=Math.exp((len.main||0)*.69);
+    const volume=clamp(Number(look.volume)||1,.8,1.35);
+    const paths=[];
+    // Two crown-to-back panels overlap over the skull and continue behind the shoulders.
+    for(let i=0;i<2;i++){const a=pick(crown,i);if(a)paths.push({a,kind:'back',side:i?1:-1,length:(style===8?.95:style===9?1.4:style===10?.55:2.35)*mainScale,width:.48*volume});}
+    // Rear panels form one continuous back silhouette rather than a hanging tube column.
+    for(let i=0;i<3;i++){const a=pick(rear,i);if(a)paths.push({a,kind:'back',side:(i-1)*.55,length:(style===8?.92:style===10?.55:2.5)*mainScale,width:.52*volume});}
+    // Side panels follow the temples outward and then fall beside the face/neck.
+    for(const [arr,s] of [[sideL,-1],[sideR,1]]){const a=pick(arr,0);if(a)paths.push({a,kind:'side',side:s,length:(style===8?.92:style===10?.55:2.05)*mainScale,width:.34*volume});}
+    // Front hairline is swept backward over the crown; it never hangs over the face.
+    const f=pick(front,0);if(f&&sel.bangs!==5)paths.push({a:f,kind:'front',side:0,length:.55,width:.34*volume});
 
-    const bounds = [Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
-    for (const i of headIds) for (let a=0;a<3;a++) { const v=P[i*3+a]; bounds[a]=Math.min(bounds[a],v); bounds[a+3]=Math.max(bounds[a+3],v); }
-    const C=vec((bounds[0]+bounds[3])/2,(bounds[1]+bounds[4])/2,(bounds[2]+bounds[5])/2);
-    const R=vec((bounds[3]-bounds[0])/2,(bounds[4]-bounds[1])/2,(bounds[5]-bounds[2])/2);
-    const frontZ=C.z+R.z*.12, crownY=C.y+R.y*.2;
-    // Select evenly distributed scalp anchors, then assign each a deliberate region and flow.
-    // Root locks on the actual fitted scalp surface, never on arbitrary face/head vertices.
-    // Each scalp vertex retains its source-head interpolation, so its normal follows morphs.
-    const anchors=[];
-    for(let n=0;n<scalp.verts.length;n++){
-      const v=scalp.verts[n];
-      if(!v || v.inner) continue;
-      const p=vec(scalp.positions[n*3],scalp.positions[n*3+1],scalp.positions[n*3+2]);
-      const a=v.a*3,b=v.b*3,t=v.t||0;
-      const normal=norm(vec(
-        N[a]+(N[b]-N[a])*t,
-        N[a+1]+(N[b+1]-N[a+1])*t,
-        N[a+2]+(N[b+2]-N[a+2])*t
-      ));
-      const x=(p.x-C.x)/(R.x||1), z=(p.z-C.z)/(R.z||1), y=(p.y-C.y)/(R.y||1);
-      const front=z>.12, side=Math.abs(x)>.48, rear=z<-.30;
-      anchors.push({p,normal,x,z,y,front,side,rear});
-    }
-    const density = lodLevel===1 ? .68 : lodLevel>=2 ? .36 : 1;
-    const maxLocks = Math.max(12, Math.round((lodLevel===0?64:lodLevel===1?42:24)*density));
-    // Stable spatial sampling: front hairline, both temples, crown, rear and nape all receive coverage.
-    const buckets=[[],[],[],[],[],[]];
-    for(const a of anchors){
-      const region=a.front?(a.side?1:0):a.rear?(a.y<-.15?5:4):(a.side?2:3);
-      buckets[region].push(a);
-    }
-    const selected=[];
-    const quotas=[.22,.18,.16,.14,.20,.10].map(v=>Math.max(2,Math.round(maxLocks*v)));
-    buckets.forEach((bucket,b)=>{
-      const count=Math.min(bucket.length,quotas[b]);
-      for(let k=0;k<count;k++) selected.push(bucket[Math.floor((k+.5)*bucket.length/count)]);
-    });
-    // Fill remaining slots from the complete surface without clustering.
-    for(let k=0;selected.length<maxLocks && k<maxLocks*4;k++){
-      const a=anchors[Math.floor((k+.5)*anchors.length/(maxLocks*4))];
-      if(a && !selected.includes(a)) selected.push(a);
-    }
-
-    const positions=[], colorsOut=[], indices=[];
-    const rootColor=new THREE.Color(colors[0]), tipColor=new THREE.Color(colors[1]);
-    const rootShade=rootColor.clone().multiplyScalar(.82), tipShade=tipColor.clone().multiplyScalar(.96);
-    const segs=lodLevel>=2?4:lodLevel===1?6:8, sides=lodLevel>=2?6:8;
-    const style=Number(sel.main)||0, mainScale=Math.exp((len.main||0)*.69), bangScale=Math.exp((len.bangs||0)*.69);
-    const volume=clamp(Number(look.volume)||1,.35,2);
-    selected.forEach((a,index)=>{
-      const {p,x,z,y,front,side,rear}=a, sign=Math.sign(x)||1;
-      // Large style families share a stable base silhouette; length and shape presets alter the fall.
-      let L=style===10?.48:style===8?.94:style===9?1.32:style===5?1.45:style===6?1.65:style===7?2.15:style===0||style===1||style===11||style===12||style===13||style===14||style===15?.82:2.55;
-      L*=mainScale*(side?1.04:1);
-      if(rear)L*=1.12;
-      if(front)L*=.58;
-      const isBang=front && y>.05 && sel.bangs!==5;
-      if(isBang)L=(.34+bangScale*.30);
-      const width=(isBang?.15:side?.235:.27)*volume*(lodLevel>=2?.92:1);
-      // Locks hug the skull initially, then fall with gravity. Side locks sweep around the cheeks.
-      const normal=a.normal;
-      // Front roots are swept backward over the crown before they descend. They must never
-      // grow forward/down across the eyes, nose or mouth. Side roots leave the cheek plane.
-      const tangent=norm(front?vec(sign*.08,.18,-1):side?vec(sign*.72,-.42,-.34):vec(sign*.08,-.70,-.18));
-      const start=add(p,normal,.024);
-      const control1=add(add(start,normal,.025),tangent,front?.22:.10);
-      let end;
-      if(isBang) {
-        // Bangs are the only front-facing fall, and terminate above the brow line.
-        end=vec(p.x+sign*.035,Math.max(p.y-.34,7.72),p.z+.035);
-      } else if(front) {
-        end=vec(p.x+sign*.10,p.y-L*.72,p.z-Math.max(.38,R.z*.62));
-      } else if(side) {
-        end=vec(p.x+sign*(.20+L*.08),p.y-L,p.z-.18);
-      } else {
-        end=vec(p.x+sign*.025,p.y-L,p.z-.12);
+    const pos=[],col=[],idx=[];
+    const rootC=new THREE.Color(colors[0]),tipC=new THREE.Color(colors[1]);
+    const longitudinal=lodLevel===0?12:lodLevel===1?8:5, across=lodLevel===0?8:lodLevel===1?6:4;
+    const panelList=lodLevel===0?paths:paths.filter((p,i)=>i% (lodLevel===1?1:2)===0);
+    for(const path of panelList){
+      const {a,kind,side,length,width}=path, start=add(a.p,a.n,.028);
+      let p1,p2,end;
+      if(kind==='front'){
+        p1=add(start,V(0,.12,-.25),1);
+        p2=add(start,V(side*.02,.08,-.55),1);
+        end=V(start.x,start.y-.18,start.z-.82);
+      }else if(kind==='side'){
+        p1=add(start,V(side*.10,.04,-.08));
+        p2=add(start,V(side*.28,-length*.38,-.12));
+        end=V(start.x+side*.34,start.y-length,start.z-.10);
+      }else{
+        p1=add(start,V(side*.08,.08,-.30));
+        p2=add(start,V(side*.10,-length*.38,-.48));
+        end=V(start.x+side*.10,start.y-length,start.z-.62);
       }
-      const control2=mix(start,end,.62);
-      if(front){control2.z-=Math.max(.22,R.z*.34);control2.y+=.10;}
-      else if(side){control2.x+=sign*.12;control2.z-=.06;}
-      const base=positions.length/3;
-      for(let s=0;s<=segs;s++){
-        const t=s/segs,u=1-t;
-        const center=vec(
-          u*u*u*start.x+3*u*u*t*control1.x+3*u*t*t*control2.x+t*t*t*end.x,
-          u*u*u*start.y+3*u*u*t*control1.y+3*u*t*t*control2.y+t*t*t*end.y,
-          u*u*u*start.z+3*u*u*t*control1.z+3*u*t*t*control2.z+t*t*t*end.z
+      const base=pos.length/3;
+      for(let s=0;s<=longitudinal;s++){
+        const t=s/longitudinal,u=1-t;
+        const center=V(
+          u*u*u*start.x+3*u*u*t*p1.x+3*u*t*t*p2.x+t*t*t*end.x,
+          u*u*u*start.y+3*u*u*t*p1.y+3*u*t*t*p2.y+t*t*t*end.y,
+          u*u*u*start.z+3*u*u*t*p1.z+3*u*t*t*p2.z+t*t*t*end.z
         );
-        const tangentNow=norm(vec(
-          3*u*u*(control1.x-start.x)+6*u*t*(control2.x-control1.x)+3*t*t*(end.x-control2.x),
-          3*u*u*(control1.y-start.y)+6*u*t*(control2.y-control1.y)+3*t*t*(end.y-control2.y),
-          3*u*u*(control1.z-start.z)+6*u*t*(control2.z-control1.z)+3*t*t*(end.z-control2.z)
-        ));
-        let sideVec=norm(vec(tangentNow.y*normal.z-tangentNow.z*normal.y,tangentNow.z*normal.x-tangentNow.x*normal.z,tangentNow.x*normal.y-tangentNow.y*normal.x));
-        let upVec=norm(vec(tangentNow.y*sideVec.z-tangentNow.z*sideVec.y,tangentNow.z*sideVec.x-tangentNow.x*sideVec.z,tangentNow.x*sideVec.y-tangentNow.y*sideVec.x));
-        const taper=Math.pow(1-t,.62), halfW=width*(.30+.70*taper);
-        const depth=width*.24*(.35+.65*taper);
-        for(let r=0;r<sides;r++){
-          const ang=r/sides*Math.PI*2;
-          const v=add(add(center,sideVec,Math.cos(ang)*halfW),upVec,Math.sin(ang)*depth);
-          positions.push(v.x,v.y,v.z);
-          const c=rootShade.clone().lerp(tipShade,clamp(t*.9+blend*.15,0,1));
-          const shade=1-.10*Math.abs(Math.sin(ang));
-          colorsOut.push(c.r*shade,c.g*shade,c.b*shade);
-          if(s<segs){const next=base+s*sides+r, rn=base+s*sides+(r+1)%sides, down=next+sides, downR=base+(s+1)*sides+(r+1)%sides;indices.push(next,rn,down,rn,downR,down);}
+        // Broad panel width is oriented across the head, not around a tube axis.
+        let axis=kind==='side'?V(0,0,1):V(1,0,0);
+        if(kind==='front')axis=V(1,0,0);
+        const taper=.78+.22*Math.sin(Math.PI*t*.82);
+        const w=width*taper*(.55+.45*(1-t));
+        for(let j=0;j<=across;j++){
+          const v=j/across-.5;
+          const p=add(center,axis,v*w);
+          // A small crown lift only; panels stay close to skull at their roots.
+          p.y+=kind==='front'?0.012*Math.sin(Math.PI*t):0.018*Math.sin(Math.PI*t);
+          pos.push(p.x,p.y,p.z);
+          const cc=rootC.clone().lerp(tipC,clamp(t*.62+blend*.12,0,1));
+          const shade=.94+.06*Math.cos(v*Math.PI);
+          col.push(cc.r*shade,cc.g*shade,cc.b*shade);
+          if(s<longitudinal&&j<across){
+            const q=base+s*(across+1)+j, q1=q+1, q2=q+across+1, q3=q2+1;
+            idx.push(q,q1,q2,q1,q3,q2);
+          }
         }
       }
-    });
+    }
     const g=new THREE.BufferGeometry();
-    g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
-    g.setAttribute('color',new THREE.Float32BufferAttribute(colorsOut,3));
-    g.setIndex(indices); skin(g,positions.length/3); g.computeVertexNormals();
-    locks.geometry.dispose(); locks.geometry=g;
-    info={locks:selected.length,tris:indices.length/3};
-    setColors(colors[0],colors[1],blend);
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    g.setIndex(idx);skin(g);g.computeVertexNormals();
+    panels.geometry.dispose();panels.geometry=g;
+    info={locks:panelList.length,tris:idx.length/3};
+    capMat.color.set(colors[0]);
   }
   function setColors(root,tip=root,b=0){
-    colors=[root,tip];blend=b;
-    const c=new THREE.Color(root);
-    // Match the under-cap to the selected root color. Its edge is never intentionally exposed.
-    capMat.color.copy(c);
-    if(last) {
-      const a=new THREE.Color(root), z=new THREE.Color(tip);
-      const attr=locks.geometry.getAttribute('color');
-      if(attr) for(let i=0;i<attr.count;i++){
-        const sides=lodLevel>=2?6:8, segs=lodLevel>=2?4:lodLevel===1?6:8;
-        const t=Math.floor(i/sides)/segs;
-        const q=a.clone().lerp(z,clamp(t*.55+b*.15,0,1)); attr.setXYZ(i,q.r,q.g,q.b);
-      }
-      if(attr) attr.needsUpdate=true;
-    }
+    colors=[root,tip];blend=b;capMat.color.set(root);
+    const attr=panels.geometry.getAttribute('color');
+    if(attr){const a=new THREE.Color(root),z=new THREE.Color(tip);const across=lodLevel===0?8:lodLevel===1?6:4,longitudinal=lodLevel===0?12:lodLevel===1?8:5;const row=across+1,span=(longitudinal+1)*row;
+      for(let i=0;i<attr.count;i++){const local=i%span,t=Math.floor(local/row)/longitudinal,v=(local%row)/across-.5;const q=a.clone().lerp(z,clamp(t*.62+b*.12,0,1));const shade=.94+.06*Math.cos(v*Math.PI);attr.setXYZ(i,q.r*shade,q.g*shade,q.b*shade);}attr.needsUpdate=true;}
   }
-  function setLod(v){
-    const next=v==null?0:clamp(Math.round(v),0,2);
-    if(next===lodLevel)return;
-    lodLevel=next;
-    if(last) build(last.scalp,last.headIds,last.P,last.N,last.sel,last.len,last.look);
-  }
-  return {meshes:[cap,locks],build,setColors,setLod,reset(){},get info(){return info;},get lodLevel(){return lodLevel;}};
+  function setLod(v){const n=v==null?0:clamp(Math.round(v),0,2);if(n===lodLevel)return;lodLevel=n;if(last)build(last.scalp,last.headIds,last.P,last.N,last.sel,last.len,last.look);}
+  return {meshes:[cap,panels],build,setColors,setLod,reset(){},get info(){return info;},get lodLevel(){return lodLevel;}};
 }

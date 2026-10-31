@@ -758,3 +758,13 @@ tr[data-spell] { cursor: grab; }
     font-size:.56rem;
   }
 }
+
+
+/* Subtle separator beneath the Bestiary journal subtitle. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  padding-bottom:3px;
+  border-bottom:1px solid rgba(91,65,39,.24);
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  padding-top:3px;
+}

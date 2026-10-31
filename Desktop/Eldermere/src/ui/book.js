@@ -273,34 +273,37 @@ export function createBook(root, ctx) {
       <p class="hint">A number beside a skill is points waiting to be spent.</p></section><section class="cell-p">${right}</section></div>`;
   }
 
-  // ---- the Bestiary: a page per creature you've slain (or caught), filled in as you learn about it ----
-  let beastSel = null;
+  // ---- Bestiary: a complete creature catalogue, with pages unlocked by discovery ----
+  let beastSel = null, beastView = 'collection';
   const DMG = ['slash', 'pierce', 'blunt', 'crush', 'fire', 'frost', 'storm', 'earth', 'light', 'lunar', 'dark', 'arcane', 'poison'];
   const resWord = v => v === 0 ? 'Immune' : v < 0.5 ? `Resists (×${v})` : v < 1 ? `Hardy (×${v})` : v > 1 ? `Weak (×${v})` : 'Normal';
   const range = (a, b) => a == null ? '—' : a === b ? `${a}` : `${a} – ${b}`;
+  const beastIds = () => Object.keys(MONSTERS).filter(id => MONSTERS[id]).sort((a, b) => MONSTERS[a].name.localeCompare(MONSTERS[b].name));
   function pageBestiary() {
-    const ids = knownIds(c).filter(id => MONSTERS[id]).sort((a, b) => MONSTERS[a].name.localeCompare(MONSTERS[b].name));
-    if (!ids.length) { beastSel = null; return `<div class="pg two"><section class="cell-p"><h3>Bestiary</h3><p class="hint">Empty. Slay a creature (or catch a fish) and its page begins here; everything you learn about it afterwards fills it in.</p></section><section class="cell-p"></section></div>`; }
-    if (!ids.includes(beastSel)) beastSel = ids[0];
-    const id = beastSel, M = MONSTERS[id], E = c.bestiary[id], i = ids.indexOf(id);
+    const all = beastIds(), found = new Set(knownIds(c).filter(id => MONSTERS[id]));
+    if (beastView === 'collection') {
+      const slots = all.map(id => {
+        const M = MONSTERS[id], unlocked = found.has(id);
+        const mark = unlocked ? (M.group === 'swarm' ? '✧' : M.group === 'boss' ? '♜' : M.group === 'solo' ? '◆' : '✦') : '？';
+        return `<button class="beast-slot ${unlocked ? 'discovered' : 'undiscovered'}" ${unlocked ? `data-beast-open="${id}" title="Read about ${escapeHtml(M.name)}"` : 'disabled aria-label="Undiscovered creature" title="Undiscovered creature"'}>
+          <span class="beast-slot-icon">${mark}</span><span class="beast-slot-name">${unlocked ? escapeHtml(M.name) : 'Unknown'}</span>
+          <span class="beast-slot-state">${unlocked ? 'Discovered' : 'Not yet recorded'}</span></button>`;
+      }).join('');
+      return `<div class="pg beast-collection"><header class="beast-collection-head"><div><h2>Bestiary</h2><p class="hint">A field journal of the creatures known to the guild.</p></div><strong>${found.size} <small>/ ${all.length} discovered</small></strong></header>
+        <div class="beast-grid">${slots}</div></div>`;
+    }
+    if (!beastSel || !found.has(beastSel)) { beastView = 'collection'; return pageBestiary(); }
+    const id = beastSel, M = MONSTERS[id], E = c.bestiary[id];
     const res = DMG.map(t => `<tr><th>${label(t)}</th><td class="${E.res[t] ? '' : 'muted'}">${E.res[t] ? resWord(M.resist?.[t] ?? 1) : '???'}</td></tr>`).join('');
     const stages = M.harvest ? (M.harvest.stages || [{ id: 'skin', verb: 'skin', yields: M.harvest.yields }]) : [];
     const drops = stages.map(S => `<tr><th>${label(S.verb)}</th><td>${E.stages[S.id] ? Object.entries(S.yields).map(([p, [, hi]]) => `up to ${hi} ${escapeHtml(MATERIALS[`${M.harvest.creature}.${p}`]?.name || p)}`).join(', ') : '<span class="muted">??? — not yet tried</span>'}</td></tr>`).join('');
-    const nav = `<div class="bst-nav"><button data-beast="${ids[(i - 1 + ids.length) % ids.length]}" ${ids.length < 2 ? 'disabled' : ''}>‹</button><select data-beastsel>${ids.map(x => `<option value="${x}" ${x === id ? 'selected' : ''}>${escapeHtml(MONSTERS[x].name)}</option>`).join('')}</select><button data-beast="${ids[(i + 1) % ids.length]}" ${ids.length < 2 ? 'disabled' : ''}>›</button></div>`;
-    return `<div class="pg two bestiary"><section class="cell-p">${nav}
-      <h2 class="bst-name">${escapeHtml(M.name)}</h2>
-      <p class="muted">${escapeHtml([...(M.classification || [])].filter(x => x && x !== '—').join(' · '))}${M.hazard ? ` · ${escapeHtml(M.hazard)}` : ''}</p>
+    return `<div class="pg two bestiary"><section class="cell-p"><div class="bst-nav"><button data-beast-back title="Back to creature collection">‹ Collection</button></div>
+      <h2 class="bst-name">${escapeHtml(M.name)}</h2><p class="muted">${escapeHtml([...(M.classification || [])].filter(x => x && x !== '—').join(' · '))}${M.hazard ? ` · ${escapeHtml(M.hazard)}` : ''}</p>
       ${M.lore ? `<p class="bst-lore">${escapeHtml(M.lore)}</p>` : ''}
-      <h3>Encounters</h3><table class="bsheet">
-        <tr><th>Slain</th><td class="num">${E.kills}</td></tr>
-        <tr><th>Levels met</th><td class="num">${range(E.minLv, E.maxLv)}</td></tr>
-        <tr><th>Health met</th><td class="num">${range(E.minHp, E.maxHp)}</td></tr></table>
-      <h3>Nature</h3><table class="bsheet">
-        <tr><th>Rank</th><td>${escapeHtml(range(M.rank?.[0], M.rank?.[1]))}</td></tr>
-        <tr><th>Active</th><td>${escapeHtml(M.activity || '—')}</td></tr>
+      <h3>Encounters</h3><table class="bsheet"><tr><th>Slain</th><td class="num">${E.kills}</td></tr><tr><th>Levels met</th><td class="num">${range(E.minLv, E.maxLv)}</td></tr><tr><th>Health met</th><td class="num">${range(E.minHp, E.maxHp)}</td></tr></table>
+      <h3>Nature</h3><table class="bsheet"><tr><th>Rank</th><td>${escapeHtml(range(M.rank?.[0], M.rank?.[1]))}</td></tr><tr><th>Active</th><td>${escapeHtml(M.activity || '—')}</td></tr>
         <tr><th>Found in</th><td>${escapeHtml(label(M.group || '—'))}${M.temper === 'passive' ? ' · flees when struck' : ''}</td></tr>
-        <tr><th>Speed</th><td class="num">${M.stats?.speed ? `${M.stats.speed} m/s` : '—'}</td></tr>
-        <tr><th>Notices you at</th><td class="num">${M.stats?.aggro ? `${M.stats.aggro} m` : '—'}</td></tr></table>
+        <tr><th>Speed</th><td class="num">${M.stats?.speed ? `${M.stats.speed} m/s` : '—'}</td></tr><tr><th>Notices you at</th><td class="num">${M.stats?.aggro ? `${M.stats.aggro} m` : '—'}</td></tr></table>
       <h3>Resistances <span class="hint">(learned by striking it with each)</span></h3><table class="bsheet">${res}</table>
       ${drops ? `<h3>Harvest <span class="hint">(the most each can give)</span></h3><table class="bsheet">${drops}</table>` : ''}
       </section><section class="bst-right"><section class="beast-fig" aria-label="${escapeHtml(M.name)}"><span class="figure-hint">Drag to turn</span></section>
@@ -360,8 +363,8 @@ export function createBook(root, ctx) {
       li.ondragstart = e => e.dataTransfer.setData('text/plain', li.dataset.potion);
       li.onclick = () => { ctx.onUse(li.dataset.potion); render(); };
     });
-    el.querySelectorAll('[data-beast]').forEach(b => b.onclick = () => { beastSel = b.dataset.beast; api.turn = 0; render(); });
-    el.querySelector('[data-beastsel]')?.addEventListener('change', e => { beastSel = e.target.value; api.turn = 0; render(); });
+    el.querySelectorAll('[data-beast-open]').forEach(b => b.onclick = () => { beastSel = b.dataset.beastOpen; beastView = 'entry'; api.turn = 0; render(); });
+    el.querySelector('[data-beast-back]')?.addEventListener('click', () => { beastView = 'collection'; api.turn = 0; render(); });
     // drag on the figure (or the creature) to turn it
     const fig = el.querySelector('.figure, .beast-fig');
     if (fig) fig.onpointerdown = e => {
@@ -381,8 +384,8 @@ export function createBook(root, ctx) {
     // where the figure box is on screen (for play.js to render the character into), or null
     portraitRect() { const f = !el.hidden && el.querySelector('.figure'); return f ? f.getBoundingClientRect() : null; },
     // the Bestiary's creature box and whose page it is (play.js draws the creature there)
-    beastRect() { const f = !el.hidden && el.querySelector('.beast-fig'); return f ? f.getBoundingClientRect() : null; },
-    get beastId() { return tab === 'bestiary' ? beastSel : null; },
+    beastRect() { const f = !el.hidden && tab === 'bestiary' && beastView === 'entry' && el.querySelector('.beast-fig'); return f ? f.getBoundingClientRect() : null; },
+    get beastId() { return tab === 'bestiary' && beastView === 'entry' ? beastSel : null; },
   };
   return api;
 }

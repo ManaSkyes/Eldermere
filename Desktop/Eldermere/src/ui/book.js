@@ -441,6 +441,9 @@ export function createBook(root, ctx) {
       li.onclick = () => { ctx.onUse(li.dataset.potion); render(); };
     });
     el.querySelectorAll('[data-beast-open]').forEach(b => b.onclick = () => { beastSel = b.dataset.beastOpen; beastView = 'entry'; api.turn = 0; render(); });
+    el.querySelectorAll('[data-beast-page]').forEach(b => b.onclick = () => { beastPage = Number(b.dataset.beastPage); render(); });
+    el.querySelector('[data-beast-prev]')?.addEventListener('click', () => { beastPage = Math.max(0, beastPage - 1); render(); });
+    el.querySelector('[data-beast-next]')?.addEventListener('click', () => { beastPage = Math.min(BEAST_PAGES.length, beastPage + 1); render(); });
     el.querySelector('[data-beast-back]')?.addEventListener('click', () => { beastView = 'collection'; api.turn = 0; render(); });
     // drag on the figure (or the creature) to turn it
     const fig = el.querySelector('.figure, .beast-fig');

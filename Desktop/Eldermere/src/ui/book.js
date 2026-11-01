@@ -450,7 +450,7 @@ export function createBook(root, ctx) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
   let spellView = 'list', spellTreeId = null, chainStartId = null;
-  const chainCapacity = () => Math.max(1, Math.min(8, 1 + Math.floor(Math.max(0, (c.skills.chainCasting ?? 100) - 100) / 200)));
+  const chainCapacity = () => 1 + (treeState(c, 'chainCasting').nodes.chainCapacity || 0) + 2 * (treeState(c, 'chainCasting').nodes.rotationCapacity || 0);
   const spellChains = () => (c.spellChains ||= {});
   const spellChain = () => chainStartId ? (spellChains()[chainStartId] ||= []) : [];
   const spellGlyph = id => ({ fire:'✹', earth:'◆', water:'◈', wind:'〰', lightning:'ϟ', light:'✦', holy:'✧', dark:'◉', lunar:'☾', life:'❀', void:'◌', spatial:'⌖', enhancement:'✧' }[schoolsOf(SPELLS[id] || {})[0]] || '✧');
@@ -468,7 +468,7 @@ export function createBook(root, ctx) {
       const slots = chain.map((id,i) => `<li class="spell-sequence-slot" draggable="true" data-sequence-spell="${id}" data-sequence-index="${i}"><b>${i+1}</b>${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span><button data-sequence-remove="${i}">×</button></li>`).join('');
       const preparedKnown = known.filter(([id]) => prep.includes(id)), otherKnown = known.filter(([id]) => !prep.includes(id));
       return `<div class="pg spell-journal spell-sequencer"><header class="beast-collection-head"><div><button class="journal-back" data-spell-list>‹ Spells</button><h2>Spell sequencer</h2><p class="hint">Choose a prepared opener, then drag any learned spell into the sequence. Follow-ups do not need to be prepared.</p></div><strong>${chain.length} <small>/ ${maxChain} follow-ups</small></strong></header>
-      <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Prepared opener plus up to ${maxChain} chained casts. Repeated spells are allowed.</small></section>
+      <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Prepared opener plus up to ${maxChain} effective follow-up slots. Spells cannot repeat; rotation upgrades let distinct elements use half a slot.</small></section>
       <section class="spell-chain-panel"><h3>Prepared openers</h3><div class="spell-start-list">${starters || '<p class="muted">Prepare a castable spell to use it as a chain opener.</p>'}</div></section>
       <section class="spell-chain-panel"><h3>Sequence ${chainStartId ? '· '+escapeHtml(SPELLS[chainStartId].name) : ''}</h3><div class="spell-sequence-drop" data-sequence-drop><ol class="spell-sequence-list">${slots || '<li class="spell-sequence-empty">Drop spells here to add follow-ups.</li>'}</ol><span class="spell-drop-hint">＋ Drop a spell here</span></div></section>
       <section class="spell-chain-panel"><h3>Spell library</h3><h4>Prepared spells</h4><div class="spell-library-grid">${tiles(preparedKnown,'prepared')}</div><h4>Other learned spells</h4><div class="spell-library-grid">${tiles(otherKnown,'learned')}</div></section></div>`;

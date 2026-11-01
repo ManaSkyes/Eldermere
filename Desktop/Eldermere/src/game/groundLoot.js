@@ -49,7 +49,7 @@ export function createGroundLoot(THREE, scene, dungeon, origin) {
   function nearest(pos, yaw, maxDistance = 2.4) {
     let best = null, bestD = maxDistance;
     for (const d of drops) {
-      if (d.picked || d.remaining <= 0) continue;
+      if (!d.itemId || d.picked || d.remaining <= 0) continue;
       const dx = d.group.position.x - pos.x, dz = d.group.position.z - pos.z, dist = Math.hypot(dx, dz);
       if (dist < bestD && dist > 0.001 && (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / dist > 0.15) { best = d; bestD = dist; }
     }

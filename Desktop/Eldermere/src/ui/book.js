@@ -417,42 +417,33 @@ export function createBook(root, ctx) {
   }
 
   function pageTools() {
-    // One virtual slot per skill that has a declared tool. Several items may serve the same skill;
-    // the player chooses which carried item is assigned to that slot.
     const groups = { gathering: [], crafting: [], other: [] };
+    const body = ctx.body(), worn = body?.gear.equipped() || {};
+    const slotted = new Set(Object.values(c.toolSlots || {}).map(x => x?.uid).filter(Boolean));
     const toolSkills = [...new Set(Object.values(ITEMS).map(item => item.tool?.skill).filter(Boolean))]
-      .filter(id => SKILLS[id])
-      .sort((a, b) => label(a).localeCompare(label(b)));
+      .filter(id => SKILLS[id]).sort((a,b) => label(a).localeCompare(label(b)));
     for (const skill of toolSkills) {
       const category = PROFESSIONS[skill]?.category;
       const group = category === 'gathering' ? 'gathering' : category === 'crafting' ? 'crafting' : 'other';
-      const choices = ctx.inv.items.map((item, index) => ({
-        item, id: item.id || item.item, key: item.uid || `legacy:${item.id || item.item}:${index}`
-      })).filter(x => x.id && ITEMS[x.id]?.tool?.skill === skill);
-      const assigned = c.toolLoadout?.[skill];
-      const selected = choices.find(x => x.key === assigned) || choices[0] || null;
-      groups[group].push({ skill, choices, selected });
+      const choices = ctx.inv.items.map((item,index) => ({ item, id:item.id||item.item, key:item.uid||('legacy:'+String(item.id||item.item)+':'+index) }))
+        .filter(x => x.id && ITEMS[x.id]?.tool?.skill === skill && !slotted.has(x.key));
+      const assigned = c.toolSlots?.[skill] || null;
+      const wornId = !assigned && worn.mainHand && ITEMS[worn.mainHand]?.tool?.skill === skill ? worn.mainHand : null;
+      groups[group].push({ skill, choices, assigned, wornId });
     }
-    const names = { gathering: 'Gathering tools', crafting: 'Crafting tools', other: 'Other skill tools' };
-    const slotRows = group => groups[group].map(({ skill, choices, selected }) => `
-      <tr class="tool-slot-row">
-        <th><span>${escapeHtml(label(skill))}</span><small>${choices.length ? `${choices.length} carried` : 'No tool carried'}</small></th>
-        <td><select class="tool-slot-select" data-tool-slot="${skill}" aria-label="${escapeHtml(label(skill))} tool">
-          <option value="">Empty</option>
-          ${choices.map(x => `<option value="${escapeHtml(x.key)}" ${selected?.key === x.key ? 'selected' : ''}>${escapeHtml(itemName(x.id))}</option>`).join('')}
-        </select></td>
-      </tr>`).join('');
-    return `<div class="pg two tools-page">
-      <section class="cell-p"><h2>Tools</h2>
-        <p class="hint">Assign a carried tool to each skill. Each skill keeps its own slot, so you can prepare several trades without repeatedly changing your equipment.</p>
-        <h3>${names.gathering}</h3><table class="bsheet skills tool-slots">${slotRows('gathering')}</table>
-        <h3>${names.crafting}</h3><table class="bsheet skills tool-slots">${slotRows('crafting')}</table>
-      </section>
-      <section class="cell-p"><h3>${names.other}</h3>
-        <table class="bsheet skills tool-slots">${slotRows('other')}</table>
-        <p class="hint">Tools remain in your pack and continue to count toward its weight and capacity. A slot is an assignment, not a second copy of the item.</p>
-      </section>
-    </div>`;
+    const names = { gathering:'Gathering tools', crafting:'Crafting tools', other:'Other skill tools' };
+    const slotRows = group => groups[group].map(({skill,choices,assigned,wornId}) => {
+      const active = assigned ? itemName(assigned.id||assigned.item) : wornId ? itemName(wornId)+' (equipped)' : 'Empty';
+      return '<tr class="tool-slot-row"><th><span>'+escapeHtml(label(skill))+'</span><small>'+escapeHtml(active)+' · '+choices.length+' available</small></th><td><select class="tool-slot-select" data-tool-slot="'+skill+'" aria-label="'+escapeHtml(label(skill))+' tool"><option value="">Empty</option>'+
+        (assigned ? '<option value="'+escapeHtml(assigned.uid)+'" selected>'+escapeHtml(itemName(assigned.id||assigned.item))+' · assigned</option>' : wornId ? '<option value="equipped:'+escapeHtml(wornId)+'" selected>'+escapeHtml(itemName(wornId))+' · equipped</option>' : '')+
+        choices.map(x=>'<option value="'+escapeHtml(x.key)+'">'+escapeHtml(itemName(x.id))+'</option>').join('')+
+        '</select></td></tr>';
+    }).join('');
+    return '<div class="pg two tools-page"><section class="cell-p"><h2>Tools</h2><p class="hint">Assign tools to dedicated skill slots. Assigned tools leave your pack and are kept ready for their profession.</p>'+
+      '<h3>'+names.gathering+'</h3><table class="bsheet skills tool-slots">'+slotRows('gathering')+'</table>'+
+      '<h3>'+names.crafting+'</h3><table class="bsheet skills tool-slots">'+slotRows('crafting')+'</table></section>'+
+      '<section class="cell-p"><h3>'+names.other+'</h3><table class="bsheet skills tool-slots">'+slotRows('other')+'</table>'+
+      '<p class="hint">Tools in these slots do not occupy pack space or count toward pack weight. A tool is moved back to your pack when its slot is cleared or replaced.</p></section></div>';
   }
 
   function pageNewSection(title, description) {
@@ -489,9 +480,18 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { treeReturnTab = tab; selSkill = t.dataset.tree; resetArmed = false; treeView = true; render(); });
     el.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => { assignPoints(c, b.dataset.assign, 1); ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-tool-slot]').forEach(select => select.onchange = () => {
-      c.toolLoadout ||= {};
-      if (select.value) c.toolLoadout[select.dataset.toolSlot] = select.value;
-      else delete c.toolLoadout[select.dataset.toolSlot];
+      const skill = select.dataset.toolSlot, value = select.value;
+      c.toolSlots ||= {};
+      const old = c.toolSlots[skill];
+      if (old && old.uid === value) return;
+      if (old) { ctx.inv.items.push(old); delete c.toolSlots[skill]; }
+      if (value.startsWith('equipped:')) {
+        const id = value.slice(9), body = ctx.body();
+        if (body?.gear.unequip('mainHand') === id) c.toolSlots[skill] = { uid:'tool-'+Date.now().toString(36), id, enchantments:[] };
+      } else if (value) {
+        const index = ctx.inv.items.findIndex(x => x.uid === value);
+        if (index >= 0) c.toolSlots[skill] = ctx.inv.items.splice(index,1)[0];
+      }
       ctx.onChange?.(); render();
     });
     el.querySelectorAll('.eq.full').forEach(li => li.onclick = () => {

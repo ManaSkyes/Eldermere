@@ -883,21 +883,39 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (!plant || !body || (plant.harvestedUntil && plant.harvestedUntil > Date.now())) return false;
     const material = MATERIALS[plant.type];
     if (!material || material.category !== 'plant') { toast('This plant has no gathering record yet.'); return false; }
-    const equipped = body.gear.equipped().mainHand === 'herbalTool';
-    const carried = inv.items.some(it => it.id === 'herbalTool');
-    if (!equipped) { toast(carried ? 'Equip the Crude Scythe and Trowel in Character → Main hand first.' : 'You need the Crude Scythe and Trowel. Find it as ground loot or take it from the weapon rack.'); return false; }
+    const assignedTool = character.toolSlots?.herbalism;
+    const legacyEquipped = body.gear.equipped().mainHand === 'herbalTool';
+    if (assignedTool?.id !== 'herbalTool' && !legacyEquipped) {
+      toast('Assign the Crude Scythe and Trowel to the Herbalism tool slot in your book (Tab → Tools).'); return false;
+    }
+    const previousMain = body.gear.equipped().mainHand || null, wasDrawn = body.combat.drawn;
+    if (previousMain !== 'herbalTool') {
+      const equipped = body.gear.equip('herbalTool');
+      if (!equipped.ok) { toast(equipped.reason); return false; }
+    }
+    const restoreTool = () => {
+      const restoreGear = () => {
+        if (previousMain && previousMain !== 'herbalTool') body.gear.equip(previousMain);
+        else if (previousMain !== 'herbalTool') body.gear.unequip('mainHand');
+        if (previousMain && wasDrawn) body.combat.draw();
+      };
+      if (body.combat.drawn) body.combat.sheathe({ onEnd: restoreGear });
+      else restoreGear();
+    };
     const dx = DUNGEON_ORIGIN.x + plant.x - player.state.pos.x, dz = DUNGEON_ORIGIN.z + plant.z - player.state.pos.z;
     if (Math.hypot(dx,dz) > 0.001) player.state.yaw = Math.atan2(-dx,-dz);
     const started = body.actHerbalism({ onEnd: () => {
-      const quality = gatherQuality(character, material.id, { tool: 0.6, region: 0.5 });
+      const quality = gatherQuality(character, material.id, { tool:0.6, region:0.5 });
       const added = addMaterial(inv, material.id, quality, 1, false);
       discoverPlant(character, material.id);
       plant.harvestedUntil = Date.now() + 5 * 60 * 1000;
       book.render(); updateLoad();
       toast(added ? 'Gathered '+material.name+' ×1. Its quality is unappraised.' : material.name+' was too damaged to keep.');
+      restoreTool();
     } });
-    if (started) toast('Gathering '+material.name+'…');
-    return started;
+    if (!started) { restoreTool(); return false; }
+    toast('Gathering '+material.name+'…');
+    return true;
   }
   const nearRack = () => !!nearStation();
   function openRack(kind = 'weapons') {

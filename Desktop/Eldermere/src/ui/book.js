@@ -294,7 +294,7 @@ export function createBook(root, ctx) {
       const have = rank(n), buy = canBuy(c, 'chainCasting', n.id);
       return n.innate ? 'Known from the start' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available to learn' : buy.reason;
     };
-    const lanes = { same: 13, rotation: 37, core: 50, rapid: 63, dual: 87 };
+    const lanes = { same: 10, rotation: 30, core: 50, rapid: 70, dual: 90 };
     const tiers = [
       { name: 'Unskilled', range: '0–199', min: 0, max: 200, top: 7, bottom: 19 },
       { name: 'Apprentice', range: '200–499', min: 200, max: 500, top: 21, bottom: 34 },
@@ -304,6 +304,7 @@ export function createBook(root, ctx) {
       { name: 'Guru', range: '10,000+', min: 10000, max: Infinity, top: 88, bottom: 98 }
     ];
     const tierFor = gate => Math.max(0, tiers.findIndex(t => gate >= t.min && gate < t.max));
+    const populatedTierIndexes = [...new Set(nodes.map(n => tierFor(n.gate)))].sort((a,b) => a-b);
     const grouped = new Map();
     for (const n of nodes) {
       const key = (n.branch || 'core') + ':' + tierFor(n.gate);
@@ -313,12 +314,14 @@ export function createBook(root, ctx) {
     const positions = {};
     for (const [key, group] of grouped) {
       const [lane, tierIndex] = key.split(':');
-      const tier = tiers[Number(tierIndex)];
+      const slot = populatedTierIndexes.indexOf(Number(tierIndex));
+      const bandTop = 12 + slot * (76 / populatedTierIndexes.length);
+      const bandBottom = bandTop + (76 / populatedTierIndexes.length) - 5;
       group.sort((a, b) => a.gate - b.gate || a.name.localeCompare(b.name));
       const count = group.length;
       group.forEach((n, i) => {
-        const y = count === 1 ? (tier.top + tier.bottom) / 2
-          : tier.top + 2 + (i * (tier.bottom - tier.top - 4) / (count - 1));
+        const y = count === 1 ? (bandTop + bandBottom) / 2
+          : bandTop + 3 + (i * (bandBottom - bandTop - 6) / (count - 1));
         positions[n.id] = { x: lanes[lane], y };
       });
     }
@@ -327,10 +330,16 @@ export function createBook(root, ctx) {
       const direction = b.x >= a.x ? 1 : -1;
       return `M ${a.x} ${a.y} C ${a.x + bend * direction} ${a.y}, ${b.x - bend * direction} ${b.y}, ${b.x} ${b.y}`;
     };
-    const prerequisiteEdges = nodes.flatMap(n => [
-      ...(n.needs || []).map(id => ({ from: id, to: n.id, alternative: false })),
-      ...(n.needsAny || []).map(id => ({ from: id, to: n.id, alternative: true }))
-    ]).filter(e => positions[e.from] && positions[e.to]);
+    const prerequisiteEdges = nodes.flatMap(n => {
+      const required = (n.needs || []).filter(id => positions[id]).map(id => ({ from: id, to: n.id, alternative: false }));
+      const candidates = (n.needsAny || []).filter(id => positions[id]);
+      if (candidates.length && positions[n.id]) {
+        const target = positions[n.id];
+        candidates.sort((a,b) => Math.hypot(positions[a].x-target.x, positions[a].y-target.y) - Math.hypot(positions[b].x-target.x, positions[b].y-target.y));
+        required.push({ from: candidates[0], to: n.id, alternative: true, choices: candidates });
+      }
+      return required;
+    });
     // These are intentional cross-discipline synergies, not prerequisite locks.
     // The one exception is Rapid Fire + Rotation's half-slot discount: the two
     // systems can coexist, but repeated casts never receive that discount.
@@ -342,13 +351,14 @@ export function createBook(root, ctx) {
       ['rapidFire', 'elementalRotation', 'Both can be learned; repeated casts do not qualify for rotation half-slots.']
     ].filter(([a, b]) => positions[a] && positions[b]);
     const lines = prerequisiteEdges.map(e =>
-      `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"/>`
+      `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"><title>${e.alternative ? 'One of: ' + e.choices.join(', ') : escapeHtml(byId[e.from].name) + ' required'}</title></path>`
     ).join('') + compatibility.map(([a, b]) =>
       `<path class="chain-link compatible" d="${pathFor(positions[a], positions[b])}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
     ).join('');
-    const milestones = tiers.map(t =>
-      `<div class="chain-tier-band" style="top:${t.top}%"><span>${t.name}</span><small>${t.range}</small></div>`
-    ).join('');
+    const milestones = populatedTierIndexes.map((index, slot) => {
+      const t = tiers[index], top = 12 + slot * (76 / populatedTierIndexes.length), height = 76 / populatedTierIndexes.length;
+      return `<div class="chain-tier-band" style="top:${top}%;height:${height}%"><span>${t.name}</span><small>${t.range}</small></div>`;
+    }).join('');
     const branchLabels = [
       ['same', 'Same Element'], ['rotation', 'Elemental Rotation'],
       ['core', 'Universal'], ['rapid', 'Rapid Fire'], ['dual', 'Two-Element']
@@ -640,6 +650,13 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
     el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
+    el.querySelectorAll('.chain-skill-node').forEach(node => {
+      const tip = node.querySelector('.chain-node-tooltip'); if (!tip) return;
+      const show = () => { tip.style.display = 'block'; const r = node.getBoundingClientRect(), w = tip.offsetWidth || 280, h = tip.offsetHeight || 180; let x = r.right + 12, y = r.top; if (x + w > innerWidth - 10) x = r.left - w - 12; x = Math.max(10, Math.min(innerWidth - w - 10, x)); y = Math.max(10, Math.min(innerHeight - h - 10, y)); tip.style.left = x + 'px'; tip.style.top = y + 'px'; };
+      const hide = () => { tip.style.display = 'none'; };
+      node.addEventListener('pointerenter', show); node.addEventListener('pointerleave', ev => { if (!tip.contains(ev.relatedTarget)) hide(); });
+      node.addEventListener('focusin', show); node.addEventListener('focusout', ev => { if (!node.contains(ev.relatedTarget)) hide(); });
+    });
     el.querySelectorAll('[data-chain-buy]').forEach(btn => btn.onclick = () => { const r = buyNode(c, 'chainCasting', btn.dataset.chainBuy); if (r.ok) { resetArmed = false; ctx.onChange?.(); } render(); });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-train]').forEach(b => b.onclick = () => { c.skills[b.dataset.train] = (c.skills[b.dataset.train] ?? 100) + 100; render(); });

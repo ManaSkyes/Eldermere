@@ -311,18 +311,22 @@ export function createBook(root, ctx) {
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key).push(n);
     }
+    // Give each populated rank tier a compact, consistent pixel-height lane.
+    // This avoids reserving a quarter of the entire tree for a tier with one node.
+    const tierHeight = 166, tierTop = 58;
+    const stageHeight = tierTop + populatedTierIndexes.length * tierHeight + 38;
     const positions = {};
     for (const [key, group] of grouped) {
       const [lane, tierIndex] = key.split(':');
       const slot = populatedTierIndexes.indexOf(Number(tierIndex));
-      const bandTop = 12 + slot * (76 / populatedTierIndexes.length);
-      const bandBottom = bandTop + (76 / populatedTierIndexes.length) - 5;
+      const bandTopPx = tierTop + slot * tierHeight;
+      const bandBottomPx = bandTopPx + tierHeight;
       group.sort((a, b) => a.gate - b.gate || a.name.localeCompare(b.name));
       const count = group.length;
       group.forEach((n, i) => {
-        const y = count === 1 ? (bandTop + bandBottom) / 2
-          : bandTop + 3 + (i * (bandBottom - bandTop - 6) / (count - 1));
-        positions[n.id] = { x: lanes[lane], y };
+        const yPx = count === 1 ? (bandTopPx + bandBottomPx) / 2
+          : bandTopPx + 25 + (i * (tierHeight - 50) / (count - 1));
+        positions[n.id] = { x: lanes[lane], y: yPx / stageHeight * 100 };
       });
     }
     const pathFor = (a, b) => {
@@ -356,7 +360,8 @@ export function createBook(root, ctx) {
       `<path class="chain-link compatible" d="${pathFor(positions[a], positions[b])}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
     ).join('');
     const milestones = populatedTierIndexes.map((index, slot) => {
-      const t = tiers[index], top = 12 + slot * (76 / populatedTierIndexes.length), height = 76 / populatedTierIndexes.length;
+      const t = tiers[index], top = (tierTop + slot * tierHeight) / stageHeight * 100;
+      const height = tierHeight / stageHeight * 100;
       return `<div class="chain-tier-band" style="top:${top}%;height:${height}%"><span>${t.name}</span><small>${t.range}</small></div>`;
     }).join('');
     const branchLabels = [
@@ -390,7 +395,7 @@ export function createBook(root, ctx) {
       </div>`;
     }).join('');
     const header = `<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="chainCasting">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>`;
-    const workspace = `<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div></div>`;
+    const workspace = `<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage" style="height:${stageHeight}px"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div></div>`;
     return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)} Solid lines show prerequisites; dashed lines show cross-discipline compatibility. Compatible branches can be combined unless a specific mechanic conflicts: Rapid Fire never receives Elemental Rotation's half-slot discount.</p>${workspace}<div class="chain-tree-legend"><span><i class="chain-legend-line"></i>Prerequisite</span><span><i class="chain-legend-line compatible"></i>Compatible disciplines</span></div></section></div>`;
   }
 

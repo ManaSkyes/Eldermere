@@ -53,7 +53,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (main && !off && (wrist || innate)) return { L: null, R: 'dual', handR: 'L', drawn: true, name: 'weaponWrist' };
     return null;
   }
-  let readied = known()[0] || null, casting = null, chainQueue = [];
+  let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null;
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -183,12 +183,13 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    if (casting.chain) { chainQueue.shift(); if (failed) chainQueue=[]; }
+    if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; } }
     else if (!failed) chainQueue = (character.spellChains?.[spell.id] || []).filter(id => SPELL_CAST[id] && knowsSpell(character,id));
-    else chainQueue=[];
+    else { chainQueue=[]; chainPrompt=null; }
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
+    if (chainQueue.length) chainPrompt = { t: 0, duration: 0.9, hand: casting.hand };
     casting = null;
   }
 
@@ -198,23 +199,42 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
-    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.075 } : null; },
+    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.075 } : chainPrompt ? { k: chainPrompt.t / chainPrompt.duration, win: 0.12 } : null; },
     get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,
     burning,
-    get debug() { return { bolts: bolts.length, fields: fields.length, balls: bolts.filter(o => o.C.kind === 'ball').length }; },
+    get debug() { return { bolts: bolts.length, fields: fields.length, balls: bolts.filter(o => o.C.kind === 'ball').length, chainQueue: chainQueue.length, chainPrompt: !!chainPrompt }; },
     update(dt, input, targets, locked) {
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
-      if (chainQueue.length && !casting && locked && free && b && !b.combat.busy) {
-        const id=chainQueue[0], L=layout(), focus=!!b.gear.stats().focus;
-        if(!SPELL_CAST[id] || !knowsSpell(character,id)) chainQueue=[];
-        else if(!L){chainQueue=[];toast?.('Spell chain stopped: no casting focus.');}
-        else {const prof=castProfile(character,SPELLS[id],{mode:'incantation',focus});
-          if(vitals.mp<prof.mana){chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
-          else if(b.combat.cast({hand:L.handL||L.handR})){casting={id,mode:'incantation',focus,prof,t:0,key:null,auto:true,failOnRelease:false,hand:L.handL||L.handR,chain:true};audio.chant?.(true,prof.castTime);}
+      // A chained follow-up gets its own timing prompt only after the previous cast animation has ended.
+      if (chainQueue.length && !casting && !chainPrompt && locked && free && b && !b.combat.busy) {
+        chainPrompt = { t: 0, duration: 0.9, hand: b.combat.castHand };
+      }
+      if (chainPrompt && !casting) {
+        if (!locked || !free || !b) { chainPrompt=null; chainQueue=[]; }
+        else {
+          chainPrompt.t += dt;
+          const L=layout(), start=L && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')));
+          const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.78 && chainPrompt.t <= chainPrompt.duration * 0.92;
+          if (start) {
+            if (!perfectStart) { chainPrompt=null; chainQueue=[]; toast?.('Chain timing missed.'); }
+            else {
+              const id=chainQueue[0], focus=!!b.gear.stats().focus;
+              if (!SPELL_CAST[id] || !knowsSpell(character,id)) { chainPrompt=null; chainQueue=[]; }
+              else if (!L) { chainPrompt=null; chainQueue=[]; toast?.('Spell chain stopped: no casting focus.'); }
+              else {
+                const prof=castProfile(character,SPELLS[id],{mode:'incantation',focus});
+                if(vitals.mp<prof.mana){chainPrompt=null;chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
+                else if(b.combat.cast({hand:L.handL||L.handR})){
+                  casting={id,mode:'incantation',focus,prof,t:0,key:null,auto:true,failOnRelease:false,hand:L.handL||L.handR,chain:true};
+                  chainPrompt=null; audio.chant?.(true,prof.castTime);
+                }
+              }
+            }
+          } else if (chainPrompt.t >= chainPrompt.duration) { chainPrompt=null; chainQueue=[]; toast?.('Chain window missed.'); }
         }
       }
       if (locked && input.pressed('nextSpell')) {
@@ -226,14 +246,14 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const btnOf = side => side === 'L' ? 'attack' : 'block';
       // the first click with a focus put away takes it in hand
       if (locked && free && L && L.drawn && !drawn && b && !b.combat.busy && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')))) b.combat.draw();
-      if (!locked || !free || casting) press = null;
+      if (!locked || !free || casting || chainPrompt) press = null;
       // Detonate: with a fireball of yours in flight, a cast button bursts it where it is (instead of casting)
       let detonated = false;
       if (locked && !casting && fh('detonate') && L && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')))) {
         const ball = bolts.find(o => o.C.kind === 'ball');
         if (ball) { detonate.push(ball); press = null; detonated = true; }
       }
-      if (locked && free && !casting && !chainQueue.length && !detonated && b && !b.combat.busy && readied) {
+      if (locked && free && !casting && !chainQueue.length && !chainPrompt && !detonated && b && !b.combat.busy && readied) {
         let id = null, mode = null, key = null, auto = false, failOnRelease = false, hand = null;
         if (req) {
           if (!L) toast?.('You need a focus to cast: a wand, staff, orb, spellbook or focus bracelet.');

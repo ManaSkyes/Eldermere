@@ -344,21 +344,37 @@ export function createBook(root, ctx) {
       }
       return required;
     });
-    // These are intentional cross-discipline synergies, not prerequisite locks.
-    // The one exception is Rapid Fire + Rotation's half-slot discount: the two
-    // systems can coexist, but repeated casts never receive that discount.
+    // Compatibility links are deliberately curated across multiple mastery layers.
+    // Rapid Fire is a separate voiceless mode and therefore has no chain-synergy links.
     const compatibility = [
-      ['elementalBoost', 'rapidFire', 'Same-element resonance also strengthens a barrage.'],
-      ['elementalBoost', 'pairedElements', 'Same-element casts can build resonance within your chosen pair.'],
-      ['elementalRotation', 'pairedElements', 'Rotation can alternate between your two selected elements.'],
-      ['rapidFire', 'pairedElements', 'A repeated spell can remain inside your selected pair.'],
-      ['rapidFire', 'elementalRotation', 'Both can be learned; repeated casts do not qualify for rotation half-slots.']
-    ].filter(([a, b]) => positions[a] && positions[b]);
-    const compatibilityPath = (a, b) => pathFor(positions[a], positions[b]);
+      ['steadySequence','elementalBoost','Universal capacity supports every chain discipline.'],
+      ['perfectCadence','resonantFlow','A wider timing window helps sustain elemental resonance.'],
+      ['quickInvocation','focusedCurrent','Faster chains pair well with efficient same-element casting.'],
+      ['steadySequence','elementalRotation','More capacity gives rotation more room to weave.'],
+      ['perfectCadence','rotatingForce','A longer sequence lets elemental potency build.'],
+      ['swiftHandoff','diverseWeave','Fast handoffs complement half-slot weaving.'],
+      ['quickInvocation','wovenMastery','Masterful weaving benefits from faster invocation.'],
+      ['elementalBoost','pairedElements','Same-element resonance can be built within a chosen pair.'],
+      ['resonantFlow','twinAttunement','Elemental resonance complements paired attunement.'],
+      ['focusedCurrent','dualWeave','Mana discipline supports alternating paired elements.'],
+      ['elementalRotation','pairedElements','Rotation can alternate between the two selected elements.'],
+      ['rotatingForce','twinAttunement','Rotating potency reinforces a focused elemental pair.'],
+      ['diverseWeave','dualWeave','Efficient weaving and paired mana control work together.'],
+      ['wovenMastery','balancedPair','Masterful weaving complements precise pair timing.'],
+      ['deepSequence','focusedCurrent','Greater chain mastery rewards disciplined mana use.']
+    ].filter(([a,b]) => positions[a] && positions[b]);
+    const compatibilityPath = (a,b,index,total) => {
+      const p=positions[a], q=positions[b], dx=q.x-p.x, dy=q.y-p.y;
+      const length=Math.hypot(dx,dy)||1, nx=-dy/length, ny=dx/length;
+      const lane=(index-(total-1)/2)*3.2, direction=dx>=0?1:-1;
+      const c1={x:p.x+dx*.28+nx*lane+direction*1.5,y:p.y+dy*.18+ny*lane};
+      const c2={x:p.x+dx*.72+nx*lane-direction*1.5,y:p.y+dy*.82+ny*lane};
+      return `M ${p.x} ${p.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${q.x} ${q.y}`;
+    };
     const lines = prerequisiteEdges.map(e =>
       `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"><title>${e.alternative ? 'One of: ' + e.choices.join(', ') : escapeHtml(byId[e.from].name) + ' required'}</title></path>`
-    ).join('') + compatibility.map(([a, b]) =>
-      `<path class="chain-link compatible" d="${compatibilityPath(a, b)}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
+    ).join('') + compatibility.map(([a, b],i) =>
+      `<path class="chain-link compatible" d="${compatibilityPath(a, b, i, compatibility.length)}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
     ).join('');
     const milestones = populatedTierIndexes.map((index, slot) => {
       const t = tiers[index], top = (tierTop + slot * tierHeight) / stageHeight * 100;
@@ -647,7 +663,7 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-spell-evolve]').forEach(b => b.onclick = () => { const evo = spellEvolutionOf(c, spellTreeId), node = SPELL_EVOLUTION_NODES.find(n=>n.id===b.dataset.spellEvolve); if (node && (evo.nodes[node.id]||0)<node.max && Math.floor(evo.points)-Object.values(evo.nodes).reduce((a,v)=>a+v,0)>0) { evo.nodes[node.id]=(evo.nodes[node.id]||0)+1; ctx.onChange?.(); } render(); });
     el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
     el.querySelectorAll('[data-chain-start]').forEach(btn => btn.onclick = () => { chainStartId=btn.dataset.chainStart; render(); });
-    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id) || !SPELLS[id]) return; const q=spellChain(), n=treeState(c,'chainCasting').nodes, rapid=(n.rapidFire||0)>0, rotation=(n.elementalRotation||0)>0, same=!(n.elementalRotation||0)||(n.elementalBoost||0)>0, paired=(n.pairedElements||0)>0, repeatedSpell=id===chainStartId||q.includes(id), schools=new Set([chainStartId,...q].map(x=>SPELLS[x]?.school).filter(Boolean)), element=SPELLS[id].school, repeatedElement=schools.has(element); if(!rapid&&repeatedSpell) return; if(repeatedElement&&!same&&!(rapid&&repeatedSpell)) return; if(rotation&&repeatedElement&&!(rapid&&repeatedSpell)) return; if(paired&&!repeatedElement&&schools.size>=2) return; if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
+    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id) || !SPELLS[id]) return; const q=spellChain(), n=treeState(c,'chainCasting').nodes, rotation=(n.elementalRotation||0)>0, same=!(n.elementalRotation||0)||(n.elementalBoost||0)>0, paired=(n.pairedElements||0)>0, repeatedSpell=id===chainStartId||q.includes(id), schools=new Set([chainStartId,...q].map(x=>SPELLS[x]?.school).filter(Boolean)), element=SPELLS[id].school, repeatedElement=schools.has(element); if(repeatedSpell) return; if(repeatedElement&&!same) return; if(rotation&&repeatedElement) return; if(paired&&!repeatedElement&&schools.size>=2) return; if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
     el.querySelectorAll('[data-drag-spell]').forEach(tile => { tile.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('text/plain',tile.dataset.dragSpell);ev.dataTransfer.effectAllowed='copy';}); tile.onclick=()=>addChainSpell(tile.dataset.dragSpell); });
     el.querySelectorAll('[data-sequence-drop]').forEach(zone=>{zone.addEventListener('dragover',ev=>{ev.preventDefault();zone.classList.add('drag-over');});zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));zone.addEventListener('drop',ev=>{ev.preventDefault();zone.classList.remove('drag-over');addChainSpell(ev.dataTransfer.getData('text/plain'));});});
     el.querySelectorAll('[data-sequence-remove]').forEach(btn=>btn.onclick=()=>{spellChain().splice(Number(btn.dataset.sequenceRemove),1);ctx.onChange?.();render();});

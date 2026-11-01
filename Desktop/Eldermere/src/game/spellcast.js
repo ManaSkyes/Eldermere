@@ -203,9 +203,11 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (vitals.mp < mana) { toast?.('Not enough mana.'); b?.combat.cancelCast(); casting = null; return; }
     vitals.mp -= mana;
     const normalized = casting.t / Math.max(0.01, prof.castTime);
-    // Perfect timing applies to both incantation and voiceless casts.
-    // Rapid Fire does not remove the perfect-cast timing bonus.
-    const perfect = normalized >= 0.98 && normalized <= 1.18; // Slightly late is more forgiving than early.
+    // Rapid Fire replaces perfect-timed voiceless casting once unlocked.
+    // Incantation casts retain perfect timing at every mastery level.
+    const rapidFireUnlocked = nodeRank(character, 'chainCasting', 'rapidFire') > 0;
+    const perfect = !(casting.mode === 'voiceless' && rapidFireUnlocked)
+      && normalized >= 0.98 && normalized <= 1.18; // Slightly late is more forgiving than early.
     const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
     const failed = Math.random() >= successChance;
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;

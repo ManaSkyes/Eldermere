@@ -358,7 +358,7 @@ export function createBook(root, ctx) {
     const lines = prerequisiteEdges.map(e =>
       `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"><title>${e.alternative ? 'One of: ' + e.choices.join(', ') : escapeHtml(byId[e.from].name) + ' required'}</title></path>`
     ).join('') + compatibility.map(([a, b]) =>
-      `<path class="chain-link compatible" d="${compatibilityPath(a, b, index)}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
+      `<path class="chain-link compatible" d="${compatibilityPath(a, b)}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
     ).join('');
     const milestones = populatedTierIndexes.map((index, slot) => {
       const t = tiers[index], top = (tierTop + slot * tierHeight) / stageHeight * 100;

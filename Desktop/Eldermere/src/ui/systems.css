@@ -811,3 +811,23 @@ tr[data-spell] { cursor: grab; }
 .tree-return { display:flex; align-items:center; gap:.8rem; margin:0 0 .55rem; padding:0 0 .45rem; border-bottom:1px solid var(--rule); color:var(--ink-soft); font-size:.75rem; }
 .tree-return button { padding:.25rem .65rem; border:1px solid var(--rule); border-radius:3px; background:rgba(255,250,240,.7); color:var(--ink-b); cursor:pointer; font:inherit; }
 @media (max-width:760px) { .runes-skill { align-items:flex-start; } .runes-rank { min-width:5.5rem; } .runes-overview { padding:.65rem; } }
+
+
+/* Tools page: skill-specific assignments without putting every tool in a hand slot. */
+.tools-page { min-height: 0; }
+.tool-slots { width: 100%; margin: 0 0 1.1rem; }
+.tool-slots th { width: 43%; }
+.tool-slot-row th { vertical-align: middle; }
+.tool-slot-row th small { display: block; color: var(--ink-soft); font: italic 0.78rem var(--serif); font-weight: 400; }
+.tool-slot-row td { min-width: 0; }
+.tool-slot-select {
+  width: 100%; max-width: 18rem; min-width: 0; padding: 0.35rem 1.8rem 0.35rem 0.55rem;
+  border: 1px solid rgba(90,62,36,0.35); border-radius: 3px;
+  background: rgba(255,255,255,0.38); color: var(--ink-b); font: 0.9rem var(--serif);
+}
+.tool-slot-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-slot-select option { color: #241b14; background: #efe3c6; }
+@media (max-width: 680px) {
+  .tools-page { grid-template-columns: 1fr !important; overflow: auto; }
+  .tools-page > .cell-p + .cell-p { border-left: 0; border-top: 1px solid var(--rule); }
+}

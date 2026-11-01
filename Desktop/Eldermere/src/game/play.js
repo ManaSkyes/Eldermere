@@ -906,6 +906,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     };
     const dx = DUNGEON_ORIGIN.x + plant.x - player.state.pos.x, dz = DUNGEON_ORIGIN.z + plant.z - player.state.pos.z;
     if (Math.hypot(dx,dz) > 0.001) player.state.yaw = Math.atan2(-dx,-dz);
+    bodyYaw = player.state.yaw; turnInPlace = false;
     const started = body.actHerbalism({ onEnd: () => {
       const quality = gatherQuality(character, material.id, { tool:0.6, region:0.5 });
       const added = addMaterial(inv, material.id, quality, 1, false);

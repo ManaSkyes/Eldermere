@@ -449,7 +449,7 @@ export function createBook(root, ctx) {
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
-  let spellView = 'list', spellChainEdit = false;
+  let spellView = 'list', spellTreeId = null;
   const chainCapacity = () => Math.max(1, Math.min(8, 1 + Math.floor(Math.max(0, (c.skills.chainCasting ?? 100) - 100) / 200)));
   const spellChain = () => { c.spellChain ||= []; c.spellChain = c.spellChain.filter(id => preparedOf(c).includes(id)); return c.spellChain; };
   function pageSpells() {
@@ -468,7 +468,7 @@ export function createBook(root, ctx) {
     const rows = known.map(([id, level]) => {
       const sp = SPELLS[id], evolution = spellEvolutionOf(c,id), progress = Math.min(1, level / MASTERY.core);
       return `<article class="spell-list-row">
-        <button class="spell-name-link" data-tree="${id}" title="Open this spell's evolution tree">${escapeHtml(sp.name)}</button>
+        <button class="spell-name-link" data-spell-tree="${id}" title="Open this spell evolution tree">${escapeHtml(sp.name)}</button>
         <span class="spell-row-progress">${bar(progress,'xp')}</span><span class="spell-row-percent">${Math.round(progress*100)}%</span>
         <strong class="spell-row-mastery">${display(level)}</strong>
         <button class="prep-btn spell-row-prepare ${prep.includes(id)?'on':''}" data-prepare="${id}">${prep.includes(id)?'✦ Prepared':'Prepare'}</button>
@@ -482,6 +482,22 @@ export function createBook(root, ctx) {
     </div>`;
   }
 
+  const SPELL_EVOLUTION_NODES = [
+    { id: 'force', name: 'Potent Form', max: 3, text: 'Increase this spell effect strength by 5% per rank.' },
+    { id: 'economy', name: 'Efficient Weave', max: 3, text: 'Reduce this spell mana cost by 4% per rank.' },
+    { id: 'tempo', name: 'Swift Invocation', max: 3, text: 'Reduce this spell casting time by 4% per rank.' }
+  ];
+  function pageSpellEvolution() {
+    const sp = SPELLS[spellTreeId];
+    if (!sp || !(spellTreeId in (c.spells || {}))) { spellTreeId = null; return pageSpells(); }
+    const evo = spellEvolutionOf(c, spellTreeId), spent = SPELL_EVOLUTION_NODES.reduce((n,node)=>n+(evo.nodes[node.id]||0),0);
+    const free = Math.max(0, Math.floor(evo.points) - spent);
+    const nodes = SPELL_EVOLUTION_NODES.map(node => {
+      const rank = evo.nodes[node.id] || 0, full = rank >= node.max, can = free > 0 && !full;
+      return `<article class="spell-evolution-node"><header><b>${node.name}</b><strong>${rank} / ${node.max}</strong></header><p>${node.text}</p><button class="prep-btn" data-spell-evolve="${node.id}" ${can?'':'disabled'}>${full?'Mastered':can?'Unlock rank':'Need 1 evolution point'}</button></article>`;
+    }).join('');
+    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><button class="journal-back" data-spell-tree-back>‹ Spells</button><h2>${escapeHtml(sp.name)} · Evolution</h2><p class="hint">${escapeHtml(sp.description || 'A personal path shaped by repeated casting.')}</p><small>${escapeHtml(schoolsOf(sp).map(label).join(' + '))}</small></div><strong>${free} <small>points free</small></strong></header><section class="spell-journal-summary"><b>Spell mastery</b><span>${display(masteryOf(c,spellTreeId))}</span><small>${evo.points.toFixed(1)} evolution points earned · ${spent} spent</small></section><div class="spell-evolution-tree">${nodes}</div></div>`;
+  }
   const spellTierLabel = level => level >= 100 ? 'Mastered' : level > 0 ? 'Learning' : 'Unmastered';
   const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, tools: pageTools, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
@@ -499,11 +515,14 @@ export function createBook(root, ctx) {
     const nav = (items, side) => `<nav class="ribbons ribbons-${side}" aria-label="${side} book tabs">${items.map(([id, name]) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}" aria-current="${id === tab ? 'page' : 'false'}"><span>${name}</span></button>`).join('')}</nav>`;
     el.innerHTML = `<div class="book book-${tab}" role="dialog" aria-label="Character book">
       ${nav(TOP_TABS, 'top')}${nav(LEFT_TABS, 'left')}${nav(RIGHT_TABS, 'right')}
-      <div class="pages pages-${treeView ? 'skill-tree' : tab}">${treeView ? pageTrees() : PAGES[tab]()}</div>
+      <div class="pages pages-${treeView ? 'skill-tree' : tab}">${spellTreeId ? pageSpellEvolution() : treeView ? pageTrees() : PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;
     el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { treeView = false; tab = b.dataset.tab; render(); });
     el.querySelectorAll('[data-magic-category]').forEach(b => b.onclick = () => { magicCategory = b.dataset.magicCategory; render(); });
     el.querySelectorAll('[data-spell-combo]').forEach(b => b.onclick = () => { spellView = 'combo'; render(); });
+    el.querySelectorAll('[data-spell-tree]').forEach(b => b.onclick = () => { spellTreeId = b.dataset.spellTree; render(); });
+    el.querySelector('[data-spell-tree-back]')?.addEventListener('click', () => { spellTreeId = null; spellView = 'list'; render(); });
+    el.querySelectorAll('[data-spell-evolve]').forEach(b => b.onclick = () => { const evo = spellEvolutionOf(c, spellTreeId), node = SPELL_EVOLUTION_NODES.find(n=>n.id===b.dataset.spellEvolve); if (node && (evo.nodes[node.id]||0)<node.max && Math.floor(evo.points)-Object.values(evo.nodes).reduce((a,v)=>a+v,0)>0) { evo.nodes[node.id]=(evo.nodes[node.id]||0)+1; ctx.onChange?.(); } render(); });
     el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
     el.querySelectorAll('[data-chain-add]').forEach(b => b.onclick = () => { const chain = spellChain(); if (chain.length < chainCapacity() && preparedOf(c).includes(b.dataset.chainAdd) && !chain.includes(b.dataset.chainAdd)) chain.push(b.dataset.chainAdd); ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-chain-remove]').forEach(b => b.onclick = () => { const chain = spellChain(), i = chain.indexOf(b.dataset.chainRemove); if (i >= 0) chain.splice(i,1); ctx.onChange?.(); render(); });

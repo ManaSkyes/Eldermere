@@ -300,9 +300,10 @@ export function createBook(root, ctx) {
       { name: 'Unskilled', range: '0–199', min: 0, max: 200, top: 7, bottom: 19 },
       { name: 'Apprentice', range: '200–499', min: 200, max: 500, top: 21, bottom: 34 },
       { name: 'Journeyman', range: '500–999', min: 500, max: 1000, top: 36, bottom: 49 },
-      { name: 'Expert', range: '1,000–4,999', min: 1000, max: 5000, top: 51, bottom: 68 },
-      { name: 'Master', range: '5,000–9,999', min: 5000, max: 10000, top: 70, bottom: 85 },
-      { name: 'Guru', range: '10,000+', min: 10000, max: Infinity, top: 88, bottom: 98 }
+      { name: 'Expert', range: '1,000–1,999', min: 1000, max: 2000, top: 51, bottom: 62 },
+      { name: 'Master', range: '2,000–4,999', min: 2000, max: 5000, top: 64, bottom: 75 },
+      { name: 'Grandmaster', range: '5,000–9,999', min: 5000, max: 10000, top: 77, bottom: 87 },
+      { name: 'Guru', range: '10,000+', min: 10000, max: Infinity, top: 89, bottom: 98 }
     ];
     const tierFor = gate => Math.max(0, tiers.findIndex(t => gate >= t.min && gate < t.max));
     const populatedTierIndexes = [...new Set(nodes.map(n => tierFor(n.gate)))].sort((a,b) => a-b);
@@ -404,7 +405,13 @@ export function createBook(root, ctx) {
       ['rotatingForce','twinAttunement','Rotating potency reinforces a focused elemental pair.'],
       ['diverseWeave','dualWeave','Efficient weaving and paired mana control work together.'],
       ['wovenMastery','balancedPair','Masterful weaving complements precise pair timing.'],
-      ['deepSequence','focusedCurrent','Greater chain mastery rewards disciplined mana use.']
+      ['deepSequence','focusedCurrent','Greater chain mastery rewards disciplined mana use.'],
+      ['unbrokenSequence','overwhelmingResonance','More links give resonance more room to build.'],
+      ['unbrokenSequence','prismaticMomentum','A longer sequence supports more elemental transitions.'],
+      ['perfectedHandoff','fluidTransitions','Faster handoffs complement fluid elemental changes.'],
+      ['perfectedHandoff','reciprocalFlow','Precise timing supports alternating paired elements.'],
+      ['overwhelmingResonance','harmonicConvergence','Mastered resonance complements paired-element potency.'],
+      ['prismaticMomentum','harmonicConvergence','Elemental momentum reinforces a focused pair.']
     ].filter(([a,b]) => positions[a] && positions[b]);
     const compatibilityPath = (a,b,index,total) => {
       const p=positions[a], q=positions[b], dx=q.x-p.x, dy=q.y-p.y;

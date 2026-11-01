@@ -354,10 +354,20 @@ export function createBook(root, ctx) {
       ['rapidFire', 'pairedElements', 'A repeated spell can remain inside your selected pair.'],
       ['rapidFire', 'elementalRotation', 'Both can be learned; repeated casts do not qualify for rotation half-slots.']
     ].filter(([a, b]) => positions[a] && positions[b]);
+    const compatibilityPath = (a, b, index) => {
+      const from = positions[a], to = positions[b];
+      const direction = to.x >= from.x ? 1 : -1;
+      const startX = from.x + direction * 2.1, endX = to.x - direction * 2.1;
+      const arc = (index % 2 ? 1 : -1) * Math.min(15, 7 + Math.abs(to.x - from.x) * .09);
+      const controlX = (startX + endX) / 2;
+      // Route synergy links around intervening nodes instead of drawing a dotted
+      // horizontal stripe through an entire tier of skills.
+      return `M ${startX} ${from.y} C ${controlX} ${from.y + arc}, ${controlX} ${to.y + arc}, ${endX} ${to.y}`;
+    };
     const lines = prerequisiteEdges.map(e =>
       `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"><title>${e.alternative ? 'One of: ' + e.choices.join(', ') : escapeHtml(byId[e.from].name) + ' required'}</title></path>`
-    ).join('') + compatibility.map(([a, b]) =>
-      `<path class="chain-link compatible" d="${pathFor(positions[a], positions[b])}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
+    ).join('') + compatibility.map(([a, b], index) =>
+      `<path class="chain-link compatible" d="${compatibilityPath(a, b, index)}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
     ).join('');
     const milestones = populatedTierIndexes.map((index, slot) => {
       const t = tiers[index], top = (tierTop + slot * tierHeight) / stageHeight * 100;
@@ -657,10 +667,42 @@ export function createBook(root, ctx) {
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('.chain-skill-node').forEach(node => {
       const tip = node.querySelector('.chain-node-tooltip'); if (!tip) return;
-      const show = () => { tip.style.display = 'block'; const r = node.getBoundingClientRect(), w = tip.offsetWidth || 280, h = tip.offsetHeight || 180; let x = r.right + 12, y = r.top; if (x + w > innerWidth - 10) x = r.left - w - 12; x = Math.max(10, Math.min(innerWidth - w - 10, x)); y = Math.max(10, Math.min(innerHeight - h - 10, y)); tip.style.left = x + 'px'; tip.style.top = y + 'px'; };
-      const hide = () => { tip.style.display = 'none'; };
-      node.addEventListener('pointerenter', show); node.addEventListener('pointerleave', ev => { if (!tip.contains(ev.relatedTarget)) hide(); });
-      node.addEventListener('focusin', show); node.addEventListener('focusout', ev => { if (!node.contains(ev.relatedTarget)) hide(); });
+      const show = () => {
+        if (tip.parentElement !== document.body) document.body.appendChild(tip);
+        tip.style.display = 'block';
+        tip.style.position = 'fixed';
+        tip.style.width = 'min(320px, calc(100vw - 24px))';
+        tip.style.minWidth = '280px';
+        tip.style.maxWidth = 'calc(100vw - 24px)';
+        tip.style.boxSizing = 'border-box';
+        tip.style.zIndex = '2147483000';
+        const r = node.getBoundingClientRect(), w = Math.min(320, innerWidth - 24), h = Math.min(tip.scrollHeight || 260, innerHeight - 24);
+        let x = r.right + 14, y = r.top;
+        if (x + w > innerWidth - 12) x = r.left - w - 14;
+        x = Math.max(12, Math.min(innerWidth - w - 12, x));
+        y = Math.max(12, Math.min(innerHeight - h - 12, y));
+        tip.style.left = x + 'px'; tip.style.top = y + 'px';
+        const buy = tip.querySelector('[data-chain-buy]');
+        if (buy && !buy.dataset.bound) {
+          buy.dataset.bound = '1';
+          buy.addEventListener('click', ev => {
+            ev.stopPropagation();
+            const result = buyNode(c, 'chainCasting', buy.dataset.chainBuy);
+            if (result.ok) { resetArmed = false; ctx.onChange?.(); }
+            render();
+          });
+        }
+      };
+      const hide = () => {
+        tip.style.display = 'none';
+        node.appendChild(tip);
+        tip.removeAttribute('style');
+      };
+      node.addEventListener('pointerenter', show);
+      node.addEventListener('pointerleave', ev => { if (ev.relatedTarget !== tip && !tip.contains(ev.relatedTarget)) hide(); });
+      tip.addEventListener('pointerleave', ev => { if (!node.contains(ev.relatedTarget)) hide(); });
+      node.addEventListener('focusin', show);
+      node.addEventListener('focusout', ev => { if (!node.contains(ev.relatedTarget) && ev.relatedTarget !== tip) hide(); });
     });
     el.querySelectorAll('[data-chain-buy]').forEach(btn => btn.onclick = () => { const r = buyNode(c, 'chainCasting', btn.dataset.chainBuy); if (r.ok) { resetArmed = false; ctx.onChange?.(); } render(); });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });

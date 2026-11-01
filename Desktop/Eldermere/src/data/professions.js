@@ -5,14 +5,14 @@
 // Design notes: docs/PROFESSIONS.md.
 
 // ---------- Ranks ----------
-// The same thresholds for every skill. `min` is the first whole value of the rank.
+// The same thresholds for every skill. `min` is the first whole value of the rank; Unskilled is 0–199.
 export const RANKS = [
   { id: 'unskilled',  name: 'Unskilled',  min: 0 },
-  { id: 'apprentice', name: 'Apprentice', min: 201 },
-  { id: 'journeyman', name: 'Journeyman', min: 501 },
-  { id: 'expert',     name: 'Expert',     min: 1001 },
-  { id: 'master',     name: 'Master',     min: 5001 },
-  { id: 'guru',       name: 'Guru',       min: 10001 },
+  { id: 'apprentice', name: 'Apprentice', min: 200 },
+  { id: 'journeyman', name: 'Journeyman', min: 500 },
+  { id: 'expert',     name: 'Expert',     min: 1000 },
+  { id: 'master',     name: 'Master',     min: 5000 },
+  { id: 'guru',       name: 'Guru',       min: 10000 },
 ];
 export const SKILL_MAX = 1000000;
 

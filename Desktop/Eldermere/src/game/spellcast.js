@@ -194,7 +194,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
       const sameElementUnlocked = (tree.elementalBoost || 0) > 0;
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
-      const baseSlots = 1 + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
+      const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
       const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
       const discountedSpellLimit = discountedRotationSlots * 2;
       let budget = 0, discountedUsed = 0;

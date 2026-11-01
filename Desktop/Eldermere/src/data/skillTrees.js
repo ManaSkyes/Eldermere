@@ -9,7 +9,7 @@
 // Branches: two sides per tree. Each side node has an opposite on the other side (the one in the same
 // rank tier and row); buying one locks only its opposite. A reset refunds every point in a tree. Effects are data for the systems to read later.
 //
-//   gate:     minimum skill (ranks: 201 Apprentice, 501 Journeyman, 1001 Expert, 5001 Master)
+//   gate:     minimum skill (ranks: 200 Apprentice, 500 Journeyman, 1000 Expert, 5000 Master)
 //   ranks:    how many times it can be bought (one point each)
 //   needs:    [nodeId, ...] all required;  needsAny: [nodeId, ...] any one required
 //   also:     { otherSkill: level } — a hybrid technique that needs another skill too
@@ -44,10 +44,10 @@ const WRITTEN = {
       node('clamber', 'Clamber', 'active', 100, 'Hold jump at a ledge up to head height to haul yourself up onto it. Slow. 15 stamina.', { innate: true, effect: { reach: 1.0, stamina: 15 } }),
       node('vault', 'Vault', 'active', 100, 'Jump at anything waist high or lower to vault over it (or onto it, if it\'s deep). 6 stamina.', { innate: true, effect: { reach: 0.6, stamina: 6 } }),
       node('conditioning', 'Conditioning', 'passive', 150, 'Sprinting costs 5% less stamina per rank.', { ranks: 3, effect: { sprintCostPct: -5 } }),
-      node('dodgeRoll', 'Dodge roll', 'active', 201, 'A quick roll that slips through attacks and keeps your momentum (Q). Roll with crouch held to flow into a slide. 15 stamina.', { effect: { stamina: 15 } }),
+      node('dodgeRoll', 'Dodge roll', 'active', 200, 'A quick roll that slips through attacks and keeps your momentum (Q). Roll with crouch held to flow into a slide. 15 stamina.', { effect: { stamina: 15 } }),
       node('wallJump', 'Wall jump', 'active', 300, 'In the air against a wall, jump to kick off it. Chain between walls to climb a shaft. 10 stamina.', { effect: { stamina: 10 } }),
       node('quickClimb', 'Quick climb', 'active', 401, 'Clamber twice as fast, reach a little higher, and grab ledges anywhere in a jump (hold jump).', { needs: ['clamber'], effect: { speed: 2, reach: 1.25 } }),
-      node('wallRun', 'Wall run', 'active', 501, 'Sprint and jump alongside a wall to run across it for a moment. Jump to leap off. 10 stamina a second.', { needs: ['wallJump'], effect: { seconds: 1.1, stamina: 10 } }),
+      node('wallRun', 'Wall run', 'active', 500, 'Sprint and jump alongside a wall to run across it for a moment. Jump to leap off. 10 stamina a second.', { needs: ['wallJump'], effect: { seconds: 1.1, stamina: 10 } }),
       node('stride', 'Long stride', 'passive', 550, 'Sprint speed +3% per rank.', { ranks: 2, effect: { sprintPct: 3 } }),
       node('freeRunner', 'Free runner', 'passive', 1200, 'Vaults and clambers no longer slow you down.', {}),
       // ---- climbing and jumping (left) ----
@@ -55,13 +55,13 @@ const WRITTEN = {
       node('ledgeCatch', 'Cat\'s catch', 'passive', 600, 'Hold jump while falling past a ledge to catch it.', { branch: 'climber', needs: ['grip'] }),
       node('momentum', 'Momentum', 'passive', 600, 'Wall runs last 30% longer per rank.', { ranks: 2, branch: 'climber', effect: { wallRunPct: 30 } }),
       node('featherfall', 'Featherfall', 'passive', 1200, 'Falls hurt less: the first 3 m per rank are free.', { ranks: 2, branch: 'climber', effect: { safeFall: 3 } }),
-      node('skywalker', 'Skywalker', 'active', 5001, 'A second jump in mid-air, kicked off nothing at all.', { branch: 'climber', needsAny: ['ledgeCatch', 'momentum'] }),
+      node('skywalker', 'Skywalker', 'active', 5000, 'A second jump in mid-air, kicked off nothing at all.', { branch: 'climber', needsAny: ['ledgeCatch', 'momentum'] }),
       // ---- in a fight (right) ----
       node('battleWind', 'Battle wind', 'passive', 300, 'In combat, stamina refills 10% faster per rank.', { ranks: 2, branch: 'fighter', effect: { regenPct: 10 } }),
       node('shoulderCharge', 'Shoulder charge', 'active', 600, 'Sprint into a foe to knock them down. 20 stamina.', { branch: 'fighter', needs: ['dodgeRoll'], effect: { stamina: 20 } }),
       node('lunge', 'Lunge', 'active', 600, 'An attack straight out of a sprint: +30% damage.', { branch: 'fighter', effect: { damagePct: 30 } }),
       node('unshakable', 'Sure-footed', 'passive', 1200, 'While moving, staggers and knockdowns are 25% less likely.', { branch: 'fighter', needsAny: ['shoulderCharge', 'lunge'] }),
-      node('unstoppable', 'Unstoppable', 'active', 5001, 'For 6 s, sprint without stamina and shrug off anything that would stop you.', { branch: 'fighter', needs: ['unshakable'] }),
+      node('unstoppable', 'Unstoppable', 'active', 5000, 'For 6 s, sprint without stamina and shrug off anything that would stop you.', { branch: 'fighter', needs: ['unshakable'] }),
     ],
   },
   sneak: {
@@ -76,23 +76,23 @@ const WRITTEN = {
       node('wallHug', 'Wall hug', 'active', 100, 'Press E beside a wall to put your back to it and sidle along, unseen from the side. Also lets you edge along ledges too narrow to walk.', { innate: true }),
       node('softSteps', 'Soft steps', 'passive', 150, 'Crouched movement makes 10% less noise per rank.', { ranks: 3, effect: { crouchNoisePct: -10 } }),
       node('poleRunner', 'Poles and pipes', 'active', 150, 'Climb poles and drainpipes (spin round them, leap off), and hang from horizontal pipes to shimmy along.', { also: { athletics: 150 } }),
-      node('tightrope', 'Tightrope', 'active', 201, 'Walk tightropes and wires, arms out for balance.', { also: { athletics: 201 } }),
+      node('tightrope', 'Tightrope', 'active', 200, 'Walk tightropes and wires, arms out for balance.', { also: { athletics: 201 } }),
       node('wireRunner', 'Wire runner', 'active', 401, 'On a tightrope or wire: crouch to move low and silent instead of letting go, and sprint to run along it.', { needs: ['tightrope'], also: { athletics: 401 } }),
       node('spireLanding', 'Spire landing', 'active', 300, 'Land on the tip of a spire, post or pole and perch there. Leap from spire to spire.', { needs: ['poleRunner'], also: { athletics: 300 } }),
-      node('cloakedDodge', 'Cloaked dodge', 'passive', 501, 'Anyone who hasn\'t already spotted you can\'t see or hear your dodge roll: roll from cover to cover. (Needs the Dodge roll technique from Athletics to use.)', {}),
+      node('cloakedDodge', 'Cloaked dodge', 'passive', 500, 'Anyone who hasn\'t already spotted you can\'t see or hear your dodge roll: roll from cover to cover. (Needs the Dodge roll technique from Athletics to use.)', {}),
       node('ghostWalker', 'Ghost walker', 'passive', 1200, 'Moving along any route (walls, poles, pipes, ropes, spires) makes no sound at all.', {}),
       // ---- shadows (left) ----
       node('stillness', 'Stillness', 'passive', 300, 'Standing still makes you 20% harder to see per rank.', { ranks: 2, branch: 'shadow', effect: { stillVisPct: -20 } }),
       node('wallShadow', 'Wall shadow', 'passive', 600, 'Hugging a wall makes you half as visible again.', { branch: 'shadow', needs: ['stillness'] }),
       node('lightFeet', 'Light feet', 'passive', 600, 'Landings make half the noise.', { branch: 'shadow' }),
       node('unseen', 'Unseen', 'passive', 1200, 'Crouched, you are 30% harder to see.', { branch: 'shadow', needsAny: ['wallShadow', 'lightFeet'] }),
-      node('vanish', 'Vanish', 'active', 5001, 'Drop out of sight: for 4 s while crouched, no one can see you. 40 stamina.', { branch: 'shadow', needs: ['unseen'] }),
+      node('vanish', 'Vanish', 'active', 5000, 'Drop out of sight: for 4 s while crouched, no one can see you. 40 stamina.', { branch: 'shadow', needs: ['unseen'] }),
       // ---- acrobat (right) ----
       node('ropeSlide', 'Wire slide', 'active', 300, 'Crouch on a sloping wire to hang and slide down it, fast.', { branch: 'acrobat', also: { athletics: 300 } }),
       node('poleSwing', 'Pole swing', 'active', 600, 'Leaping off a pole or pipe throws you 50% further.', { branch: 'acrobat', needs: ['ropeSlide'] }),
       node('spireHop', 'Spire hop', 'active', 600, 'Jumps from a spire go 30% higher and further.', { branch: 'acrobat' }),
       node('catBalance', 'Cat\'s balance', 'passive', 1200, 'Move on ropes, pipes and edges at full walking speed.', { branch: 'acrobat', needsAny: ['poleSwing', 'spireHop'] }),
-      node('shadowDancer', 'Shadow dancer', 'passive', 5001, 'Snap to any route from twice as far away.', { branch: 'acrobat', needs: ['catBalance'] }),
+      node('shadowDancer', 'Shadow dancer', 'passive', 5000, 'Snap to any route from twice as far away.', { branch: 'acrobat', needs: ['catBalance'] }),
     ],
   },
   climbing: {
@@ -106,9 +106,9 @@ const WRITTEN = {
       // ---- core (center) ----
       node('climb', 'Climb', 'active', 100, 'Jump at a climbable wall (vines, rough stone, wet stone, ice) and hold jump to grab on. Move with the movement keys; crouch lets go; back + jump kicks off.', { innate: true }),
       node('steadyHold', 'Steady hold', 'passive', 150, 'Holding still on a wall costs 20% less stamina per rank.', { ranks: 3, effect: { holdCostPct: -20 } }),
-      node('wetGrip', 'Wet grip', 'passive', 201, 'Slipping on wet stone is half as likely.', { effect: { wetSlipPct: -50 } }),
+      node('wetGrip', 'Wet grip', 'passive', 200, 'Slipping on wet stone is half as likely.', { effect: { wetSlipPct: -50 } }),
       node('dyno', 'Dyno', 'active', 300, 'Press jump while climbing to lunge about 1.5 m up the wall and catch on. 12 stamina.', { needs: ['climb'], effect: { leap: 1.5, stamina: 12 } }),
-      node('wallLeap', 'Side leap', 'active', 501, 'Jump while holding left or right on a wall to leap up to 3 m sideways: onto more wall, across a gap to the next one, or off into the air (hold jump to catch another wall). 10 stamina.', { needs: ['climb'], effect: { leap: 3, stamina: 10 } }),
+      node('wallLeap', 'Side leap', 'active', 500, 'Jump while holding left or right on a wall to leap up to 3 m sideways: onto more wall, across a gap to the next one, or off into the air (hold jump to catch another wall). 10 stamina.', { needs: ['climb'], effect: { leap: 3, stamina: 10 } }),
       node('pushOff', 'Push off', 'active', 550, 'Back + jump on a wall throws you twice as far off it; hold jump to catch a wall you\'re thrown at, like the other side of a chimney.', { needs: ['climb'] }),
       node('spider', 'Spider', 'passive', 1200, 'Climb 30% faster on everything.', { effect: { speedPct: 30 } }),
       // ---- holding on (left) ----
@@ -116,13 +116,13 @@ const WRITTEN = {
       node('catchSlip', 'Catch yourself', 'passive', 600, 'A slip costs half the stamina and drops you half as far.', { branch: 'alpinist', needs: ['chalk'] }),
       node('enduring', 'Enduring grip', 'passive', 600, 'Climbing costs 15% less stamina per rank.', { ranks: 2, branch: 'alpinist', effect: { climbCostPct: -15 } }),
       node('overhang', 'Overhang', 'passive', 1200, 'Hard surfaces (wet stone, ice) cost no more stamina than rough stone.', { branch: 'alpinist', needsAny: ['catchSlip', 'enduring'] }),
-      node('neverFall', 'Unfalling', 'passive', 5001, 'You never slip, on anything.', { branch: 'alpinist', needs: ['overhang'] }),
+      node('neverFall', 'Unfalling', 'passive', 5000, 'You never slip, on anything.', { branch: 'alpinist', needs: ['overhang'] }),
       // ---- moving on the wall (right) ----
       node('quickHands', 'Quick hands', 'passive', 300, 'Climb 10% faster per rank.', { ranks: 2, branch: 'freeClimber', effect: { speedPct: 10 } }),
       node('iceClimber', 'Ice climber', 'passive', 600, 'Slipping and sliding on ice are half as bad, and you climb it 30% faster.', { branch: 'freeClimber', needs: ['quickHands'], effect: { iceSlipPct: -50, iceSpeedPct: 30 } }),
       node('restHold', 'Resting hold', 'passive', 600, 'Holding still on vines or rough stone costs no stamina at all.', { branch: 'freeClimber', needs: ['steadyHold'] }),
       node('fluidClimb', 'Fluid climber', 'passive', 1200, 'Pulling up over the top of a climb is instant, and you keep moving.', { branch: 'freeClimber', needsAny: ['iceClimber', 'restHold'] }),
-      node('lizard', 'Lizard', 'passive', 5001, 'Climb every surface at the speed of vines.', { branch: 'freeClimber', needs: ['fluidClimb'] }),
+      node('lizard', 'Lizard', 'passive', 5000, 'Climb every surface at the speed of vines.', { branch: 'freeClimber', needs: ['fluidClimb'] }),
     ],
   },
   swimming: {
@@ -136,8 +136,8 @@ const WRITTEN = {
       // ---- core (center) ----
       node('steadyBreath', 'Steady breath', 'passive', 150, 'Hold your breath 10% longer per rank.', { ranks: 3, effect: { breathPct: 10 } }),
       node('strongStroke', 'Strong stroke', 'passive', 150, 'Swim 5% faster per rank.', { ranks: 2, effect: { speedPct: 5 } }),
-      node('surfaceDive', 'Surface dive', 'active', 201, 'Crouch at the surface to plunge straight down.', { effect: { plunge: 3.5 } }),
-      node('leapOut', 'Leap out', 'active', 201, 'Climb out of water faster and from lower: +25% reach from the water.', { effect: { reachPct: 25, speed: 1.5 } }),
+      node('surfaceDive', 'Surface dive', 'active', 200, 'Crouch at the surface to plunge straight down.', { effect: { plunge: 3.5 } }),
+      node('leapOut', 'Leap out', 'active', 200, 'Climb out of water faster and from lower: +25% reach from the water.', { effect: { reachPct: 25, speed: 1.5 } }),
       node('treadEasy', 'Easy treading', 'passive', 550, 'Treading water refills stamina at the full rate.', {}),
       node('fluid', 'Fluid motion', 'passive', 1200, 'Wading slows you half as much.', { effect: { wadePct: -50 } }),
       // ---- diver (left) ----
@@ -145,13 +145,13 @@ const WRITTEN = {
       node('dolphinKick', 'Dolphin kick', 'active', 600, 'Underwater, start a hard swim with a burst: nearly double speed for a moment. 10 stamina.', { branch: 'diver', effect: { burst: 1.8, seconds: 0.6, stamina: 10 } }),
       node('calmHeart', 'Calm heart', 'passive', 600, 'Breath lasts 25% longer while you aren\'t swimming hard.', { branch: 'diver', effect: { calmPct: 25 } }),
       node('lastGasp', 'Last gasp', 'passive', 1200, 'When your breath runs out, 6 more seconds before you start drowning.', { branch: 'diver', effect: { seconds: 6 } }),
-      node('deepBreath', 'Breath of the deep', 'passive', 5001, 'Hold your breath three times as long.', { branch: 'diver', needsAny: ['lastGasp'], effect: { breathMul: 3 } }),
+      node('deepBreath', 'Breath of the deep', 'passive', 5000, 'Hold your breath three times as long.', { branch: 'diver', needsAny: ['lastGasp'], effect: { breathMul: 3 } }),
       // ---- racer (right) ----
       node('racingStroke', 'Racing stroke', 'passive', 300, 'Hard swimming is 8% faster per rank.', { ranks: 2, branch: 'racer', effect: { sprintPct: 8 } }),
       node('efficientKick', 'Efficient kick', 'passive', 600, 'Hard swimming costs 30% less stamina.', { branch: 'racer', effect: { costPct: -30 } }),
       node('porpoise', 'Porpoise', 'active', 600, 'Swimming hard at the surface, jump to leap forward out of the water. 8 stamina.', { branch: 'racer', effect: { stamina: 8 } }),
       node('waterborne', 'Waterborne', 'passive', 1200, 'Fight in water without the usual slowdown.', { branch: 'racer' }),
-      node('torpedo', 'Torpedo', 'active', 5001, 'For 5 s, hard swimming is twice as fast and costs nothing.', { branch: 'racer', needsAny: ['waterborne'] }),
+      node('torpedo', 'Torpedo', 'active', 5000, 'For 5 s, hard swimming is twice as fast and costs nothing.', { branch: 'racer', needsAny: ['waterborne'] }),
     ],
   },
   shortsword: {
@@ -166,14 +166,14 @@ const WRITTEN = {
       node('drills', 'Blade drills', 'passive', 150, 'Shortsword damage +3% per rank.', { ranks: 3, effect: { damagePct: 3 } }),
       node('steady', 'Economy of motion', 'passive', 150, 'Shortsword attacks cost 5% less stamina per rank.', { ranks: 2, effect: { staminaPct: -5 } }),
       node('closingThrust', 'Closing thrust', 'active', 200, 'Special — a heavy attack with no light attack before it: drive forward behind a low lunging thrust that skewers the first foe in its path. 1.6× damage, 18 stamina. Per rank: +10% damage and a longer drive.', { ranks: 3, needs: ['drills'], effect: { at: 0, damage: 1.6, stamina: 18 } }),
-      node('timing1', 'Apprentice\'s timing', 'passive', 201, 'The perfect combo window is 5% wider per rank.', { ranks: 3, effect: { windowPct: 5 } }),
+      node('timing1', 'Apprentice\'s timing', 'passive', 200, 'The perfect combo window is 5% wider per rank.', { ranks: 3, effect: { windowPct: 5 } }),
       node('footwork', 'Footwork', 'passive', 250, 'Move 6% faster while attacking per rank.', { ranks: 2, effect: { attackMovePct: 6 } }),
-      node('timing2', 'Journeyman\'s timing', 'passive', 501, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing1'], effect: { windowPct: 5 } }),
+      node('timing2', 'Journeyman\'s timing', 'passive', 500, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing1'], effect: { windowPct: 5 } }),
       node('flow', 'Flowing blade', 'passive', 550, 'Shortsword attack speed +3% per rank.', { ranks: 3, effect: { speedPct: 3 } }),
       node('secondBreath', 'Second breath', 'passive', 600, 'Every perfect hit gives back 2 stamina per rank.', { ranks: 2, effect: { perfectStamina: 2 } }),
-      node('timing3', 'Expert\'s timing', 'passive', 1001, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing2'], effect: { windowPct: 5 } }),
+      node('timing3', 'Expert\'s timing', 'passive', 1000, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing2'], effect: { windowPct: 5 } }),
       node('quickReset', 'Quick reset', 'passive', 1100, 'Recovery after a combo ends or breaks is 15% shorter per rank.', { ranks: 2, effect: { recoveryPct: -15 } }),
-      node('timing4', 'Master\'s timing', 'passive', 5001, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing3'], effect: { windowPct: 5 } }),
+      node('timing4', 'Master\'s timing', 'passive', 5000, 'The perfect combo window is 5% wider per rank.', { ranks: 3, needs: ['timing3'], effect: { windowPct: 5 } }),
       // ---- Striker (left) ----
       node('keenEye', 'Keen eye', 'passive', 150, 'The perfect combo window is 10% wider per rank.', { ranks: 3, branch: 'striker', effect: { windowPct: 10 } }),
       node('cleanStrikes', 'Clean strikes', 'passive', 250, 'Perfect combo presses add +5% more damage per rank.', { ranks: 3, branch: 'striker', needs: ['keenEye'], effect: { bonusPct: 5 } }),
@@ -188,7 +188,7 @@ const WRITTEN = {
       node('flowingSteel', 'Flowing steel', 'active', 1500, 'Combo extender — right after a special, a perfect light press flows into your next special (the one for one more light attack) — unless that special has its own light follow-up learned, which comes first.', { branch: 'striker', needsAny: ['pommelStrike', 'hamstring'] }),
       node('tornadoJab', 'Tornado jab', 'active', 1600, 'Follow-up — a perfect light right after Whirling cut: spin out of the turn into a driving forward thrust. 1.3× damage (+10% per rank), and it flows on: a perfect light or heavy after it goes into Extended lunge or Closing strike slash. 14 stamina.', { ranks: 3, branch: 'striker', pair: false, needs: ['whirlingCut'], effect: { stamina: 14 } }),
       node('skyPiercer', 'Sky piercer', 'active', 1800, 'Follow-up — a perfect heavy right after Whirling cut: a huge rising strike that throws them into the air (1.2 s, +0.3 s per rank). 2× damage. Ends the combo. 24 stamina.', { ranks: 3, branch: 'striker', pair: false, needs: ['whirlingCut'], effect: { launch: 1.2, stamina: 24 } }),
-      node('thousandCuts', 'Thousand cuts', 'active', 5001, 'Special — a heavy attack after 4 or more lights: keep holding attack to unleash a flurry of slashes that goes on until you let go or run out of stamina (0.6× a cut, 9 stamina a pair; per rank: faster and +10% damage). Ends the combo.', { ranks: 3, branch: 'striker', needs: ['whirlingCut'], effect: { at: 4, damage: 0.6, stamina: 9 } }),
+      node('thousandCuts', 'Thousand cuts', 'active', 5000, 'Special — a heavy attack after 4 or more lights: keep holding attack to unleash a flurry of slashes that goes on until you let go or run out of stamina (0.6× a cut, 9 stamina a pair; per rank: faster and +10% damage). Ends the combo.', { ranks: 3, branch: 'striker', needs: ['whirlingCut'], effect: { at: 4, damage: 0.6, stamina: 9 } }),
       // ---- Guardian (right) ----
       node('steadyGuard', 'Steady guard', 'passive', 150, 'The perfect block window is 0.04 s longer per rank.', { ranks: 3, branch: 'guardian', effect: { perfectBlock: 0.04 } }),
       node('braced', 'Braced', 'passive', 250, 'Blocks stop 5% more damage and cost 8% less stamina per rank.', { ranks: 3, branch: 'guardian', needs: ['steadyGuard'], effect: { blockPct: 5, blockCostPct: -8 } }),
@@ -197,7 +197,7 @@ const WRITTEN = {
       node('quickRecovery', 'Quick recovery', 'passive', 700, 'Guard counters come back 0.4 s sooner and their window lasts 0.1 s longer, per rank.', { ranks: 2, branch: 'guardian', effect: { coolSec: -0.4, windowSec: 0.1 } }),
       node('deflect', 'Deflect', 'active', 1200, 'A perfect block turns a melee blow aside so hard the attacker is staggered for 0.9 s (+0.3 s per rank) — wide open to your counter.', { ranks: 3, branch: 'guardian', needsAny: ['shieldRush', 'windingThrust'], effect: { stun: 0.9 } }),
       node('ironLine', 'Hold the line', 'passive', 1500, 'While your guard is up, blows that get past it hurt 15% less per rank.', { ranks: 2, branch: 'guardian', needs: ['braced'], effect: { throughPct: -15 } }),
-      node('counterFlow', 'Unbroken guard', 'active', 5001, 'Combo extender — right after a guard counter, a perfectly timed press flows into your first special.', { branch: 'guardian', needs: ['deflect'] }),
+      node('counterFlow', 'Unbroken guard', 'active', 5000, 'Combo extender — right after a guard counter, a perfectly timed press flows into your first special.', { branch: 'guardian', needs: ['deflect'] }),
     ],
   },
   mace: {
@@ -224,7 +224,7 @@ const WRITTEN = {
       node('bulwark', 'Bulwark', 'passive', 1200, 'While your guard is up, allies within 4 m take 10% less damage.', { branch: 'warden', needs: ['counterBash'], effect: { allyReductionPct: 10, radius: 4 } }),
       node('ironWill', 'Iron will', 'passive', 1500, 'Stagger resistance +15% per rank while holding a mace.', { ranks: 2, effect: { staggerResistPct: 15 } }),
 
-      node('earthshaker', 'Earthshaker', 'active', 5001, 'A leaping smash that splits the ground in a line, knocking down all it touches.', { needsAny: ['shatter', 'bulwark'] }),
+      node('earthshaker', 'Earthshaker', 'active', 5000, 'A leaping smash that splits the ground in a line, knocking down all it touches.', { needsAny: ['shatter', 'bulwark'] }),
     ],
   },
   fire: {
@@ -240,7 +240,7 @@ const WRITTEN = {
       node('detonate', 'Detonate', 'active', 400, 'While your fireball is in flight, press the cast button again to burst it where it is.'),
       node('twinBolt', 'Twin bolt', 'active', 700, 'Fire bolts leave your hand as two, a little apart: each 75% damage, for 50% more mana.', { oneOf: 'piercingBolt', effect: { each: 0.75, mana: 1.5 } }),
       node('piercingBolt', 'Piercing bolt', 'active', 700, 'Fire bolts burn straight through: up to 3 targets, 25% less damage after each.', { oneOf: 'twinBolt', effect: { targets: 3, falloff: 0.25 } }),
-      node('inferno', 'Inferno', 'active', 5001, 'A fireball spoken in full leaves the ground ablaze where it bursts for 6 s: anything in it keeps burning.', { needsAny: ['conflagration', 'quickfire'], effect: { seconds: 6 } }),
+      node('inferno', 'Inferno', 'active', 5000, 'A fireball spoken in full leaves the ground ablaze where it bursts for 6 s: anything in it keeps burning.', { needsAny: ['conflagration', 'quickfire'], effect: { seconds: 6 } }),
       // ---- Pyromancer (left) ----
       node('searing', 'Searing', 'passive', 150, 'Burns deal 15% more damage per rank.', { ranks: 3, branch: 'pyro', effect: { burnPct: 15 } }),
       node('lingering', 'Lingering flame', 'passive', 250, 'Burns last 1 s longer per rank.', { ranks: 2, branch: 'pyro', effect: { seconds: 1 } }),
@@ -278,7 +278,7 @@ const TEMPLATES = {
       ['execute', 'Executioner', 'active', 1200, 'A finishing blow against a badly wounded foe.', 1, { branch: 'a', needs: ['sweep'] }],
       ['unbroken', 'Unbroken', 'passive', 1200, 'Take 10% less damage while your guard is up.', 1, { branch: 'b', needs: ['riposte'] }],
       ['mastery', '{S} mastery', 'passive', 1500, 'Critical chance with {S} +5% per rank.', 2],
-      ['legend', 'Legend of the {s}', 'active', 5001, 'A masterwork technique, the signature of a true master.', 1, { needsAny: ['execute', 'unbroken'] }],
+      ['legend', 'Legend of the {s}', 'active', 5000, 'A masterwork technique, the signature of a true master.', 1, { needsAny: ['execute', 'unbroken'] }],
     ],
   },
   combat: {
@@ -297,7 +297,7 @@ const TEMPLATES = {
       ['bastion', 'Bastion', 'passive', 1200, 'Below half health, take 15% less damage.', 1, { branch: 'a', needs: ['standFirm'] }],
       ['ghost', 'Ghost', 'passive', 1200, 'A chance to avoid any hit entirely.', 1, { branch: 'b', needs: ['slip'] }],
       ['veteran', 'Veteran', 'passive', 1500, '{S} costs 10% less stamina per rank.', 2],
-      ['legend', 'Unyielding', 'active', 5001, 'For a few seconds, nothing can bring you down.', 1, { needsAny: ['bastion', 'ghost'] }],
+      ['legend', 'Unyielding', 'active', 5000, 'For a few seconds, nothing can bring you down.', 1, { needsAny: ['bastion', 'ghost'] }],
     ],
   },
   profession: {
@@ -316,7 +316,7 @@ const TEMPLATES = {
       ['signature', 'Signature', 'passive', 1200, 'Your finest works carry your mark and sell for more.', 1, { branch: 'a', needs: ['masterwork'] }],
       ['bounty', 'Bounty', 'passive', 1200, 'A chance of a bonus result each time.', 1, { branch: 'b', needs: ['batch'] }],
       ['lore', 'Trade secrets', 'passive', 1500, 'Learn recipes and techniques 10% faster per rank.', 2],
-      ['legend', 'Grandmaster\'s touch', 'active', 5001, 'A work spoken of for generations.', 1, { needsAny: ['signature', 'bounty'] }],
+      ['legend', 'Grandmaster\'s touch', 'active', 5000, 'A work spoken of for generations.', 1, { needsAny: ['signature', 'bounty'] }],
     ],
   },
   general: {
@@ -335,7 +335,7 @@ const TEMPLATES = {
       ['virtuoso', 'Virtuoso', 'passive', 1200, 'Your best results with {s} are even better.', 1, { branch: 'a', needs: ['flair'] }],
       ['reliable', 'Reliable', 'passive', 1200, 'Your worst results with {s} are never bad.', 1, { branch: 'b', needs: ['steady'] }],
       ['second', 'Second nature', 'passive', 1500, '{S} limit raised slightly per rank.', 2],
-      ['legend', 'Peerless', 'active', 5001, 'A feat of {s} few would believe.', 1, { needsAny: ['virtuoso', 'reliable'] }],
+      ['legend', 'Peerless', 'active', 5000, 'A feat of {s} few would believe.', 1, { needsAny: ['virtuoso', 'reliable'] }],
     ],
   },
   magic: {
@@ -354,7 +354,7 @@ const TEMPLATES = {
       ['cataclysm', 'Unleash', 'active', 1200, 'Release your stored {s} power in one blast.', 1, { branch: 'a', needs: ['surge'] }],
       ['harmony', 'Harmony', 'passive', 1200, '{S} spells sometimes cost no mana.', 1, { branch: 'b', needs: ['quicken'] }],
       ['depth', 'Deep study', 'passive', 1500, '{S} spells are mastered 10% faster per rank.', 2],
-      ['legend', 'Archmage of {S}', 'active', 5001, 'A working of {s} beyond any spellbook.', 1, { needsAny: ['cataclysm', 'harmony'] }],
+      ['legend', 'Archmage of {S}', 'active', 5000, 'A working of {s} beyond any spellbook.', 1, { needsAny: ['cataclysm', 'harmony'] }],
     ],
   },
 };
@@ -362,6 +362,7 @@ const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaS
 const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScript: 'Runic script', firstAid: 'First aid', trapHandling: 'Trap handling', monsterLore: 'Monster lore', crystalHarvesting: 'Crystal harvesting', manaControl: 'Mana control', manaSense: 'Mana sense', heavyArmor: 'Heavy armor', lightArmor: 'Light armor', voiceless: 'Voiceless casting' }[id]; return s || id[0].toUpperCase() + id.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase(); };
 function genericTree(id) {
   if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Three disciplines shape a spell sequence: sustain one element, rotate through distinct elements, or strengthen the universal art of chaining. A spell may appear only once in a chain.', branches:{a:{name:'Same Element',text:'Build power and efficiency by sustaining one element. Repeating an element is allowed on this path, but never repeat the same spell.'},b:{name:'Elemental Rotation',text:'Change element with every spell. No element or spell may repeat. Weaving perks let more of those distinct spells fit into the same chain capacity.'}}, nodes:[
+    {id:'unskilledCapacity',name:'First Link',kind:'passive',gate:0,text:'Your first follow-up spell can be woven into a chain. This is the starting universal chain slot.',ranks:1,innate:true,effect:{chainSlots:1}},
     {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:150,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
     {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'a',needs:['elementalBoost']},
     {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
@@ -388,7 +389,7 @@ export const SKILL_TREES = {};
 for (const id of Object.keys(SKILLS)) { if (SKILLS[id].hidden) continue; const t = WRITTEN[id] || genericTree(id); if (t) SKILL_TREES[id] = t; }
 // Pair each side node with its opposite: same rank tier, same kind (passive with passive, active with active), same
 // order on the other side.
-const TIER_STARTS = [0, 201, 501, 1001, 5001];
+const TIER_STARTS = [0, 200, 500, 1000, 5000];
 const tierOf = gate => TIER_STARTS.filter(t => gate >= t).length - 1;
 for (const tree of Object.values(SKILL_TREES)) {
   const [A, B] = Object.keys(tree.branches);
@@ -409,18 +410,25 @@ function migrateChainCastingState(c) {
   const state = c.skillTrees?.chainCasting;
   const nodes = state?.nodes || state;
   if (!nodes || (!Object.prototype.hasOwnProperty.call(nodes, 'chainCapacity') && !Object.prototype.hasOwnProperty.call(nodes, 'rotationCapacity'))) return;
-  // Earlier versions kept generic capacity in two standalone nodes. Fold both investments
-  // into the three universal center passives; the new rotation perks are separate discounts.
-  let remaining = Math.max(0, Math.floor(nodes.chainCapacity || 0)) + Math.max(0, Math.floor(nodes.rotationCapacity || 0));
+  // Older saves used separate generic and rotational capacity nodes. Preserve each investment
+  // in its new equivalent: universal slots stay universal; rotation reserve becomes weave ranks.
+  let universal = Math.max(0, Math.floor(nodes.chainCapacity || 0));
+  let weave = Math.max(0, Math.min(10, Math.floor(nodes.rotationCapacity || 0)));
   delete nodes.chainCapacity;
   delete nodes.rotationCapacity;
   for (const id of ['steadySequence', 'perfectCadence', 'swiftHandoff']) {
     const have = Math.max(0, Math.min(3, Math.floor(nodes[id] || 0)));
-    const add = Math.min(3 - have, remaining);
+    const add = Math.min(3 - have, universal);
     if (have + add > 0) nodes[id] = have + add;
-    remaining -= add;
-    if (!remaining) break;
+    universal -= add;
+    if (!universal) break;
   }
+  const diverse = Math.max(0, Math.min(5, Math.floor(nodes.diverseWeave || 0)));
+  const addDiverse = Math.min(5 - diverse, weave);
+  if (diverse + addDiverse > 0) nodes.diverseWeave = diverse + addDiverse;
+  weave -= addDiverse;
+  const mastery = Math.max(0, Math.min(5, Math.floor(nodes.wovenMastery || 0)));
+  if (mastery + weave > 0) nodes.wovenMastery = Math.min(5, mastery + weave);
 }
 function trees(c) { if (!c.skillTrees) { c.skillTrees = c.weaponTrees || {}; delete c.weaponTrees; } migrateChainCastingState(c); return c.skillTrees; }   // older saves called it weaponTrees
 export const treeState = (c, skill) => (trees(c)[skill] ??= { nodes: {}, branch: null });

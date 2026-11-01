@@ -85,6 +85,7 @@ export const SKILLS = {
   voiceless:    def('general', 'mental',   ['spirit', 'mind']),
   manaControl:  def('general', 'mental',   ['mind']),
   manaSense:    def('general', 'mental',   ['spirit']),
+  chainCasting: def('general', 'mental',   ['mind', 'finesse']), // coordinating multiple prepared spells into one sequence
   lockpicking:  def('general', 'physical', ['finesse']),
   sneak:        def('general', 'physical', ['finesse', 'speed']),
   athletics:    def('general', 'physical', ['strength', 'endurance']),

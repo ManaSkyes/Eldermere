@@ -35,8 +35,9 @@ export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['
 export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
 // equipment slots as laid out down the left of the page, head to toe, then hands
 const SLOT_ORDER = ['head', 'back', 'chest', 'top', 'arms', 'hands', 'wrist', 'legs', 'bottom', 'feet', 'mainHand', 'offHand'];
-const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense'];
+const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const CATEGORY_NAMES = { gathering: 'Gathering', crafting: 'Crafting', trade: 'Trade', processing: 'Processing' };
+const MAGIC_GROUPS = { Spirit: ['holy', 'light', 'dark', 'lunar', 'life'], Mind: ['void', 'fire', 'water', 'earth', 'wind', 'lightning', 'enhancement', 'spatial'] };
 
 const BEAST_CLASSIFICATIONS = {
   'Essence Tiers': {
@@ -224,25 +225,26 @@ export function createBook(root, ctx) {
       <section class="cell-p"><h3>Weapons</h3><table class="bsheet skills">${weapons}</table></section></div>`;
   }
 
+  let magicCategory = 'Spirit';
   function pageMagic() {
     const d = derived(c), body = ctx.body(), focus = body?.gear.stats().focus;
-    const known = Object.entries(c.spells || {}), prep = preparedOf(c), pmax = preparedMax(c);
-    // preparing: tick the spells to hold ready (the spell wheel, Q, and the hotbar draw from these)
-    const prepList = prepMode ? `<div class="prep-list"><p class="hint">Click a spell to prepare it or let it go. Hover one and press 1–9 (or drag it) to put it on the hotbar.</p>
-      <ul>${known.map(([id, lv]) => { const sp = SPELLS[id], on = prep.includes(id), pr = sp ? castProfile(c, sp, { focus: !!focus }) : null;
-        return `<li class="prep ${on ? 'on' : ''}" data-prepare="${id}" data-spell="${id}" draggable="true" title="${escapeHtml(sp?.description ?? '')}"><span class="tick">${on ? '✦' : ''}</span><b>${escapeHtml(sp?.name ?? id)}</b>
-          <small>${escapeHtml(label(sp?.school ?? ''))} · ${pr ? `${Math.ceil(pr.mana)} MP · ${pr.castTime.toFixed(1)} s` : ''} · mastery ${display(lv)}</small></li>`; }).join('')}</ul></div>` : '';
-    return `<div class="pg two">
-      <section class="cell-p"><h3 class="mana-head">Mana <button class="prep-btn ${prepMode ? 'on' : ''}" data-prepmode title="Prepare spells: choose which to hold ready">✦ Prepare <span>${prep.length}/${pmax}</span></button></h3>
-        <p class="big">${display(d.maxMp)} <span class="muted">MP</span></p>
-        <p class="muted">Focus: ${focus ? escapeHtml(label(focus)) : 'none'} · Prepared spells: ${prep.length} of ${pmax} (Intelligence and Mind raise this, up to 30)</p>${prepList}
-        <h3>Casting</h3><table class="bsheet skills">${CASTING.map(id => skillRow(id)).join('')}</table>
-        <h3>Spells</h3>${known.length ? `<table class="bsheet">${known.map(([id, lv]) => {
-          const sp = SPELLS[id];
-          return `<tr data-spell="${id}" draggable="true" title="Hover and press 1–9, or drag, to put it on the hotbar"><th>${prep.includes(id) ? '✦ ' : ''}${escapeHtml(sp?.name ?? id)}</th><td class="muted">${escapeHtml(label(sp?.school ?? ''))}</td><td class="num">${display(lv)}</td><td>${lv >= MASTERY.core ? 'Mastered' : bar(lv / MASTERY.core)}</td></tr>`;
-        }).join('')}</table>` : '<p class="muted">You know no spells yet. Spells are learned from teachers, scrolls and books.</p>'}</section>
-      <section class="cell-p"><h3>Schools</h3><table class="bsheet skills">${visible('magic').map(id => skillRow(id)).join('')}</table>
-        <p class="hint">A school grows whenever you cast one of its spells, and makes each of its spells quicker to master.</p></section></div>`;
+    const schools = Object.keys(SKILLS).filter(id => SKILLS[id].group === 'magic');
+    const selected = (MAGIC_GROUPS[magicCategory] || []).filter(id => schools.includes(id));
+    const knownCount = Object.keys(c.spells || {}).length, prep = preparedOf(c), pmax = preparedMax(c);
+    const categories = Object.keys(MAGIC_GROUPS).map(name => `<button class="beast-page-tab ${name === magicCategory ? 'on' : ''}" data-magic-category="${name}"><span>${name}</span></button>`).join('');
+    const rows = selected.map(id => {
+      const v = c.skills[id] ?? 100, r = rankOf(v);
+      return `<tr><th class="treelink" data-tree="${id}" title="Open the ${escapeHtml(label(id))} tree">${escapeHtml(label(id))}</th><td class="num">${display(v)}</td><td class="rank r-${r.id}">${r.name}</td><td>${skillMeter(v)}</td></tr>`;
+    }).join('');
+    return `<div class="pg magic-page">
+      <header class="beast-collection-head"><div><h2>Magic</h2><p class="hint">Your capacity for magic, the disciplines you study, and the techniques that shape your casting.</p></div><strong>${knownCount} <small>spells known</small></strong></header>
+      <section class="spell-journal-summary"><b>Mana</b><span>${display(d.maxMp)} MP</span><small>Focus: ${focus ? escapeHtml(label(focus)) : 'none'} · Prepared spells: ${prep.length} / ${pmax}</small></section>
+      <section class="cell-p"><h3>Casting skills</h3><table class="bsheet skills">${CASTING.map(id => skillRow(id)).join('')}</table></section>
+      <nav class="beast-page-nav" aria-label="Magic school categories"><span class="beast-page-tabs">${categories}</span></nav>
+      <section class="beast-type-page"><header class="beast-family-head"><div><small>School disciplines</small><h3>${magicCategory}</h3><p>${magicCategory === 'Spirit' ? 'Magic shaped by the soul, life, radiance and shadow.' : 'Magic shaped by thought, elements, force and the physical world.'}</p></div><small>${selected.length} schools</small></header>
+      <table class="bsheet skills">${rows}</table>
+      <p class="hint">Casting grows the schools that belong to each spell. Hybrid spells train every school they draw upon.</p></section>
+    </div>`;
   }
 
   // ---- body ----
@@ -447,24 +449,39 @@ export function createBook(root, ctx) {
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
+  let spellView = 'list', spellChainEdit = false;
+  const chainCapacity = () => Math.max(1, Math.min(8, 1 + Math.floor(Math.max(0, (c.skills.chainCasting ?? 100) - 100) / 200)));
+  const spellChain = () => { c.spellChain ||= []; c.spellChain = c.spellChain.filter(id => preparedOf(c).includes(id)); return c.spellChain; };
   function pageSpells() {
     const known = Object.entries(c.spells || {}).filter(([id]) => SPELLS[id]).sort((a,b) => SPELLS[a[0]].name.localeCompare(SPELLS[b[0]].name));
-    const prep = preparedOf(c), pmax = preparedMax(c);
-    const cards = known.map(([id]) => {
-      const sp = SPELLS[id], level = masteryOf(c,id), schools = schoolsOf(sp), evolution = spellEvolutionOf(c,id);
-      const progress = Math.min(1, level / MASTERY.core), next = Math.floor(evolution.points);
-      const profile = castProfile(c,sp,{focus:!!ctx.body()?.gear.stats().focus});
-      return `<article class="spell-entry" data-spell-entry="${id}"><header><div><h3>${escapeHtml(sp.name)}</h3><small>${schools.map(s=>escapeHtml(label(s))).join(' + ')} · ${escapeHtml(spellTierLabel(level))}</small></div><strong>${display(level)} <small>mastery</small></strong></header>
-        <p>${escapeHtml(sp.description || 'No description recorded yet.')}</p><p class="hint">${escapeHtml(sp.difficulty <= 0 ? 'Cantrip' : `Difficulty ${sp.difficulty}`)} · ${Math.ceil(profile.mana)} MP · ${profile.castTime.toFixed(1)} s cast</p>
-        <div class="spell-progress">${bar(progress,'xp')}<small>${level >= MASTERY.core ? 'Core mastery complete' : `${Math.round(progress*100)}% to mastery`}</small></div>
-        <div class="spell-evolution"><b>Spell evolution</b><span>${next} evolution point${next===1?'':'s'} earned</span><small>Earned by casting this spell. Its unique evolution paths will unlock here.</small></div>
-        <footer><button data-prepare="${id}" class="prep-btn ${prep.includes(id)?'on':''}">${prep.includes(id)?'✦ Prepared':'Prepare spell'}</button><small>${prep.includes(id)?'Ready to cast':'Not prepared'} · ${evolution.points.toFixed(1)} evolution XP</small></footer></article>`;
+    const prep = preparedOf(c), pmax = preparedMax(c), chain = spellChain(), maxChain = chainCapacity();
+    if (spellView === 'combo') {
+      const options = prep.filter(id => SPELLS[id]);
+      const chainRows = chain.map((id,i) => `<li class="spell-chain-slot"><b>${i+1}</b><span>${escapeHtml(SPELLS[id]?.name || id)}</span><button data-chain-up="${i}" ${i===0?'disabled':''} title="Move earlier">↑</button><button data-chain-down="${i}" ${i===chain.length-1?'disabled':''} title="Move later">↓</button><button data-chain-remove="${id}" title="Remove from chain">×</button></li>`).join('');
+      const available = options.filter(id => !chain.includes(id)).map(id => `<li class="spell-chain-option"><span>${escapeHtml(SPELLS[id].name)}</span><small>${escapeHtml(schoolsOf(SPELLS[id]).map(label).join(' + '))}</small><button data-chain-add="${id}" ${chain.length>=maxChain?'disabled':''}>Add</button></li>`).join('');
+      return `<div class="pg spell-journal"><header class="beast-collection-head"><div><button class="journal-back" data-spell-list>‹ Spells</button><h2>Spell combo</h2><p class="hint">Arrange prepared spells into a casting sequence. Chain Casting determines how many spells you can link.</p></div><strong>${chain.length} <small>/ ${maxChain} links</small></strong></header>
+        <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Current chain capacity: ${maxChain} spell${maxChain===1?'':'s'}. Prepare spells on the Magic page before adding them here.</small></section>
+        <section class="spell-chain-panel"><h3>Current sequence</h3>${chainRows ? `<ol class="spell-chain-list">${chainRows}</ol>` : '<p class="muted">No spells have been linked yet.</p>'}</section>
+        <section class="spell-chain-panel"><h3>Prepared spells</h3>${available ? `<ul class="spell-chain-options">${available}</ul>` : '<p class="muted">No other prepared spells are available to add.</p>'}</section>
+      </div>`;
+    }
+    const rows = known.map(([id, level]) => {
+      const sp = SPELLS[id], evolution = spellEvolutionOf(c,id), progress = Math.min(1, level / MASTERY.core);
+      return `<article class="spell-list-row">
+        <button class="spell-name-link" data-tree="${id}" title="Open this spell's evolution tree">${escapeHtml(sp.name)}</button>
+        <span class="spell-row-progress">${bar(progress,'xp')}</span><span class="spell-row-percent">${Math.round(progress*100)}%</span>
+        <strong class="spell-row-mastery">${display(level)}</strong>
+        <button class="prep-btn spell-row-prepare ${prep.includes(id)?'on':''}" data-prepare="${id}">${prep.includes(id)?'✦ Prepared':'Prepare'}</button>
+        <button class="prep-btn spell-row-combo" data-spell-combo>Combo</button>
+      </article>`;
     }).join('');
-    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><h2>Spells</h2><p class="hint">Every spell you learn is recorded here. Practice shapes the spell itself; its schools provide broader techniques.</p></div><strong>${known.length} <small>known</small></strong></header>
-      <section class="spell-journal-summary"><b>Prepared</b><span>${prep.length} / ${pmax}</span><small>Prepared spells are available to the spell wheel and hotbar.</small></section>
-      ${cards ? `<div class="spell-entry-list">${cards}</div>` : '<p class="muted">You have not learned any spells yet. Teachers, scrolls and books can teach you new spells.</p>'}
+    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><h2>Spells</h2><p class="hint">Your learned spells and their individual mastery. Select a spell to open its evolution tree.</p></div><strong>${known.length} <small>known</small></strong></header>
+      <section class="spell-journal-summary"><b>Prepared</b><span>${prep.length} / ${pmax}</span><small>Prepared spells are available to the spell wheel and hotbar.</small><button class="prep-btn" data-spell-combo>Combo</button></section>
+      <div class="spell-list-head"><span>Spell</span><span>Progress</span><span></span><span>Mastery</span><span>Prepare</span><span>Combo</span></div>
+      ${rows ? `<div class="spell-entry-list">${rows}</div>` : '<p class="muted">You have not learned any spells yet. Teachers, scrolls and books can teach you new spells.</p>'}
     </div>`;
   }
+
   const spellTierLabel = level => level >= 100 ? 'Mastered' : level > 0 ? 'Learning' : 'Unmastered';
   const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, tools: pageTools, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
@@ -485,6 +502,13 @@ export function createBook(root, ctx) {
       <div class="pages pages-${treeView ? 'skill-tree' : tab}">${treeView ? pageTrees() : PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;
     el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { treeView = false; tab = b.dataset.tab; render(); });
+    el.querySelectorAll('[data-magic-category]').forEach(b => b.onclick = () => { magicCategory = b.dataset.magicCategory; render(); });
+    el.querySelectorAll('[data-spell-combo]').forEach(b => b.onclick = () => { spellView = 'combo'; render(); });
+    el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
+    el.querySelectorAll('[data-chain-add]').forEach(b => b.onclick = () => { const chain = spellChain(); if (chain.length < chainCapacity() && preparedOf(c).includes(b.dataset.chainAdd) && !chain.includes(b.dataset.chainAdd)) chain.push(b.dataset.chainAdd); ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-chain-remove]').forEach(b => b.onclick = () => { const chain = spellChain(), i = chain.indexOf(b.dataset.chainRemove); if (i >= 0) chain.splice(i,1); ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-chain-up]').forEach(b => b.onclick = () => { const chain = spellChain(), i = Number(b.dataset.chainUp); if (i > 0) [chain[i-1],chain[i]] = [chain[i],chain[i-1]]; ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-chain-down]').forEach(b => b.onclick = () => { const chain = spellChain(), i = Number(b.dataset.chainDown); if (i >= 0 && i < chain.length-1) [chain[i+1],chain[i]] = [chain[i],chain[i+1]]; ctx.onChange?.(); render(); });
     el.querySelector('.book-close').onclick = () => ctx.onClose();
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
     el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
@@ -525,7 +549,7 @@ export function createBook(root, ctx) {
       ctx.onChange?.(); render();
     });
     el.querySelector('[data-prepmode]')?.addEventListener('click', () => { prepMode = !prepMode; render(); });
-    el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); }));
+    el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); if (r.ok && !r.prepared) { c.spellChain = (c.spellChain || []).filter(id => id !== li.dataset.prepare); } ctx.onChange?.(); render(); }));
     el.querySelectorAll('[data-spell]').forEach(li => { li.ondragstart = e => e.dataTransfer.setData('text/plain', 'spell:' + li.dataset.spell); });
     el.querySelectorAll('[data-potion]').forEach(li => {
       li.ondragstart = e => e.dataTransfer.setData('text/plain', li.dataset.potion);

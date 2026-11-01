@@ -164,6 +164,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     toast?.(`Backfire! ${spell.backfire?.text || ''}`);
   }
 
+  let lastPerfect = false, perfectFlash = 0;
   function finishCast() {
     const spell = SPELLS[casting.id], prof = casting.prof, b = body();
     // Overcast: held past ready, more power for more mana (as much as you can pay for)
@@ -173,7 +174,11 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     casting.power = 1 + 0.6 * over;
     if (vitals.mp < mana) { toast?.('Not enough mana.'); b?.combat.cancelCast(); casting = null; return; }
     vitals.mp -= mana;
-    const failed = Math.random() < prof.backfire;
+    const normalized = casting.t / Math.max(0.01, prof.castTime);
+    const perfect = Math.abs(normalized - 1) <= 0.075;
+    const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
+    const failed = Math.random() >= successChance;
+    lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus }, failed);
@@ -186,6 +191,8 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
+    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.075 } : null; },
+    get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,
     burning,

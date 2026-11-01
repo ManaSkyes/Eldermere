@@ -450,7 +450,7 @@ export function createBook(root, ctx) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
   let spellView = 'list', spellTreeId = null, chainStartId = null;
-  const chainCapacity = () => 1 + (treeState(c, 'chainCasting').nodes.chainCapacity || 0) + 2 * (treeState(c, 'chainCasting').nodes.rotationCapacity || 0);
+  const chainCapacity = () => { const n = treeState(c, 'chainCasting').nodes; return (n.unskilledCapacity || 0) + (n.steadySequence || 0) + (n.perfectCadence || 0) + (n.swiftHandoff || 0) + 2 * ((n.diverseWeave || 0) + (n.wovenMastery || 0)); };
   const spellChains = () => (c.spellChains ||= {});
   const spellChain = () => chainStartId ? (spellChains()[chainStartId] ||= []) : [];
   const spellGlyph = id => ({ fire:'✹', earth:'◆', water:'◈', wind:'〰', lightning:'ϟ', light:'✦', holy:'✧', dark:'◉', lunar:'☾', life:'❀', void:'◌', spatial:'⌖', enhancement:'✧' }[schoolsOf(SPELLS[id] || {})[0]] || '✧');

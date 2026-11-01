@@ -363,11 +363,11 @@ const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScr
 function genericTree(id) {
   if (id === 'chainCasting') return {
     name: 'Chain Casting', generic: false,
-    intro: 'Four disciplines shape your chains: Same Element, Elemental Rotation, Rapid Fire and Two-Element Specialization. The branches are compatible unless a specific mechanic says otherwise. Universal techniques sit at the centre.',
+    intro: 'Incantation chains are shaped by Same Element, Elemental Rotation and Two-Element Specialization, with universal techniques at the centre. Rapid Fire is a separate held voiceless barrage: it trades chaining for speed, escalating mana mastery and sustained power.',
     branches: {
       same: { name: 'Same Element', text: 'Build resonance by sustaining one element across successive spells.' },
       rotation: { name: 'Elemental Rotation', text: 'Change element between spells; no element repeats. Rotation weaving can fit distinct spells into half-slots.' },
-      rapid: { name: 'Rapid Fire', text: 'Turn chain capacity into a barrage by repeating a spell. Every follow-up slot can become another cast.' },
+      rapid: { name: 'Rapid Fire', text: 'Replace quick voiceless casting with a held barrage. Chain capacity determines how many shots remain at full cost before escalation begins.' },
       dual: { name: 'Two-Element Specialization', text: 'Focus a chain around a pair of elements. Rotation and other compatible bonuses still apply within that pair.' }
     },
     nodes: [
@@ -390,11 +390,28 @@ function genericTree(id) {
       {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells. This half-slot benefit does not apply to Rapid Fire barrages.',ranks:5,branch:'rotation',needs:['rotatingForce'],layout:{x:93,y:8}},
       {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank grants one more rotation slot that can hold two distinct-element follow-up spells. Cannot discount repeated Rapid Fire casts.',ranks:5,branch:'rotation',needs:['diverseWeave'],layout:{x:94,y:29}},
 
-      // Lower-left: repeated-spell barrage.
-      {id:'rapidFire',name:'Rapid Fire',kind:'passive',gate:200,text:'Unlock Rapid Fire: a follow-up may repeat the same spell, turning each available chain slot into another cast of that spell.',ranks:1,branch:'rapid',layout:{x:34,y:68}},
-      {id:'rapidVolley',name:'Rapid Volley',kind:'passive',gate:400,text:'Repeated casts in a Rapid Fire barrage gain +3% potency per rank after the first.',ranks:3,branch:'rapid',needs:['rapidFire'],layout:{x:20,y:82}},
-      {id:'sustainedBarrage',name:'Sustained Barrage',kind:'passive',gate:800,text:'Each repeated cast in a Rapid Fire barrage costs 4% less mana per rank.',ranks:3,branch:'rapid',needs:['rapidVolley'],layout:{x:7,y:95}},
-      {id:'focusedBurst',name:'Focused Burst',kind:'passive',gate:1200,text:'Rapid Fire follow-up casts complete 4% faster per rank.',ranks:3,branch:'rapid',needs:['rapidVolley'],layout:{x:35,y:95}},
+      // Rapid Fire is a held voiceless barrage, independent of incantation chains.
+      {id:'rapidFire',name:'Rapid Fire',kind:'passive',gate:200,text:'Unlock held Rapid Fire. A barrage repeats the readied voiceless spell; it never creates or joins an incantation chain.',ranks:1,branch:'rapid',layout:{x:34,y:68}},
+      {id:'rapidVolleyApprentice',name:'Apprentice Rapid Volley',kind:'passive',gate:200,text:'Each successive barrage shot gains +2% potency per rank.',ranks:5,branch:'rapid',needs:['rapidFire'],layout:{x:18,y:75}},
+      {id:'sustainedBarrageApprentice',name:'Apprentice Sustained Barrage',kind:'passive',gate:200,text:'Reduce the mana-escalation exponent by 5% per rank.',ranks:5,branch:'rapid',needs:['rapidFire'],layout:{x:7,y:75.65}},
+      {id:'efficientBarrageApprentice',name:'Apprentice Efficient Barrage',kind:'passive',gate:200,text:'Reduce Rapid Fire base mana cost by 2% per rank.',ranks:5,branch:'rapid',needs:['rapidFire'],layout:{x:28,y:76.3}},
+      {id:'focusedBurstApprentice',name:'Apprentice Focused Burst',kind:'passive',gate:200,text:'Increase Rapid Fire repeat speed by 4% per rank.',ranks:5,branch:'rapid',needs:['rapidFire'],layout:{x:36,y:76.95}},
+      {id:'rapidVolleyJourneyman',name:'Journeyman Rapid Volley',kind:'passive',gate:500,text:'Each successive barrage shot gains +3% potency per rank.',ranks:5,branch:'rapid',needs:['rapidVolleyApprentice'],layout:{x:18,y:79.5}},
+      {id:'sustainedBarrageJourneyman',name:'Journeyman Sustained Barrage',kind:'passive',gate:500,text:'Reduce the mana-escalation exponent by 7% per rank.',ranks:5,branch:'rapid',needs:['sustainedBarrageApprentice'],layout:{x:7,y:80.15}},
+      {id:'efficientBarrageJourneyman',name:'Journeyman Efficient Barrage',kind:'passive',gate:500,text:'Reduce Rapid Fire base mana cost by 3% per rank.',ranks:5,branch:'rapid',needs:['efficientBarrageApprentice'],layout:{x:28,y:80.8}},
+      {id:'focusedBurstJourneyman',name:'Journeyman Focused Burst',kind:'passive',gate:500,text:'Increase Rapid Fire repeat speed by 6% per rank.',ranks:5,branch:'rapid',needs:['focusedBurstApprentice'],layout:{x:36,y:81.45}},
+      {id:'rapidVolleyExpert',name:'Expert Rapid Volley',kind:'passive',gate:1000,text:'Each successive barrage shot gains +4% potency per rank.',ranks:5,branch:'rapid',needs:['rapidVolleyJourneyman'],layout:{x:18,y:84}},
+      {id:'sustainedBarrageExpert',name:'Expert Sustained Barrage',kind:'passive',gate:1000,text:'Reduce the mana-escalation exponent by 9% per rank.',ranks:5,branch:'rapid',needs:['sustainedBarrageJourneyman'],layout:{x:7,y:84.65}},
+      {id:'efficientBarrageExpert',name:'Expert Efficient Barrage',kind:'passive',gate:1000,text:'Reduce Rapid Fire base mana cost by 4% per rank.',ranks:5,branch:'rapid',needs:['efficientBarrageJourneyman'],layout:{x:28,y:85.3}},
+      {id:'focusedBurstExpert',name:'Expert Focused Burst',kind:'passive',gate:1000,text:'Increase Rapid Fire repeat speed by 8% per rank.',ranks:5,branch:'rapid',needs:['focusedBurstJourneyman'],layout:{x:36,y:85.95}},
+      {id:'rapidVolleyMaster',name:'Master Rapid Volley',kind:'passive',gate:2000,text:'Each successive barrage shot gains +5% potency per rank.',ranks:5,branch:'rapid',needs:['rapidVolleyExpert'],layout:{x:18,y:88.5}},
+      {id:'sustainedBarrageMaster',name:'Master Sustained Barrage',kind:'passive',gate:2000,text:'Reduce the mana-escalation exponent by 11% per rank.',ranks:5,branch:'rapid',needs:['sustainedBarrageExpert'],layout:{x:7,y:89.15}},
+      {id:'efficientBarrageMaster',name:'Master Efficient Barrage',kind:'passive',gate:2000,text:'Reduce Rapid Fire base mana cost by 5% per rank.',ranks:5,branch:'rapid',needs:['efficientBarrageExpert'],layout:{x:28,y:89.8}},
+      {id:'focusedBurstMaster',name:'Master Focused Burst',kind:'passive',gate:2000,text:'Increase Rapid Fire repeat speed by 10% per rank.',ranks:5,branch:'rapid',needs:['focusedBurstExpert'],layout:{x:36,y:90.45}},
+      {id:'rapidVolleyGrandmaster',name:'Grandmaster Rapid Volley',kind:'passive',gate:5000,text:'Each successive barrage shot gains +6% potency per rank.',ranks:5,branch:'rapid',needs:['rapidVolleyMaster'],layout:{x:18,y:93}},
+      {id:'sustainedBarrageGrandmaster',name:'Grandmaster Sustained Barrage',kind:'passive',gate:5000,text:'Reduce the mana-escalation exponent by 13% per rank.',ranks:5,branch:'rapid',needs:['sustainedBarrageMaster'],layout:{x:7,y:93.65}},
+      {id:'efficientBarrageGrandmaster',name:'Grandmaster Efficient Barrage',kind:'passive',gate:5000,text:'Reduce Rapid Fire base mana cost by 6% per rank.',ranks:5,branch:'rapid',needs:['efficientBarrageMaster'],layout:{x:28,y:94.3}},
+      {id:'focusedBurstGrandmaster',name:'Grandmaster Focused Burst',kind:'passive',gate:5000,text:'Increase Rapid Fire repeat speed by 12% per rank.',ranks:5,branch:'rapid',needs:['focusedBurstMaster'],layout:{x:36,y:94.95}},
 
       // Lower-right: two-element pairing.
       {id:'pairedElements',name:'Paired Elements',kind:'passive',gate:200,text:'Unlock Two-Element Specialization. A chain may use up to two distinct elements, chosen by its first two elemental spells.',ranks:1,branch:'dual',layout:{x:66,y:68}},

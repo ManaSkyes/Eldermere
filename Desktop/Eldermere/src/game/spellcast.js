@@ -192,8 +192,10 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     else if (!failed) {
       const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
       const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
-      const sameElementUnlocked = (tree.elementalBoost || 0) > 0;
+      // Same-element chaining is the baseline discipline; the left branch improves it.
+      // Unlocking Elemental Rotation switches the chain to strict, non-repeating elements.
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
+      const sameElementUnlocked = !rotationUnlocked || (tree.elementalBoost || 0) > 0;
       const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
       const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
       const discountedSpellLimit = discountedRotationSlots * 2;

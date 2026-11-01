@@ -2269,10 +2269,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (input.pressed('interact')) { const drop = nearGroundLoot(), plant = !drop && nearGatherable(); if (drop) pickGroundLoot(drop); else if (plant) gatherPlant(plant); else nearStation()?.open(); }
       wheelUpdate();
       combat.update(dt, input, allTargets(), true);
+      castHud(spells.update(dt, input, allTargets(), true));
+      // Spell update can create a chain prompt this frame; render its timing immediately.
       comboHud.update(spells.timing || combat.timing);
       if (spells.perfectFlash > 0) comboHud.flash();
       crossEl?.classList.toggle('recover', combat.recovering);
-      castHud(spells.update(dt, input, allTargets(), true));
       // fixed small steps keep collisions solid at low frame rates
       const steps = Math.ceil(dt / 0.0084);
       refreshNear(player.state.pos.x, player.state.pos.z);

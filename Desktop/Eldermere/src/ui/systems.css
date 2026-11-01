@@ -832,8 +832,19 @@ tr[data-spell] { cursor: grab; }
   .tools-page > .cell-p + .cell-p { border-left: 0; border-top: 1px solid var(--rule); }
 }
 
-/* Herbarum's rotatable botanical specimen viewport. */
-.herbarum-entry .bst-right { background:transparent !important; position:relative; }
+/* Herbarum specimen entries use the same live-canvas window as the Bestiary.
+   Keep the catalogue parchment intact, but let the 3D canvas show through the
+   book, page, and specimen side while an individual plant is open. */
+.book.book-herbarum:has(.herbarum-entry),
+.pages.pages-herbarum:has(.herbarum-entry),
+.herbarum-entry .bst-right {
+  background: transparent !important;
+}
+.pages.pages-herbarum:has(.herbarum-entry) {
+  inset: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
 .herb-fig { position:relative; z-index:1; flex:1; min-height:260px; border:6px solid #6e4a2e; background:transparent !important; box-shadow:inset 0 0 0 2px #2c1a10,0 0 0 1px var(--rule); cursor:grab; touch-action:none; }
 .herb-fig::before { content:none; }
 .herb-fig:active { cursor:grabbing; }

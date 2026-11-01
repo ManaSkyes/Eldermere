@@ -289,33 +289,99 @@ export function createBook(root, ctx) {
     ['General', id => SKILLS[id].group === 'general' && !CASTING.includes(id)]];
   function pageChainCastingTree(tree, v, st, free, spent) {
     const nodes = tree.nodes, byId = Object.fromEntries(nodes.map(n => [n.id, n]));
-    if (!byId[chainSelectedNode]) chainSelectedNode = 'unskilledCapacity';
-    const selected = byId[chainSelectedNode], rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
-    const status = n => { const have = rank(n), buy = canBuy(c, 'chainCasting', n.id); return n.innate ? 'Known' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available' : v < n.gate ? 'Locked · skill' : 'Locked · prerequisite'; };
-    const branchX = { same:13, rotation:37, rapid:63, dual:87 };
-    const gateY = gate => { const stops=[[0,8],[200,20],[500,38],[1000,56],[5000,76],[10000,96]]; if(gate<=0)return stops[0][1]; for(let i=1;i<stops.length;i++){const [g1,y1]=stops[i-1],[g2,y2]=stops[i];if(gate<=g2)return y1+(gate-g1)/(g2-g1)*(y2-y1);}return 98; };
-    const pos = n => ({x:n.branch ? branchX[n.branch] : 50, y:gateY(n.gate)});
-    const links = nodes.flatMap(n => [...(n.needs || []), ...(n.needsAny || [])].filter(id => byId[id]).map(id => {
-      const a=pos(byId[id]),b=pos(n); return {x1:a.x,y1:a.y,x2:b.x,y2:b.y,branch:n.branch||'core'};
-    }));
-    const lines = links.map(l => `<line class="chain-link ${l.branch}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`).join('');
-    const milestones = [
-      ['Unskilled','0–199',5],['Apprentice','200–499',20],['Journeyman','500–999',38],
-      ['Expert','1,000–4,999',56],['Master','5,000–9,999',76],['Guru','10,000+',96]
-    ].map(([name,range,y])=>`<div class="chain-tier-band" style="top:${y}%"><span>${name}</span><small>${range}</small></div>`).join('');
+    const rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
+    const status = n => {
+      const have = rank(n), buy = canBuy(c, 'chainCasting', n.id);
+      return n.innate ? 'Known from the start' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available to learn' : buy.reason;
+    };
+    const lanes = { same: 13, rotation: 37, core: 50, rapid: 63, dual: 87 };
+    const tiers = [
+      { name: 'Unskilled', range: '0–199', min: 0, max: 200, top: 7, bottom: 19 },
+      { name: 'Apprentice', range: '200–499', min: 200, max: 500, top: 21, bottom: 34 },
+      { name: 'Journeyman', range: '500–999', min: 500, max: 1000, top: 36, bottom: 49 },
+      { name: 'Expert', range: '1,000–4,999', min: 1000, max: 5000, top: 51, bottom: 68 },
+      { name: 'Master', range: '5,000–9,999', min: 5000, max: 10000, top: 70, bottom: 85 },
+      { name: 'Guru', range: '10,000+', min: 10000, max: Infinity, top: 88, bottom: 98 }
+    ];
+    const tierFor = gate => Math.max(0, tiers.findIndex(t => gate >= t.min && gate < t.max));
+    const grouped = new Map();
+    for (const n of nodes) {
+      const key = (n.branch || 'core') + ':' + tierFor(n.gate);
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(n);
+    }
+    const positions = {};
+    for (const [key, group] of grouped) {
+      const [lane, tierIndex] = key.split(':');
+      const tier = tiers[Number(tierIndex)];
+      group.sort((a, b) => a.gate - b.gate || a.name.localeCompare(b.name));
+      const count = group.length;
+      group.forEach((n, i) => {
+        const y = count === 1 ? (tier.top + tier.bottom) / 2
+          : tier.top + 2 + (i * (tier.bottom - tier.top - 4) / (count - 1));
+        positions[n.id] = { x: lanes[lane], y };
+      });
+    }
+    const pathFor = (a, b) => {
+      const bend = Math.max(3, Math.abs(b.x - a.x) * .28);
+      const direction = b.x >= a.x ? 1 : -1;
+      return `M ${a.x} ${a.y} C ${a.x + bend * direction} ${a.y}, ${b.x - bend * direction} ${b.y}, ${b.x} ${b.y}`;
+    };
+    const prerequisiteEdges = nodes.flatMap(n => [
+      ...(n.needs || []).map(id => ({ from: id, to: n.id, alternative: false })),
+      ...(n.needsAny || []).map(id => ({ from: id, to: n.id, alternative: true }))
+    ]).filter(e => positions[e.from] && positions[e.to]);
+    // These are intentional cross-discipline synergies, not prerequisite locks.
+    // The one exception is Rapid Fire + Rotation's half-slot discount: the two
+    // systems can coexist, but repeated casts never receive that discount.
+    const compatibility = [
+      ['elementalBoost', 'rapidFire', 'Same-element resonance also strengthens a barrage.'],
+      ['elementalBoost', 'pairedElements', 'Same-element casts can build resonance within your chosen pair.'],
+      ['elementalRotation', 'pairedElements', 'Rotation can alternate between your two selected elements.'],
+      ['rapidFire', 'pairedElements', 'A repeated spell can remain inside your selected pair.'],
+      ['rapidFire', 'elementalRotation', 'Both can be learned; repeated casts do not qualify for rotation half-slots.']
+    ].filter(([a, b]) => positions[a] && positions[b]);
+    const lines = prerequisiteEdges.map(e =>
+      `<path class="chain-link prereq ${e.alternative ? 'alternative' : ''}" d="${pathFor(positions[e.from], positions[e.to])}"/>`
+    ).join('') + compatibility.map(([a, b]) =>
+      `<path class="chain-link compatible" d="${pathFor(positions[a], positions[b])}"><title>${escapeHtml(byId[a].name)} ↔ ${escapeHtml(byId[b].name)}</title></path>`
+    ).join('');
+    const milestones = tiers.map(t =>
+      `<div class="chain-tier-band" style="top:${t.top}%"><span>${t.name}</span><small>${t.range}</small></div>`
+    ).join('');
     const branchLabels = [
-      ['same','Same Element'],['rotation','Elemental Rotation'],['rapid','Rapid Fire'],['dual','Two-Element']
-    ].map(([id,name])=>`<span class="chain-branch-label ${id}" style="left:${branchX[id]}%">${name}</span>`).join('');
+      ['same', 'Same Element'], ['rotation', 'Elemental Rotation'],
+      ['core', 'Universal'], ['rapid', 'Rapid Fire'], ['dual', 'Two-Element']
+    ].map(([id, name]) =>
+      `<span class="chain-branch-label ${id}" style="left:${lanes[id]}%">${name}</span>`
+    ).join('');
     const circles = nodes.map(n => {
-      const have=rank(n),buy=canBuy(c,'chainCasting',n.id),p=pos(n);
-      const cls=[n.branch||'core',have?'got':'',have>=n.ranks?'full':'',buy.ok?'buyable':'',n.id===chainSelectedNode?'selected':''].join(' ');
-      return `<button class="chain-skill-node ${cls}" data-chain-select="${n.id}" style="left:${p.x}%;top:${p.y}%" title="${escapeHtml(n.name)} · ${escapeHtml(status(n))}" aria-label="${escapeHtml(n.name)}"><span class="chain-orb">${n.kind==='active'?'✦':'◆'}</span><span class="chain-node-name">${escapeHtml(n.name)}</span><span class="chain-node-rank">${have}/${n.ranks}</span></button>`;
+      const have = rank(n), buy = canBuy(c, 'chainCasting', n.id), p = positions[n.id];
+      const compatibleWith = compatibility.filter(([a, b]) => a === n.id || b === n.id);
+      const compatibleText = compatibleWith.length
+        ? `<div class="chain-tip-compat"><b>Works with</b>${compatibleWith.map(([a, b, note]) => `<span>${escapeHtml(byId[a === n.id ? b : a].name)} — ${escapeHtml(note)}</span>`).join('')}</div>`
+        : '';
+      const purchase = n.innate
+        ? '<small class="chain-tip-known">Innate technique</small>'
+        : `<button class="chain-purchase" data-chain-buy="${n.id}" ${buy.ok ? '' : 'disabled'}>${have >= n.ranks ? 'Mastered' : buy.ok ? 'Learn next rank · 1 point' : escapeHtml(buy.reason)}</button>`;
+      const low = p.y >= 76 ? ' low' : '';
+      return `<div class="chain-skill-node ${n.branch || 'core'} ${have ? 'got' : ''} ${have >= n.ranks ? 'full' : ''} ${buy.ok ? 'buyable' : ''}${low}" style="left:${p.x}%;top:${p.y}%" tabindex="0" role="group" aria-label="${escapeHtml(n.name)}">
+        <span class="chain-orb">${n.kind === 'active' ? '✦' : '◆'}</span>
+        <span class="chain-node-name">${escapeHtml(n.name)}</span>
+        <span class="chain-node-rank">${have}/${n.ranks}</span>
+        <div class="chain-node-tooltip">
+          <b>${escapeHtml(n.name)}</b>
+          <small>${escapeHtml(n.text)}</small>
+          <em>${escapeHtml(n.branch ? tree.branches[n.branch].name : 'Universal foundation')} · ${n.kind} · Chain Casting ${n.gate} · ${escapeHtml(status(n))}</em>
+          <em>Rank ${have} / ${n.ranks}</em>
+          ${compatibleText}
+          ${purchase}
+        </div>
+      </div>`;
     }).join('');
-    const chosenRank=rank(selected),buy=canBuy(c,'chainCasting',selected.id);
-    const detail=`<aside class="chain-node-detail"><div class="chain-detail-kicker">${selected.branch?tree.branches[selected.branch].name:'Universal foundation'} · ${selected.kind}</div><h3>${escapeHtml(selected.name)}</h3><p>${escapeHtml(selected.text)}</p><div class="chain-detail-meta"><span>Rank ${chosenRank} / ${selected.ranks}</span><span>Requires Chain Casting ${selected.gate}</span><span>${escapeHtml(status(selected))}</span></div>${selected.innate?'<p class="chain-detail-note">This technique is known from the start.</p>':`<button class="chain-purchase" data-chain-buy="${selected.id}" ${buy.ok?'':'disabled'}>${chosenRank>=selected.ranks?'Mastered':buy.ok?'Learn next rank · 1 point':escapeHtml(buy.reason)}</button>`}</aside>`;
-    const header=`<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free===1?'':'s'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent?`<button class="tree-reset ${resetArmed?'armed':''}" data-reset="chainCasting">${resetArmed?`Refund ${spent} points?`:'Reset tree'}</button>`:''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>`;
-    const workspace=`<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div>${detail}</div>`;
-    return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)} Branches can be mixed freely. Restrictions apply only to mechanics that directly conflict: Rapid Fire cannot use Elemental Rotation's half-slot discounts.</p>${workspace}</section></div>`;
+    const header = `<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="chainCasting">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>`;
+    const workspace = `<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div></div>`;
+    return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)} Solid lines show prerequisites; dashed lines show cross-discipline compatibility. Compatible branches can be combined unless a specific mechanic conflicts: Rapid Fire never receives Elemental Rotation's half-slot discount.</p>${workspace}<div class="chain-tree-legend"><span><i class="chain-legend-line"></i>Prerequisite</span><span><i class="chain-legend-line compatible"></i>Compatible disciplines</span></div></section></div>`;
   }
 
   function pageTrees() {
@@ -574,7 +640,6 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
     el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
-    el.querySelectorAll('[data-chain-select]').forEach(nd => { nd.onclick = () => { chainSelectedNode = nd.dataset.chainSelect; render(); }; });
     el.querySelectorAll('[data-chain-buy]').forEach(btn => btn.onclick = () => { const r = buyNode(c, 'chainCasting', btn.dataset.chainBuy); if (r.ok) { resetArmed = false; ctx.onChange?.(); } render(); });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-train]').forEach(b => b.onclick = () => { c.skills[b.dataset.train] = (c.skills[b.dataset.train] ?? 100) + 100; render(); });

@@ -54,6 +54,8 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     return null;
   }
   let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null;
+  // A chain may only reopen after the released cast animation has visibly completed.
+  let chainAwaitRelease = false, chainSawRelease = false;
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -189,7 +191,14 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
-    if (chainQueue.length) chainPrompt = null; // wait for the cast animation to release the character before opening the next timing ring
+    if (chainQueue.length) {
+      chainPrompt = null;
+      chainAwaitRelease = true;
+      chainSawRelease = false;
+    } else {
+      chainAwaitRelease = false;
+      chainSawRelease = false;
+    }
     casting = null;
   }
 
@@ -209,8 +218,17 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
-      // A chained follow-up gets its own timing prompt only after the previous cast animation has ended.
-      if (chainQueue.length && !casting && !chainPrompt && locked && free && b && !b.combat.busy) {
+      // Require the full cast-animation transition: first see the released throw, then see that
+      // cast action disappear. A generic !busy check alone can race the pose update and open early.
+      const action = b?.combat.action;
+      if (chainAwaitRelease) {
+        if (action?.type === 'cast' && !action.hold) chainSawRelease = true;
+        if (chainSawRelease && action?.type !== 'cast') {
+          chainAwaitRelease = false;
+          chainSawRelease = false;
+        }
+      }
+      if (chainQueue.length && !casting && !chainPrompt && !chainAwaitRelease && locked && free && b && !b.combat.busy) {
         chainPrompt = { t: 0, duration: 0.9, hand: b.combat.castHand };
       }
       if (chainPrompt && !casting) {

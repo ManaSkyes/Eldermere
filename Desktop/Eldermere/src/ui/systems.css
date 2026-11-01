@@ -1027,3 +1027,21 @@ tr[data-spell] { cursor: grab; }
 .chain-tree-links{z-index:2;overflow:visible}
 .chain-skill-node{z-index:3}
 .chain-tier-band{pointer-events:none}
+
+/* Chain Casting final layout: one bounded flex page, one real scroll viewport. */
+.pg.chain-tree-page{display:flex!important;flex:1 1 0!important;flex-direction:column!important;height:100%!important;min-height:0!important;overflow:hidden!important}
+.chain-tree-page .tree-single{display:flex!important;flex:1 1 0!important;flex-direction:column!important;min-width:0!important;min-height:0!important;overflow:hidden!important}
+.chain-tree-workspace{display:flex!important;flex:1 1 0!important;flex-direction:column!important;min-height:0!important;margin-top:.65rem!important}
+.chain-tree-scroll{position:relative!important;display:block!important;flex:1 1 0!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;overflow-x:auto!important;overflow-y:scroll!important;overscroll-behavior:contain!important;isolation:auto!important}
+.chain-tree-stage{position:relative!important;height:var(--chain-stage-height,auto);min-height:0!important;overflow:visible!important}
+.chain-tree-links{z-index:1!important}
+.chain-skill-node{z-index:3!important}
+.chain-tooltip-portal{font-family:var(--serif,Georgia,serif)}
+.chain-tooltip-portal b{display:block;font:600 .9rem var(--caps,serif);margin-bottom:.35rem}
+.chain-tooltip-portal small{display:block;font-size:.82rem;line-height:1.45}
+.chain-tooltip-portal em{display:block;margin-top:.45rem;font-size:.72rem;color:#765b3c;font-style:normal;line-height:1.4}
+.chain-tooltip-portal .chain-tip-compat{display:flex;flex-direction:column;gap:.3rem;margin-top:.55rem;padding-top:.45rem;border-top:1px solid rgba(90,62,36,.2)}
+.chain-tooltip-portal .chain-tip-compat b{margin:0;font-size:.72rem;color:#237774}
+.chain-tooltip-portal .chain-tip-compat span{display:block;font-size:.72rem;line-height:1.4}
+.chain-tooltip-portal .chain-purchase{width:100%;margin-top:.65rem;padding:.55rem .7rem;border:1px solid var(--accent);border-radius:5px;background:#efe0c2;color:#342719;cursor:pointer;white-space:normal}
+.chain-tooltip-portal .chain-purchase:disabled{opacity:.62;cursor:default}

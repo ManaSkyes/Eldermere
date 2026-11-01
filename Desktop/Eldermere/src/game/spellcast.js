@@ -276,7 +276,16 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
-    get timing() { return chainPrompt ? { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 } : null; },
+    get timing() {
+      // Chain prompts take priority over the cast's own timing display.
+      if (chainPrompt) return { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 };
+      if (!casting) return null;
+      // Rapid Fire replaces the old voiceless perfect-cast timing mechanic.
+      // Before it is unlocked, show the same timing circle for quick casts;
+      // spoken incantations keep their timing circle at every mastery level.
+      if (casting.mode === 'voiceless' && nodeRank(character, 'chainCasting', 'rapidFire') > 0) return null;
+      return { k: Math.min(1.35, casting.t / Math.max(0.01, casting.prof.castTime)), win: 0.18 };
+    },
     get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,

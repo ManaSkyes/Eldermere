@@ -55,7 +55,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
   }
   let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null;
   // The released throw animation lasts 0.45 s; wait it out, then also require the rig to be idle.
-  let chainReleaseWait = 0, chainInput = null;
+  let chainReleaseWait = 0, chainInput = null, chainHistory = [];
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -167,6 +167,33 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
   }
 
   let lastPerfect = false, perfectFlash = 0;
+  function chainProfile(id, focus) {
+    const spell = SPELLS[id], prof = castProfile(character, spell, { mode: 'incantation', focus });
+    const nodes = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
+    const r = key => nodeRank(character, 'chainCasting', key) || 0;
+    const previous = chainHistory[chainHistory.length - 1], previousSchool = SPELLS[previous]?.school;
+    const sameElement = !!previous && previousSchool === spell.school;
+    const repeatCount = chainHistory.filter(x => x === id).length;
+    const seenSchools = new Set(chainHistory.map(x => SPELLS[x]?.school).filter(Boolean));
+    if (sameElement) {
+      prof.power *= 1 + 0.05 * r('resonantFlow');
+      prof.mana *= 1 - 0.04 * r('focusedCurrent');
+    }
+    if (r('elementalRotation') && previous && previousSchool !== spell.school) {
+      prof.power *= 1 + 0.04 * r('rotatingForce') * chainHistory.length;
+    }
+    if (r('rapidFire') && repeatCount > 0) {
+      prof.power *= 1 + 0.03 * r('rapidVolley') * repeatCount;
+      prof.mana *= Math.max(0.1, 1 - 0.04 * r('sustainedBarrage') * repeatCount);
+      prof.castTime *= 1 - 0.04 * r('focusedBurst');
+    }
+    if (r('pairedElements') && seenSchools.has(spell.school) && seenSchools.size <= 2) {
+      prof.power *= 1 + 0.03 * r('twinAttunement');
+      if (previous && previousSchool !== spell.school) prof.mana *= 1 - 0.04 * r('dualWeave');
+    }
+    return prof;
+  }
+
   function finishCast() {
     const spell = SPELLS[casting.id], prof = casting.prof, b = body();
     // Follow-ups inherit the exact button, hand, and quick/chant behavior of this cast.
@@ -188,9 +215,10 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; } }
+    if (casting.chain) { if (!failed) chainHistory.push(spell.id); chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; } }
     else if (!failed) {
       const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
+      chainHistory = [spell.id];
       const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
       // Same-element chaining is the baseline discipline; the left branch improves it.
       // Unlocking Elemental Rotation switches the chain to strict, non-repeating elements.
@@ -219,8 +247,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         usedIds.add(id); seenElements.add(element); usedElements.add(element); return true;
       });
     }
-    else { chainQueue=[]; chainPrompt=null; chainInput=null; }
+    else { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; }
     if (chainQueue.length) chainInput = completedInput;
+    else if (!casting.chain) chainHistory=[];
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain || chainQueue.length > 0, chainGainMultiplier: 2 }, failed);
@@ -256,24 +285,24 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       // The release animation is the only timing gate. Combat busy/free flags can remain set
       // for unrelated locomotion or rig recovery and must not suppress a queued chain prompt.
       if (chainQueue.length && !casting && !chainPrompt && chainReleaseWait <= 0 && locked && b) {
-        chainPrompt = { t: 0, duration: 0.9, hand: b.combat.castHand };
+        chainPrompt = { t: 0, duration: 0.9 * (1 + 0.03 * (nodeRank(character, 'chainCasting', 'balancedPair') || 0)), hand: b.combat.castHand };
       }
       if (chainPrompt && !casting) {
-        if (!locked || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; }
+        if (!locked || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; chainHistory=[]; }
         else {
           chainPrompt.t += dt;
           const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');
           const start=!!chainBtn && input.pressed(chainBtn);
           const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.98 && chainPrompt.t <= chainPrompt.duration * 1.18;
           if (start) {
-            if (!perfectStart) { chainPrompt=null; chainQueue=[]; toast?.('Chain timing missed.'); }
+            if (!perfectStart) { chainPrompt=null; chainQueue=[]; chainHistory=[]; chainInput=null; toast?.('Chain timing missed.'); }
             else {
               audio.perfect?.('combo');
               const id=chainQueue[0], focus=!!b.gear.stats().focus;
               if (!SPELL_CAST[id] || !knowsSpell(character,id)) { chainPrompt=null; chainQueue=[]; }
               else if (!L) { chainPrompt=null; chainQueue=[]; toast?.('Spell chain stopped: no casting focus.'); }
               else {
-                const prof=castProfile(character,SPELLS[id],{mode:'incantation',focus});
+                const prof=chainProfile(id,focus);
                 if(vitals.mp<prof.mana){chainPrompt=null;chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
                 else if(b.combat.cast({hand:chainInput?.hand || L['hand' + (chainBtn === 'attack' ? 'L' : 'R')]})){
                   const mode=chainInput?.mode || 'incantation';
@@ -282,7 +311,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
                 }
               }
             }
-          } else if (chainPrompt.t >= chainPrompt.duration * 1.18) { chainPrompt=null; chainQueue=[]; toast?.('Chain window missed.'); }
+          } else if (chainPrompt.t >= chainPrompt.duration * 1.18) { chainPrompt=null; chainQueue=[]; chainHistory=[]; chainInput=null; toast?.('Chain window missed.'); }
         }
       }
       if (locked && input.pressed('nextSpell')) {

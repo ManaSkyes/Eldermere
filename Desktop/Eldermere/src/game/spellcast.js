@@ -196,13 +196,14 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
       const baseSlots = 1 + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
       const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
+      const discountedSpellLimit = discountedRotationSlots * 2;
       let budget = 0, discountedUsed = 0;
       chainQueue = (character.spellChains?.[spell.id] || []).filter(id => {
         const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id) || usedIds.has(id)) return false;
         const element = next.school;
         if (usedElements.has(element) && !sameElementUnlocked) return false;
         if (rotationUnlocked && usedElements.has(element)) return false;
-        const discounted = rotationUnlocked && discountedUsed < discountedRotationSlots;
+        const discounted = rotationUnlocked && discountedUsed < discountedSpellLimit;
         const cost = discounted ? 0.5 : 1;
         if (budget + cost > baseSlots) return false;
         budget += cost;

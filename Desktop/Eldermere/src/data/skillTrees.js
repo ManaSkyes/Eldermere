@@ -367,12 +367,12 @@ function genericTree(id) {
     {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
     {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:150,text:'Unlock elemental rotation. Every follow-up must use a different element, and no spell may repeat.',ranks:1,branch:'b'},
     {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'b',needs:['elementalRotation']},
-    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot.',ranks:5,branch:'b',needs:['rotatingForce']},
+    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells.',ranks:5,branch:'b',needs:['rotatingForce']},
     {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
     {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,needs:['steadySequence'],effect:{chainSlots:1}},
     {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
     {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff']},
-    {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot. Stacks with Diverse Weave.',ranks:5,branch:'b',needs:['diverseWeave']},
+    {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells. Stacks with Diverse Weave.',ranks:5,branch:'b',needs:['diverseWeave']},
     {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5}
   ]};
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;

@@ -1045,3 +1045,12 @@ tr[data-spell] { cursor: grab; }
 .chain-tooltip-portal .chain-tip-compat span{display:block;font-size:.72rem;line-height:1.4}
 .chain-tooltip-portal .chain-purchase{width:100%;margin-top:.65rem;padding:.55rem .7rem;border:1px solid var(--accent);border-radius:5px;background:#efe0c2;color:#342719;cursor:pointer;white-space:normal}
 .chain-tooltip-portal .chain-purchase:disabled{opacity:.62;cursor:default}
+
+/* Chain Casting pinned detail cards: suppress the legacy in-node hover copy. */
+.chain-skill-node .chain-node-tooltip,.chain-skill-node:hover .chain-node-tooltip,.chain-skill-node:focus-visible .chain-node-tooltip{display:none!important;visibility:hidden!important}
+.chain-tooltip-portal{position:fixed!important;display:block!important;width:320px!important;min-width:280px!important;max-width:calc(100vw - 24px)!important;max-height:min(70vh,520px)!important;overflow:auto!important;padding:18px 18px 15px!important;box-sizing:border-box!important;white-space:normal!important;overflow-wrap:anywhere!important;line-height:1.45!important}
+.chain-tooltip-portal>*{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.chain-tooltip-portal .chain-tooltip-close{position:sticky;float:right;top:0;margin:-9px -9px 5px 8px;width:27px;height:27px;border:1px solid rgba(90,62,36,.35);border-radius:50%;background:#ead9b8;color:#342719;font:700 19px/22px sans-serif;cursor:pointer;z-index:2}
+.chain-link.compatible{display:inline!important;fill:none!important;stroke:#237f83!important;stroke-width:2.6!important;stroke-dasharray:7 5!important;stroke-linecap:round!important;opacity:1!important;visibility:visible!important}
+.chain-link.prereq{display:inline!important;fill:none!important;visibility:visible!important;opacity:1!important}
+.chain-tree-links{overflow:visible!important}

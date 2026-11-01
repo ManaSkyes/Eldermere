@@ -283,7 +283,7 @@ export function createBook(root, ctx) {
 
   // ---- skill trees ----
   let selSkill = null, resetArmed = false;
-  const TIERS = [['Unskilled', 0], ['Apprentice', 201], ['Journeyman', 501], ['Expert', 1001], ['Master', 5001]];
+  const TIERS = [['Unskilled', 0], ['Apprentice', 200], ['Journeyman', 500], ['Expert', 1000], ['Master', 5000]];
   const TREE_GROUPS = [['Weapons', id => SKILLS[id].group === 'weapon'], ['Combat', id => SKILLS[id].group === 'combat'],
     ['Magic', id => SKILLS[id].group === 'magic' || CASTING.includes(id)], ['Life skills', id => SKILLS[id].group === 'profession'],
     ['General', id => SKILLS[id].group === 'general' && !CASTING.includes(id)]];

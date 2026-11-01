@@ -525,7 +525,6 @@ export function createBook(root, ctx) {
       ctx.onChange?.(); render();
     });
     el.querySelector('[data-prepmode]')?.addEventListener('click', () => { prepMode = !prepMode; render(); });
-    el.querySelectorAll('.spell-entry [data-prepare]').forEach(b => b.onclick = () => { const r = togglePrepared(c,b.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); }));
     el.querySelectorAll('[data-spell]').forEach(li => { li.ondragstart = e => e.dataTransfer.setData('text/plain', 'spell:' + li.dataset.spell); });
     el.querySelectorAll('[data-potion]').forEach(li => {

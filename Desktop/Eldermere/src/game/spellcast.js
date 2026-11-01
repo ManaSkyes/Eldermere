@@ -377,7 +377,11 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         if (id) {
           const focus = !!b.gear.stats().focus, rapid = mode === 'voiceless' && nodeRank(character, 'chainCasting', 'rapidFire') > 0;
           const prof = castProfile(character, SPELLS[id], { mode, focus });
-          if (rapid) prof.castTime = Math.max(0.025, prof.castTime / 3);
+          if (rapid) {
+            prof.castTime = Math.max(0.025, prof.castTime / 3);
+            const tiers = ['Apprentice','Journeyman','Expert','Master','Grandmaster'];
+            prof.mana *= Math.max(0.2, 1 - tiers.reduce((n,t,i)=>n+(nodeRank(character,'chainCasting','efficientBarrage'+t)||0)*(0.02+i*0.01),0));
+          }
           if (vitals.mp < prof.mana) toast?.(`Not enough mana for ${SPELLS[id].name} (${Math.ceil(prof.mana)}).`);
           else if (b.combat.cast({ hand })) { if (rapid) rapidBarrage = {id,key,hand:hand || b.combat.castHand,focus,shots:0,cooldown:0,released:false,focusedRanks:['Apprentice','Journeyman','Expert','Master','Grandmaster'].reduce((n,t)=>n+nodeRank(character,'chainCasting','focusedBurst'+t),0)}; casting = { id, mode, focus, prof, t: 0, key, auto, failOnRelease, hand: hand || b.combat.castHand, rapidFire:rapid }; audio.chant?.(mode === 'incantation', prof.castTime); }
         }

@@ -273,3 +273,16 @@ button:disabled { cursor: default; opacity: 0.4; }
 .spell-evolution-node{padding:14px;border:1px solid rgba(190,160,120,.22);border-radius:9px;background:rgba(35,25,18,.2)}
 .spell-evolution-node header{display:flex;justify-content:space-between;gap:8px;align-items:center}
 .spell-evolution-node p{min-height:3.2em;color:var(--muted,#a99b87);font-size:13px}
+
+/* Spell sequencer */
+.spell-sequencer .spell-start-list,.spell-library-grid{display:flex;flex-wrap:wrap;gap:9px}
+.spell-start-tile,.spell-library-tile{display:flex;align-items:center;gap:8px;border:1px solid var(--line,#756b61);border-radius:9px;background:rgba(30,24,40,.55);color:inherit;padding:8px 11px;cursor:grab}
+.spell-start-tile.on{outline:2px solid var(--accent,#b99aff);background:rgba(120,85,180,.22)}
+.spell-icon{display:inline-grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border-radius:8px;background:rgba(180,130,90,.18);font-size:21px;color:#ffb36b}
+.spell-icon.school-water{color:#83d9ff}.spell-icon.school-earth{color:#c6a477}.spell-icon.school-wind{color:#b8e8dc}.spell-icon.school-lightning{color:#fff28a}.spell-icon.school-holy,.spell-icon.school-light{color:#fff0a8}.spell-icon.school-dark,.spell-icon.school-void{color:#c4a2ff}
+.spell-sequence-drop{border:1px dashed var(--line,#756b61);border-radius:12px;padding:10px;min-height:78px}
+.spell-sequence-drop.drag-over,.spell-sequence-slot.drag-over{border-color:var(--accent,#b99aff);background:rgba(140,100,200,.16)}
+.spell-sequence-list{display:flex;align-items:center;flex-wrap:wrap;gap:8px;list-style:none;padding:0;margin:0}
+.spell-sequence-slot{display:flex;align-items:center;gap:7px;border:1px solid var(--line,#756b61);border-radius:10px;padding:6px 8px;background:rgba(20,16,28,.5);cursor:grab}
+.spell-sequence-empty{padding:12px;color:var(--muted,#aaa)}.spell-drop-hint{display:block;text-align:center;color:var(--muted,#aaa);font-size:.82em;padding:8px}
+.spell-library-tile{min-width:130px;justify-content:flex-start}.spell-sequencer .spell-chain-panel h4{margin:12px 0 7px}

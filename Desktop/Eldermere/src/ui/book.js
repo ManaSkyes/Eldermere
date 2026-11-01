@@ -449,21 +449,29 @@ export function createBook(root, ctx) {
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
-  let spellView = 'list', spellTreeId = null;
+  let spellView = 'list', spellTreeId = null, chainStartId = null;
   const chainCapacity = () => Math.max(1, Math.min(8, 1 + Math.floor(Math.max(0, (c.skills.chainCasting ?? 100) - 100) / 200)));
-  const spellChain = () => { c.spellChain ||= []; c.spellChain = c.spellChain.filter(id => preparedOf(c).includes(id)); return c.spellChain; };
+  const spellChains = () => (c.spellChains ||= {});
+  const spellChain = () => chainStartId ? (spellChains()[chainStartId] ||= []) : [];
+  const spellGlyph = id => ({ fire:'✹', earth:'◆', water:'◈', wind:'〰', lightning:'ϟ', light:'✦', holy:'✧', dark:'◉', lunar:'☾', life:'❀', void:'◌', spatial:'⌖', enhancement:'✧' }[schoolsOf(SPELLS[id] || {})[0]] || '✧');
+  const canChainStart = id => ['fireBolt','fireball'].includes(id);
   function pageSpells() {
     const known = Object.entries(c.spells || {}).filter(([id]) => SPELLS[id]).sort((a,b) => SPELLS[a[0]].name.localeCompare(SPELLS[b[0]].name));
     const prep = preparedOf(c), pmax = preparedMax(c), chain = spellChain(), maxChain = chainCapacity();
     if (spellView === 'combo') {
-      const options = prep.filter(id => SPELLS[id]);
-      const chainRows = chain.map((id,i) => `<li class="spell-chain-slot"><b>${i+1}</b><span>${escapeHtml(SPELLS[id]?.name || id)}</span><button data-chain-up="${i}" ${i===0?'disabled':''} title="Move earlier">↑</button><button data-chain-down="${i}" ${i===chain.length-1?'disabled':''} title="Move later">↓</button><button data-chain-remove="${id}" title="Remove from chain">×</button></li>`).join('');
-      const available = options.filter(id => !chain.includes(id)).map(id => `<li class="spell-chain-option"><span>${escapeHtml(SPELLS[id].name)}</span><small>${escapeHtml(schoolsOf(SPELLS[id]).map(label).join(' + '))}</small><button data-chain-add="${id}" ${chain.length>=maxChain?'disabled':''}>Add</button></li>`).join('');
-      return `<div class="pg spell-journal"><header class="beast-collection-head"><div><button class="journal-back" data-spell-list>‹ Spells</button><h2>Spell combo</h2><p class="hint">Arrange prepared spells into a casting sequence. Chain Casting determines how many spells you can link.</p></div><strong>${chain.length} <small>/ ${maxChain} links</small></strong></header>
-        <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Current chain capacity: ${maxChain} spell${maxChain===1?'':'s'}. Prepare spells on the Magic page before adding them here.</small></section>
-        <section class="spell-chain-panel"><h3>Current sequence</h3>${chainRows ? `<ol class="spell-chain-list">${chainRows}</ol>` : '<p class="muted">No spells have been linked yet.</p>'}</section>
-        <section class="spell-chain-panel"><h3>Prepared spells</h3>${available ? `<ul class="spell-chain-options">${available}</ul>` : '<p class="muted">No other prepared spells are available to add.</p>'}</section>
-      </div>`;
+      const starts = prep.filter(id => SPELLS[id] && canChainStart(id));
+      if (!starts.includes(chainStartId)) chainStartId = starts[0] || null;
+      const chain = spellChain(), maxChain = chainCapacity();
+      const icon = id => `<span class="spell-icon school-${escapeHtml(schoolsOf(SPELLS[id] || {})[0] || 'arcane')}">${spellGlyph(id)}</span>`;
+      const tiles = (items, group) => items.map(([id]) => `<button class="spell-library-tile" draggable="true" data-drag-spell="${id}" data-group="${group}">${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span></button>`).join('');
+      const starters = starts.map(id => `<button class="spell-start-tile ${id===chainStartId?'on':''}" data-chain-start="${id}">${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span></button>`).join('');
+      const slots = chain.map((id,i) => `<li class="spell-sequence-slot" draggable="true" data-sequence-spell="${id}" data-sequence-index="${i}"><b>${i+1}</b>${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span><button data-sequence-remove="${i}">×</button></li>`).join('');
+      const preparedKnown = known.filter(([id]) => prep.includes(id)), otherKnown = known.filter(([id]) => !prep.includes(id));
+      return `<div class="pg spell-journal spell-sequencer"><header class="beast-collection-head"><div><button class="journal-back" data-spell-list>‹ Spells</button><h2>Spell sequencer</h2><p class="hint">Choose a prepared opener, then drag any learned spell into the sequence. Follow-ups do not need to be prepared.</p></div><strong>${chain.length} <small>/ ${maxChain} follow-ups</small></strong></header>
+      <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Prepared opener plus up to ${maxChain} chained casts. Repeated spells are allowed.</small></section>
+      <section class="spell-chain-panel"><h3>Prepared openers</h3><div class="spell-start-list">${starters || '<p class="muted">Prepare a castable spell to use it as a chain opener.</p>'}</div></section>
+      <section class="spell-chain-panel"><h3>Sequence ${chainStartId ? '· '+escapeHtml(SPELLS[chainStartId].name) : ''}</h3><div class="spell-sequence-drop" data-sequence-drop><ol class="spell-sequence-list">${slots || '<li class="spell-sequence-empty">Drop spells here to add follow-ups.</li>'}</ol><span class="spell-drop-hint">＋ Drop a spell here</span></div></section>
+      <section class="spell-chain-panel"><h3>Spell library</h3><h4>Prepared spells</h4><div class="spell-library-grid">${tiles(preparedKnown,'prepared')}</div><h4>Other learned spells</h4><div class="spell-library-grid">${tiles(otherKnown,'learned')}</div></section></div>`;
     }
     const rows = known.map(([id, level]) => {
       const sp = SPELLS[id], evolution = spellEvolutionOf(c,id), progress = Math.min(1, level / MASTERY.core);
@@ -524,10 +532,12 @@ export function createBook(root, ctx) {
     el.querySelector('[data-spell-tree-back]')?.addEventListener('click', () => { spellTreeId = null; spellView = 'list'; render(); });
     el.querySelectorAll('[data-spell-evolve]').forEach(b => b.onclick = () => { const evo = spellEvolutionOf(c, spellTreeId), node = SPELL_EVOLUTION_NODES.find(n=>n.id===b.dataset.spellEvolve); if (node && (evo.nodes[node.id]||0)<node.max && Math.floor(evo.points)-Object.values(evo.nodes).reduce((a,v)=>a+v,0)>0) { evo.nodes[node.id]=(evo.nodes[node.id]||0)+1; ctx.onChange?.(); } render(); });
     el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
-    el.querySelectorAll('[data-chain-add]').forEach(b => b.onclick = () => { const chain = spellChain(); if (chain.length < chainCapacity() && preparedOf(c).includes(b.dataset.chainAdd) && !chain.includes(b.dataset.chainAdd)) chain.push(b.dataset.chainAdd); ctx.onChange?.(); render(); });
-    el.querySelectorAll('[data-chain-remove]').forEach(b => b.onclick = () => { const chain = spellChain(), i = chain.indexOf(b.dataset.chainRemove); if (i >= 0) chain.splice(i,1); ctx.onChange?.(); render(); });
-    el.querySelectorAll('[data-chain-up]').forEach(b => b.onclick = () => { const chain = spellChain(), i = Number(b.dataset.chainUp); if (i > 0) [chain[i-1],chain[i]] = [chain[i],chain[i-1]]; ctx.onChange?.(); render(); });
-    el.querySelectorAll('[data-chain-down]').forEach(b => b.onclick = () => { const chain = spellChain(), i = Number(b.dataset.chainDown); if (i >= 0 && i < chain.length-1) [chain[i+1],chain[i]] = [chain[i],chain[i+1]]; ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-chain-start]').forEach(btn => btn.onclick = () => { chainStartId=btn.dataset.chainStart; render(); });
+    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id)) return; const q=spellChain(); if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
+    el.querySelectorAll('[data-drag-spell]').forEach(tile => { tile.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('text/plain',tile.dataset.dragSpell);ev.dataTransfer.effectAllowed='copy';}); tile.onclick=()=>addChainSpell(tile.dataset.dragSpell); });
+    el.querySelectorAll('[data-sequence-drop]').forEach(zone=>{zone.addEventListener('dragover',ev=>{ev.preventDefault();zone.classList.add('drag-over');});zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));zone.addEventListener('drop',ev=>{ev.preventDefault();zone.classList.remove('drag-over');addChainSpell(ev.dataTransfer.getData('text/plain'));});});
+    el.querySelectorAll('[data-sequence-remove]').forEach(btn=>btn.onclick=()=>{spellChain().splice(Number(btn.dataset.sequenceRemove),1);ctx.onChange?.();render();});
+    el.querySelectorAll('[data-sequence-spell]').forEach(slot=>{slot.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('application/x-eld-index',slot.dataset.sequenceIndex);ev.dataTransfer.effectAllowed='move';});slot.addEventListener('dragover',ev=>{ev.preventDefault();slot.classList.add('drag-over');});slot.addEventListener('dragleave',()=>slot.classList.remove('drag-over'));slot.addEventListener('drop',ev=>{ev.preventDefault();slot.classList.remove('drag-over');const from=Number(ev.dataTransfer.getData('application/x-eld-index')),to=Number(slot.dataset.sequenceIndex),q=spellChain();if(Number.isInteger(from)&&from>=0&&from<q.length){const [v]=q.splice(from,1);q.splice(Math.min(to,q.length),0,v);ctx.onChange?.();render();}});});
     el.querySelector('.book-close').onclick = () => ctx.onClose();
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
     el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });

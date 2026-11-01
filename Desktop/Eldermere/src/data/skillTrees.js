@@ -361,6 +361,13 @@ const TEMPLATES = {
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScript: 'Runic script', firstAid: 'First aid', trapHandling: 'Trap handling', monsterLore: 'Monster lore', crystalHarvesting: 'Crystal harvesting', manaControl: 'Mana control', manaSense: 'Mana sense', heavyArmor: 'Heavy armor', lightArmor: 'Light armor', voiceless: 'Voiceless casting' }[id]; return s || id[0].toUpperCase() + id.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase(); };
 function genericTree(id) {
+  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Weave prepared openers into longer sequences of learned spells.', branches:{a:{name:'Resonance',text:'Build momentum through repeated elements.'},b:{name:'Flow',text:'Keep the sequence stable and fluid.'}}, nodes:[
+    {id:'elementalBoost',name:'Elemental Boost',kind:'passive',gate:150,text:'Each consecutive chained spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
+    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:150,text:'Reduce backfire chance on chained spells by 4% per rank.',ranks:3,branch:'b'},
+    {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:250,text:'Same-element chains build their elemental momentum more quickly.',ranks:2,branch:'a',needs:['elementalBoost']},
+    {id:'quickHandoff',name:'Quick Handoff',kind:'passive',gate:250,text:'Reduce the pause between chained casts by 8% per rank.',ranks:3,branch:'b',needs:['steadySequence']},
+    {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:550,text:'Chained spells train Chain Casting 10% faster per rank.',ranks:3,branch:'b',needs:['quickHandoff']}
+  ]};
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
   const S = titleOf(id), sub = t => t.replaceAll('{S}', S).replaceAll('{s}', S.toLowerCase());
   return {

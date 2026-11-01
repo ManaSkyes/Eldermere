@@ -53,7 +53,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (main && !off && (wrist || innate)) return { L: null, R: 'dual', handR: 'L', drawn: true, name: 'weaponWrist' };
     return null;
   }
-  let readied = known()[0] || null, casting = null, chainNext = null;
+  let readied = known()[0] || null, casting = null, chainQueue = [];
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -171,7 +171,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     let over = casting.over ? Math.min(1, casting.over / 1) : 0;
     if (over > 0) over = Math.min(over, Math.max(0, (vitals.mp / prof.mana - 1) / 0.8));
     const mana = prof.mana * (1 + 0.8 * over);
-    casting.power = 1 + 0.6 * over;
+    const boost = nodeRank(character, 'chainCasting', 'elementalBoost') || 0;
+    const same = casting.chain && character.chainElement === spell.school ? Math.max(0, character.chainElementStreak || 0) : 0;
+    casting.power = (1 + 0.6 * over) * (1 + Math.min(5, same) * 0.04 * boost);
     if (vitals.mp < mana) { toast?.('Not enough mana.'); b?.combat.cancelCast(); casting = null; return; }
     vitals.mp -= mana;
     const normalized = casting.t / Math.max(0.01, prof.castTime);
@@ -181,11 +183,12 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    const chain = (character.spellChain || []).filter(id => preparedOf(character).includes(id) && SPELL_CAST[id]);
-    const chainAt = chain.indexOf(spell.id);
-    const chained = !failed && chainAt >= 0 && chainAt < chain.length - 1;
+    if (casting.chain) { chainQueue.shift(); if (failed) chainQueue=[]; }
+    else if (!failed) chainQueue = (character.spellChains?.[spell.id] || []).filter(id => SPELL_CAST[id] && knowsSpell(character,id));
+    else chainQueue=[];
+    if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
+    else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
-    chainNext = chained ? chain[chainAt + 1] : null;
     casting = null;
   }
 
@@ -205,13 +208,13 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
-      if (chainNext && !casting && locked && free && body() && !body().combat.busy) {
-        const id = chainNext; chainNext = null;
-        const L = layout(), focus = !!body().gear.stats().focus;
-        if (known().includes(id) && L && vitals.mp >= castProfile(character, SPELLS[id], { mode: 'incantation', focus }).mana && body().combat.cast({ hand: L.handL || L.handR })) {
-          const prof = castProfile(character, SPELLS[id], { mode: 'incantation', focus });
-          casting = { id, mode: 'incantation', focus, prof, t: 0, key: null, auto: true, failOnRelease: false, hand: L.handL || L.handR, chain: true };
-          audio.chant?.(true, prof.castTime);
+      if (chainQueue.length && !casting && locked && free && b && !b.combat.busy) {
+        const id=chainQueue[0], L=layout(), focus=!!b.gear.stats().focus;
+        if(!SPELL_CAST[id] || !knowsSpell(character,id)) chainQueue=[];
+        else if(!L){chainQueue=[];toast?.('Spell chain stopped: no casting focus.');}
+        else {const prof=castProfile(character,SPELLS[id],{mode:'incantation',focus});
+          if(vitals.mp<prof.mana){chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
+          else if(b.combat.cast({hand:L.handL||L.handR})){casting={id,mode:'incantation',focus,prof,t:0,key:null,auto:true,failOnRelease:false,hand:L.handL||L.handR,chain:true};audio.chant?.(true,prof.castTime);}
         }
       }
       if (locked && input.pressed('nextSpell')) {
@@ -230,7 +233,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         const ball = bolts.find(o => o.C.kind === 'ball');
         if (ball) { detonate.push(ball); press = null; detonated = true; }
       }
-      if (locked && free && !casting && !detonated && b && !b.combat.busy && readied) {
+      if (locked && free && !casting && !chainQueue.length && !detonated && b && !b.combat.busy && readied) {
         let id = null, mode = null, key = null, auto = false, failOnRelease = false, hand = null;
         if (req) {
           if (!L) toast?.('You need a focus to cast: a wand, staff, orb, spellbook or focus bracelet.');

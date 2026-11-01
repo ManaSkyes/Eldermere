@@ -195,22 +195,28 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       // Same-element chaining is the baseline discipline; the left branch improves it.
       // Unlocking Elemental Rotation switches the chain to strict, non-repeating elements.
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
+      const rapidFireUnlocked = (tree.rapidFire || 0) > 0;
+      const twoElementUnlocked = (tree.pairedElements || 0) > 0;
       const sameElementUnlocked = !rotationUnlocked || (tree.elementalBoost || 0) > 0;
       const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
-      const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
+      // Rotation's half-slot weaving is deliberately incompatible with Rapid Fire multicast.
+      const discountedRotationSlots = rapidFireUnlocked ? 0 : nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
       const discountedSpellLimit = discountedRotationSlots * 2;
+      const seenElements = new Set(usedElements);
       let budget = 0, discountedUsed = 0;
       chainQueue = (character.spellChains?.[spell.id] || []).filter(id => {
-        const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id) || usedIds.has(id)) return false;
-        const element = next.school;
-        if (usedElements.has(element) && !sameElementUnlocked) return false;
-        if (rotationUnlocked && usedElements.has(element)) return false;
-        const discounted = rotationUnlocked && discountedUsed < discountedSpellLimit;
+        const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id)) return false;
+        const element = next.school, repeatedSpell = usedIds.has(id), repeatedElement = seenElements.has(element);
+        if (repeatedSpell && !rapidFireUnlocked) return false;
+        if (repeatedElement && !sameElementUnlocked && !(rapidFireUnlocked && repeatedSpell)) return false;
+        if (rotationUnlocked && repeatedElement && !(rapidFireUnlocked && repeatedSpell)) return false;
+        if (twoElementUnlocked && !seenElements.has(element) && seenElements.size >= 2) return false;
+        const discounted = rotationUnlocked && !rapidFireUnlocked && discountedUsed < discountedSpellLimit && !repeatedSpell;
         const cost = discounted ? 0.5 : 1;
         if (budget + cost > baseSlots) return false;
         budget += cost;
         if (discounted) discountedUsed++;
-        usedIds.add(id); usedElements.add(element); return true;
+        usedIds.add(id); seenElements.add(element); usedElements.add(element); return true;
       });
     }
     else { chainQueue=[]; chainPrompt=null; chainInput=null; }

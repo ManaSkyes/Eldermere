@@ -2051,21 +2051,23 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h); renderer.render(beast.scene, beast.cam); renderer.setScissorTest(false);
     renderer.setViewport(0, 0, cr.width, cr.height);
   }
-  const herbModel={id:null,root:null,scene:new THREE.Scene(),cam:new THREE.PerspectiveCamera(30,1,0.05,30),spin:0,size:1};
+  const herbModel={id:null,root:null,scene:new THREE.Scene(),cam:new THREE.PerspectiveCamera(30,1,0.01,100),spin:0,size:1,mid:new THREE.Vector3()};
   herbModel.scene.background=new THREE.Color('#2b2433');herbModel.scene.add(new THREE.HemisphereLight('#fff4e0','#3a3040',1));
   {const d=new THREE.DirectionalLight('#ffffff',1.15);d.position.set(3,5,4);herbModel.scene.add(d);}
   function renderHerbarium(dt){
-    const id=book.herbId,r=book.herbRect();if(!id||!r||r.width<4)return;
+    const id=book.herbId,r=book.herbRect();if(!id||!r||r.width<4||r.height<4)return;
     if(herbModel.id!==id){
       if(herbModel.root){herbModel.scene.remove(herbModel.root);herbModel.root.traverse(o=>{if(o.isMesh){o.geometry?.dispose?.();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose?.());else o.material?.dispose?.();}});}
       herbModel.id=id;herbModel.root=buildHerbariumSpecimen(THREE,id);if(!herbModel.root)return;herbModel.scene.add(herbModel.root);
-      const box=new THREE.Box3().setFromObject(herbModel.root);herbModel.size=Math.max(0.45,box.getSize(new THREE.Vector3()).length());
+      const box=new THREE.Box3().setFromObject(herbModel.root);box.getCenter(herbModel.mid);herbModel.size=Math.max(0.25,box.getBoundingSphere(new THREE.Sphere()).radius*2);
     }
     herbModel.spin+=dt*0.18;herbModel.root.rotation.y=herbModel.spin+book.turn;
     const cr=canvas.getBoundingClientRect(),x=r.left-cr.left+6,y=cr.bottom-r.bottom+6,w=r.width-12,h=r.height-12;
+    if(w<=0||h<=0)return;
     herbModel.cam.aspect=w/h;herbModel.cam.updateProjectionMatrix();
-    const dist=herbModel.size*0.62/Math.tan(15*Math.PI/180)/Math.min(1,herbModel.cam.aspect);
-    herbModel.cam.position.set(dist*0.75,dist*0.3,dist*0.6);herbModel.cam.lookAt(0,0,0);
+    const fov=herbModel.cam.fov*Math.PI/180,dist=(herbModel.size*0.62)/Math.tan(fov/2)/Math.max(0.5,Math.min(1,herbModel.cam.aspect));
+    herbModel.cam.position.set(herbModel.mid.x+dist*0.55,herbModel.mid.y+dist*0.25,herbModel.mid.z+dist);herbModel.cam.lookAt(herbModel.mid);
+    herbModel.cam.near=Math.max(0.01,dist/100);herbModel.cam.far=Math.max(100,dist*8);herbModel.cam.updateProjectionMatrix();
     renderer.setScissorTest(true);renderer.setScissor(x,y,w,h);renderer.setViewport(x,y,w,h);renderer.render(herbModel.scene,herbModel.cam);renderer.setScissorTest(false);renderer.setViewport(0,0,cr.width,cr.height);
   }
   // the performance panel's breakdown of the game's own time (each part since the one before; smoothed)

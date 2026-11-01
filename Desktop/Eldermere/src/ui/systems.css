@@ -833,5 +833,7 @@ tr[data-spell] { cursor: grab; }
 }
 
 /* Herbarum's rotatable botanical specimen viewport. */
-.herb-fig { position:relative; flex:1; min-height:260px; border:6px solid #6e4a2e; box-shadow:inset 0 0 0 2px #2c1a10,0 0 0 1px var(--rule); cursor:grab; touch-action:none; }
+.herbarum-entry .bst-right { background:transparent !important; position:relative; }
+.herb-fig { position:relative; z-index:1; flex:1; min-height:260px; border:6px solid #6e4a2e; background:transparent !important; box-shadow:inset 0 0 0 2px #2c1a10,0 0 0 1px var(--rule); cursor:grab; touch-action:none; }
+.herb-fig::before { content:none; }
 .herb-fig:active { cursor:grabbing; }

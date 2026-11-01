@@ -1054,3 +1054,18 @@ tr[data-spell] { cursor: grab; }
 .chain-link.compatible{display:inline!important;fill:none!important;stroke:#237f83!important;stroke-width:2.6!important;stroke-dasharray:7 5!important;stroke-linecap:round!important;opacity:1!important;visibility:visible!important}
 .chain-link.prereq{display:inline!important;fill:none!important;visibility:visible!important;opacity:1!important}
 .chain-tree-links{overflow:visible!important}
+
+
+/* Chain Casting navigation: the tree is a canvas-like workspace, not a scroll list. */
+.chain-tree-page .chain-tree-workspace { display:block; margin-top:.7rem; }
+.chain-tree-panel { min-width:0; }
+.chain-tree-tools { display:flex; align-items:center; justify-content:space-between; gap:.75rem; margin:0 0 .4rem; color:var(--ink-soft); font-size:.72rem; }
+.chain-tree-tools > div { display:flex; gap:.25rem; }
+.chain-tree-tools button { min-width:2rem; padding:.2rem .55rem; border:1px solid rgba(90,62,36,.38); border-radius:4px; background:rgba(255,250,235,.72); color:var(--ink-b); cursor:pointer; font:600 .85rem var(--serif); }
+.chain-tree-tools button:hover { background:#fff7e5; border-color:var(--accent); }
+.chain-tree-scroll { position:relative; width:100%; height:min(62vh,720px); min-height:430px; overflow:hidden; overscroll-behavior:contain; touch-action:none; cursor:grab; user-select:none; background:radial-gradient(ellipse at 50% 38%,rgba(198,166,105,.13),rgba(70,50,30,.025) 70%); }
+.chain-tree-scroll.dragging { cursor:grabbing; }
+.chain-tree-stage { position:absolute; left:0; top:0; width:1600px; min-width:0; transform-origin:0 0; will-change:transform; }
+.chain-tree-legend { display:flex; flex-wrap:wrap; gap:.8rem 1.2rem; margin-top:.5rem; }
+@media(max-width:850px) { .chain-tree-scroll { height:58vh; min-height:390px; } }
+@media(max-width:560px) { .chain-tree-scroll { height:55vh; min-height:340px; } .chain-tree-tools { font-size:.66rem; } }

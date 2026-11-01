@@ -76,7 +76,7 @@ const WRITTEN = {
       node('wallHug', 'Wall hug', 'active', 100, 'Press E beside a wall to put your back to it and sidle along, unseen from the side. Also lets you edge along ledges too narrow to walk.', { innate: true }),
       node('softSteps', 'Soft steps', 'passive', 150, 'Crouched movement makes 10% less noise per rank.', { ranks: 3, effect: { crouchNoisePct: -10 } }),
       node('poleRunner', 'Poles and pipes', 'active', 150, 'Climb poles and drainpipes (spin round them, leap off), and hang from horizontal pipes to shimmy along.', { also: { athletics: 150 } }),
-      node('tightrope', 'Tightrope', 'active', 200, 'Walk tightropes and wires, arms out for balance.', { also: { athletics: 201 } }),
+      node('tightrope', 'Tightrope', 'active', 200, 'Walk tightropes and wires, arms out for balance.', { also: { athletics: 200 } }),
       node('wireRunner', 'Wire runner', 'active', 401, 'On a tightrope or wire: crouch to move low and silent instead of letting go, and sprint to run along it.', { needs: ['tightrope'], also: { athletics: 401 } }),
       node('spireLanding', 'Spire landing', 'active', 300, 'Land on the tip of a spire, post or pole and perch there. Leap from spire to spire.', { needs: ['poleRunner'], also: { athletics: 300 } }),
       node('cloakedDodge', 'Cloaked dodge', 'passive', 500, 'Anyone who hasn\'t already spotted you can\'t see or hear your dodge roll: roll from cover to cover. (Needs the Dodge roll technique from Athletics to use.)', {}),

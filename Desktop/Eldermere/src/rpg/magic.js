@@ -225,7 +225,7 @@ export function trainCast(c, spell, opts = {}, backfired = false) {
   const casting = opts.mode === 'voiceless' ? 'voiceless' : 'incantation';
   for (const school of schoolsOf(spell)) if (SKILLS[school]) train(c, school, schoolTeach(spell.difficulty, c.skills[school] ?? 100) * (backfired ? 0.5 : 1) * spoken / schoolsOf(spell).length, { practice: 'passive' });
   train(c, casting, schoolTeach(spell.difficulty, c.skills[casting] ?? 100) * spoken, { practice: 'passive' });
-  if (opts.chain) train(c, 'chainCasting', schoolTeach(spell.difficulty, c.skills.chainCasting ?? 100) * spoken, { practice: 'passive' });
+  if (opts.chain) train(c, 'chainCasting', schoolTeach(spell.difficulty, c.skills.chainCasting ?? 100) * spoken * (opts.chainGainMultiplier ?? 2), { practice: 'passive' });
   spendMana(c, prof.mana);
   return { gain, mastery: c.spells[spell.id] };
 }

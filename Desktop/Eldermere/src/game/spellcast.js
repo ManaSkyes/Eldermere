@@ -189,7 +189,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
-    if (chainQueue.length) chainPrompt = { t: 0, duration: 0.9, hand: casting.hand };
+    if (chainQueue.length) chainPrompt = null; // wait for the cast animation to release the character before opening the next timing ring
     casting = null;
   }
 

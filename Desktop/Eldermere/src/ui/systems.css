@@ -931,3 +931,79 @@ tr[data-spell] { cursor: grab; }
 .chain-purchase:disabled { background:transparent;color:var(--ink-soft);border-color:var(--rule);cursor:default; }
 @media(max-width:850px) { .chain-tree-workspace { grid-template-columns:1fr; } .chain-node-detail { position:static; } .chain-tree-scroll { height:65vh;min-height:460px; } }
 @media(max-width:560px) { .chain-tree-stage { min-width:640px; } .chain-tree-scroll { height:62vh; } }
+
+
+/* Chain Casting layout repair: tier lanes, reliable SVG layering and hover cards. */
+.chain-tree-page .tree-single { overflow:visible !important; }
+.chain-tree-workspace { display:block !important; margin-top:.75rem; }
+.chain-tree-scroll {
+  position:relative; height:min(74vh,900px); min-height:560px; overflow:auto;
+  overscroll-behavior:contain; isolation:isolate;
+  border:1px solid rgba(90,62,36,.28); border-radius:10px;
+  background:linear-gradient(180deg,rgba(198,166,105,.10),rgba(70,50,30,.025));
+}
+.chain-tree-stage { position:relative; width:100%; min-width:900px; height:1800px; overflow:visible; }
+.chain-tree-milestones { position:absolute; inset:0; z-index:0; pointer-events:none; }
+.chain-tier-band { position:absolute; left:0; right:0; height:0; border-top:1px solid rgba(105,82,54,.34); }
+.chain-tier-band:nth-child(even) { background:rgba(130,103,66,.035); }
+.chain-tier-band span { position:absolute; left:9px; top:-.78rem; z-index:1; padding:2px 7px; border-radius:4px; background:#f3e8d0; color:#765b3c; font:600 .68rem var(--caps); letter-spacing:.06em; text-transform:uppercase; }
+.chain-tier-band small { position:absolute; right:10px; top:-.72rem; padding:1px 6px; background:#f3e8d0; color:#8a765d; font-size:.62rem; }
+.chain-tree-branch-labels { position:absolute; inset:0; z-index:1; pointer-events:none; }
+.chain-branch-label { position:absolute; top:1.4%; transform:translateX(-50%); white-space:nowrap; font:600 .72rem var(--caps); letter-spacing:.045em; text-shadow:0 1px 0 #f5ebd7; }
+.chain-branch-label.same { color:#a34b37; } .chain-branch-label.rotation { color:#39728b; }
+.chain-branch-label.rapid { color:#9a6a27; } .chain-branch-label.dual { color:#687b45; }
+.chain-branch-label.core { color:#77634b; }
+.chain-tree-links { position:absolute; inset:0; width:100%; height:100%; z-index:2; overflow:visible; pointer-events:none; }
+.chain-link { fill:none; vector-effect:non-scaling-stroke; }
+.chain-link.prereq { stroke:rgba(90,70,48,.78); stroke-width:1.65; }
+.chain-link.prereq.alternative { stroke-dasharray:4 3; }
+.chain-link.compatible { stroke:rgba(49,112,111,.78); stroke-width:2.1; stroke-dasharray:2 5; }
+.chain-skill-node {
+  position:absolute; z-index:3; transform:translate(-50%,-50%); width:126px; min-height:76px;
+  padding:3px 2px; border:0; background:transparent; color:var(--ink);
+  display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:3px;
+  font:inherit; outline-offset:4px;
+}
+.chain-orb {
+  width:36px; height:36px; flex:0 0 36px; border-radius:50%; display:grid; place-items:center;
+  border:2px solid rgba(100,75,45,.6); background:#eee0c3; box-shadow:0 2px 5px rgba(30,20,10,.2); font-size:.8rem;
+}
+.chain-skill-node.same .chain-orb { border-color:#a34b37; }
+.chain-skill-node.rotation .chain-orb { border-color:#39728b; }
+.chain-skill-node.rapid .chain-orb { border-color:#9a6a27; }
+.chain-skill-node.dual .chain-orb { border-color:#687b45; }
+.chain-skill-node.core .chain-orb { border-color:#77634b; background:#e7d7b5; }
+.chain-node-name { display:block; max-width:124px; padding:2px 5px; border-radius:4px; background:rgba(248,240,222,.96); font-size:.68rem; line-height:1.15; text-align:center; white-space:normal; overflow-wrap:break-word; box-shadow:0 1px 2px rgba(30,20,10,.10); }
+.chain-node-rank { padding:1px 5px; border-radius:4px; background:rgba(248,240,222,.96); font-size:.61rem; line-height:1.1; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.chain-skill-node.got .chain-orb { box-shadow:0 0 0 3px rgba(177,139,69,.24),0 2px 5px rgba(30,20,10,.2); background:#d9c18e; }
+.chain-skill-node.buyable .chain-orb { box-shadow:0 0 0 2px rgba(124,46,42,.32),0 2px 5px rgba(30,20,10,.2); }
+.chain-node-tooltip {
+  position:absolute; display:none; z-index:20; top:calc(100% + 7px); left:50%; transform:translateX(-50%);
+  width:238px; max-width:280px; padding:.65rem .72rem; border:1px solid rgba(90,62,36,.58);
+  border-radius:8px; background:#f7eedb; color:#342719; box-shadow:0 7px 22px rgba(25,15,8,.32);
+  text-align:left; white-space:normal; pointer-events:auto;
+}
+.chain-skill-node.low .chain-node-tooltip { top:auto; bottom:calc(100% + 7px); }
+.chain-skill-node:hover, .chain-skill-node:focus-within { z-index:12; }
+.chain-skill-node:hover .chain-node-tooltip, .chain-skill-node:focus-within .chain-node-tooltip { display:block; }
+.chain-node-tooltip b { display:block; font:600 .82rem var(--caps); margin-bottom:.28rem; }
+.chain-node-tooltip small { display:block; font-size:.74rem; line-height:1.38; }
+.chain-node-tooltip em { display:block; margin-top:.38rem; font-size:.67rem; color:#765b3c; font-style:normal; line-height:1.3; }
+.chain-tip-compat { display:flex; flex-direction:column; gap:.25rem; margin-top:.48rem; padding-top:.4rem; border-top:1px solid rgba(90,62,36,.2); }
+.chain-tip-compat b { margin:0; font-size:.68rem; color:#31706f; }
+.chain-tip-compat span { display:block; font-size:.67rem; line-height:1.3; }
+.chain-tip-known { display:block; margin-top:.5rem; color:#765b3c; font-style:italic; }
+.chain-purchase { width:100%; margin-top:.55rem; padding:.48rem .6rem; border:1px solid var(--accent); border-radius:5px; background:var(--accent); color:#f7ecd7; font:600 .76rem var(--serif); cursor:pointer; }
+.chain-purchase:disabled { background:transparent; color:var(--ink-soft); border-color:rgba(90,62,36,.25); cursor:default; }
+.chain-tree-legend { display:flex; flex-wrap:wrap; gap:1rem; margin:.55rem .2rem 0; color:var(--ink-soft); font-size:.7rem; }
+.chain-tree-legend span { display:flex; align-items:center; gap:.4rem; }
+.chain-legend-line { display:inline-block; width:26px; border-top:2px solid rgba(90,70,48,.78); }
+.chain-legend-line.compatible { border-top:2px dashed rgba(49,112,111,.78); }
+@media(max-width:850px) {
+  .chain-tree-scroll { height:68vh; min-height:500px; }
+  .chain-tree-stage { min-width:900px; }
+}
+@media(max-width:560px) {
+  .chain-tree-scroll { height:64vh; min-height:450px; }
+  .chain-tree-stage { min-width:900px; }
+}

@@ -15,8 +15,7 @@ export function createGatherables(THREE, scene, dungeon, origin, shapes) {
     for (const s of solid) { const top = topAt(s,x,z); if (top >= floor-0.6 && top <= floor+9.9 && top > y) y=top; }
     if (y === -Infinity) for (const s of solid) { const top=topAt(s,x,z); if(top>=floor-10.6&&top<floor-0.6&&top>y)y=top; }
     if (y === -Infinity) y=floor;
-    const bounds = new THREE.Box3().setFromObject(root);
-    root.position.set(x,y-bounds.min.y,z); root.rotation.y=-(o.rot||0)*Math.PI/180;
+    root.position.set(x,y,z); root.rotation.y=-(o.rot||0)*Math.PI/180;
     root.userData.gatherableId=o.id; scene.add(root); entries.push({object:o,root});
   }
   function update(now=Date.now()) {

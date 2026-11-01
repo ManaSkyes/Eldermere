@@ -1016,3 +1016,14 @@ tr[data-spell] { cursor: grab; }
 .chain-tree-branch-labels{overflow:visible}
 .chain-branch-label{right:auto!important;width:max-content;max-width:180px;text-align:center}
 .chain-branch-label.rotation,.chain-branch-label.same,.chain-branch-label.core,.chain-branch-label.rapid,.chain-branch-label.dual{left:var(--chain-branch-x,auto)}
+
+/* Chain Casting scroll and node alignment correction. The outer book panel must
+   not become a second scroll container; the tree owns its own vertical scroll. */
+.chain-tree-page .tree-single{overflow:visible!important;min-height:0!important}
+.chain-tree-workspace{display:block!important;min-height:0}
+.chain-tree-scroll{display:block!important;height:min(72vh,820px)!important;min-height:480px!important;max-height:820px;overflow-x:auto!important;overflow-y:auto!important;overscroll-behavior:contain}
+.chain-tree-stage{height:auto;min-height:0;overflow:visible}
+.chain-skill-node{transform:translate(-50%,-50%)!important;margin:0!important;width:120px;min-height:76px}
+.chain-tree-links{z-index:2;overflow:visible}
+.chain-skill-node{z-index:3}
+.chain-tier-band{pointer-events:none}

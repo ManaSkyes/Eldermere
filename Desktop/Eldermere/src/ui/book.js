@@ -357,11 +357,13 @@ export function createBook(root, ctx) {
     const compatibilityPath = (a, b, index) => {
       const from = positions[a], to = positions[b];
       const direction = to.x >= from.x ? 1 : -1;
-      const startX = from.x + direction * 2.1, endX = to.x - direction * 2.1;
-      const arc = (index % 2 ? 1 : -1) * Math.min(15, 7 + Math.abs(to.x - from.x) * .09);
+      // Nodes are 120px wide; reserve enough horizontal clearance in the
+      // 0–100 SVG coordinate system so links terminate outside their circles.
+      const clearance = 7.2;
+      const startX = from.x + direction * clearance, endX = to.x - direction * clearance;
+      const arc = (index % 2 ? 1 : -1) * Math.min(17, 11 + Math.abs(to.x - from.x) * .08);
       const controlX = (startX + endX) / 2;
-      // Route synergy links around intervening nodes instead of drawing a dotted
-      // horizontal stripe through an entire tier of skills.
+      // Lift same-tier synergies into a visible arch, never through node labels/orbs.
       return `M ${startX} ${from.y} C ${controlX} ${from.y + arc}, ${controlX} ${to.y + arc}, ${endX} ${to.y}`;
     };
     const lines = prerequisiteEdges.map(e =>

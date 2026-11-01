@@ -664,7 +664,7 @@ export function createBook(root, ctx) {
         closeChainTip();
         const tip = document.createElement('div');
         tip.className = 'chain-tooltip-portal';
-        tip.innerHTML = sourceTip.innerHTML;
+        tip.innerHTML = '<button type="button" class="chain-tooltip-close" aria-label="Close skill details">×</button>' + sourceTip.innerHTML;
         Object.assign(tip.style, {
           position:'fixed', display:'block', boxSizing:'border-box',
           width:'320px', minWidth:'280px', maxWidth:'calc(100vw - 24px)',
@@ -688,17 +688,21 @@ export function createBook(root, ctx) {
           if (result.ok) { resetArmed = false; ctx.onChange?.(); }
           closeChainTip(); render();
         }));
-        tip.addEventListener('pointerleave', ev => {
-          if (!node.contains(ev.relatedTarget)) closeChainTip();
+        tip.querySelector('.chain-tooltip-close')?.addEventListener('click', ev => {
+          ev.stopPropagation(); closeChainTip();
         });
       };
-      node.addEventListener('pointerenter', show);
-      node.addEventListener('pointerleave', ev => {
-        if (!activeChainTip?.contains(ev.relatedTarget)) closeChainTip();
+      // A deliberate click pins the detail card. It remains open while the user
+      // reads or scrolls the card and closes only from its X button.
+      node.addEventListener('click', ev => {
+        ev.stopPropagation();
+        if (activeChainTip && node.dataset.tipOpen === '1') { closeChainTip(); node.dataset.tipOpen = '0'; return; }
+        el.querySelectorAll('.chain-skill-node').forEach(n => n.dataset.tipOpen = '0');
+        node.dataset.tipOpen = '1';
+        show();
       });
-      node.addEventListener('focusin', show);
-      node.addEventListener('focusout', ev => {
-        if (!node.contains(ev.relatedTarget) && !activeChainTip?.contains(ev.relatedTarget)) closeChainTip();
+      node.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); node.click(); }
       });
     });
     el.querySelectorAll('[data-chain-buy]').forEach(btn => btn.onclick = () => { const r = buyNode(c, 'chainCasting', btn.dataset.chainBuy); if (r.ok) { resetArmed = false; ctx.onChange?.(); } render(); });

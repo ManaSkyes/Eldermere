@@ -295,7 +295,10 @@ export function createBook(root, ctx) {
       const have = rank(n), buy = canBuy(c, 'chainCasting', n.id);
       return n.innate ? 'Known from the start' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available to learn' : buy.reason;
     };
-    const lanes = { same: 7, rotation: 29, core: 50, rapid: 71, dual: 93 };
+    // Keep the universal discipline as the central spine beneath First Link.
+    // Same Element branches left; Elemental Rotation mirrors it on the right.
+    // Rapid Fire and Two-Element remain secondary lower-side disciplines.
+    const lanes = { same: 11, rapid: 31, core: 50, dual: 69, rotation: 89 };
     const tiers = [
       { name: 'Unskilled', range: '0–199', min: 0, max: 200, top: 7, bottom: 19 },
       { name: 'Apprentice', range: '200–499', min: 200, max: 500, top: 21, bottom: 34 },
@@ -335,11 +338,11 @@ export function createBook(root, ctx) {
     // on region axes or evenly spaced region columns, never against the
     // canvas-wide center by accident.
     const regions = {
-      same: { left: 2, right: 21 },
-      rotation: { left: 22, right: 41 },
-      core: { left: 42, right: 58 },
-      rapid: { left: 59, right: 87 },
-      dual: { left: 88, right: 99 }
+      same: { left: 2, right: 20 },
+      rapid: { left: 21, right: 40 },
+      core: { left: 41, right: 59 },
+      dual: { left: 60, right: 79 },
+      rotation: { left: 80, right: 99 }
     };
     const regionCenter = id => (regions[id].left + regions[id].right) / 2;
     const regionColumns = (id, count, inset = 1.5) => {
@@ -432,8 +435,8 @@ export function createBook(root, ctx) {
       return `<div class="chain-tier-band" style="top:${top}%;height:${height}%"><span>${t.name}</span><small>${t.range}</small></div>`;
     }).join('');
     const branchLabels = [
-      ['same', 'Same Element'], ['rotation', 'Elemental Rotation'],
-      ['core', 'Universal'], ['rapid', 'Rapid Fire'], ['dual', 'Two-Element']
+      ['same', 'Same Element'], ['core', 'Universal'],
+      ['rotation', 'Elemental Rotation'], ['rapid', 'Rapid Fire'], ['dual', 'Two-Element']
     ].map(([id, name]) =>
       `<span class="chain-branch-label ${id}" style="left:${lanes[id]}%">${name}</span>`
     ).join('');

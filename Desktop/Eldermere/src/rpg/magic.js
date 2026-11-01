@@ -137,6 +137,10 @@ export function castProfile(c, spell, opts = {}) {
   const schoolModsList = schoolsOf(spell).map(school => schoolMods(c, school, voiceless));
   const sm = schoolModsList.reduce((a, x) => ({ mana: a.mana * x.mana, time: a.time * x.time, backfire: a.backfire * x.backfire }), { mana: 1, time: 1, backfire: 1 });
   mana *= sm.mana; time *= sm.time; backfire *= sm.backfire;
+  const evolution = c.spellEvolution?.[spell.id]?.nodes || {};
+  power *= 1 + 0.05 * (evolution.force || 0);
+  mana *= 1 - 0.04 * (evolution.economy || 0);
+  time *= 1 - 0.04 * (evolution.tempo || 0);
   return {
     mastery: L,
     power: spell.power * (0.4 + 0.6 * core) * power,

@@ -268,3 +268,8 @@ button:disabled { cursor: default; opacity: 0.4; }
 .spell-chain-option small{color:var(--muted,#a99b87);margin-right:8px}.spell-chain-slot button,.spell-chain-option button,.journal-back{cursor:pointer}
 .journal-back{border:0;background:none;color:var(--gold,#d8b879);padding:0 0 8px}
 @media(max-width:760px){.spell-list-head{display:none}.spell-list-row{grid-template-columns:minmax(90px,1fr) 1fr 3rem;gap:7px}.spell-row-mastery{display:none}.spell-row-prepare,.spell-row-combo{font-size:11px;padding:5px 7px}}
+
+.spell-evolution-tree{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:16px}
+.spell-evolution-node{padding:14px;border:1px solid rgba(190,160,120,.22);border-radius:9px;background:rgba(35,25,18,.2)}
+.spell-evolution-node header{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.spell-evolution-node p{min-height:3.2em;color:var(--muted,#a99b87);font-size:13px}

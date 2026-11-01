@@ -329,6 +329,36 @@ export function createBook(root, ctx) {
         positions[n.id] = { x: lanes[lane], y: yPx / stageHeight * 100 };
       });
     }
+    // Rapid Fire is the entry point of its own branch. Put the unlock above
+    // four parallel Apprentice upgrades, then keep each upgrade family in a
+    // consistent column through later mastery tiers.
+    const rapidColumns = {
+      rapidVolleyApprentice: 22, sustainedBarrageApprentice: 41,
+      efficientBarrageApprentice: 60, focusedBurstApprentice: 79
+    };
+    const rapidFamilies = [
+      ['rapidVolley', 'rapidVolley'],
+      ['sustainedBarrage', 'sustainedBarrage'],
+      ['efficientBarrage', 'efficientBarrage'],
+      ['focusedBurst', 'focusedBurst']
+    ];
+    const apprenticeSlot = populatedTierIndexes.indexOf(1);
+    const apprenticeTop = tierTop + Math.max(0, apprenticeSlot) * tierHeight;
+    const rapidFireY = apprenticeTop + 78;
+    positions.rapidFire = { x: 50, y: rapidFireY / stageHeight * 100 };
+    for (const [id, x] of Object.entries(rapidColumns)) {
+      positions[id] = { x, y: (apprenticeTop + 245) / stageHeight * 100 };
+    }
+    for (let tierIndex = 2; tierIndex <= 5; tierIndex++) {
+      const slot = populatedTierIndexes.indexOf(tierIndex);
+      if (slot < 0) continue;
+      const y = (tierTop + slot * tierHeight + tierHeight * .52) / stageHeight * 100;
+      for (const [prefix] of rapidFamilies) {
+        const id = prefix + ['Journeyman', 'Expert', 'Master', 'Grandmaster'][tierIndex - 2];
+        const node = byId[id];
+        if (node) positions[id] = { x: rapidColumns[prefix + 'Apprentice'], y };
+      }
+    }
     const pathFor = (a, b) => {
       const bend = Math.max(3, Math.abs(b.x - a.x) * .28);
       const direction = b.x >= a.x ? 1 : -1;

@@ -2,8 +2,8 @@
 // in steps of 10.
 //
 // Quality runs 0..100. A gathered material's true quality is unknown until it's appraised.
-// Appraised quality rounds to the nearest 10 (55 -> 60, 54 -> 50), so a stack holds at most 11
-// grades instead of 101 separate items.
+// Quality rounds to the nearest 10 (55 -> 60, 54 -> 50). Rolls below 5 round to 0 and are failures,
+// so no item is created for them. This keeps stacks to ten usable grades instead of 101 variants.
 import { RANKS, rankOf, PROFESSIONS } from '../data/professions.js';
 import { MATERIALS, TIER_RANK } from '../data/materials.js';
 import { effectiveMain, train } from './stats.js';

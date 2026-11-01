@@ -70,10 +70,10 @@ export function createHarvest({ THREE, scene, monsters, character, inv, input, p
     const got = [];
     for (const [part, [lo, hi]] of Object.entries(S.yields)) {
       const id = `${H.creature}.${part}`; if (!MATERIALS[id]) continue;
-      let count = Math.min(hi, sround(lo + (hi - lo) * score));
-      if (j.mode === 'auto' && hi > 0) count = Math.max(1, count);   // auto always gets something
-      for (let u = 0; u < count; u++) addMaterial(inv, id, gatherQuality(character, id, { bonus: (score - 0.55) * 40 + perk * 20, train: false }), 1, true);   // (your own work: you know its quality)
-      if (count) got.push(`${count} ${MATERIALS[id].name || part}`);
+      const count = Math.min(hi, sround(lo + (hi - lo) * score));
+      let kept = 0;
+      for (let u = 0; u < count; u++) kept += addMaterial(inv, id, gatherQuality(character, id, { bonus: (score - 0.55) * 40 + perk * 20, train: false }), 1, true);   // (your own work: you know its quality; quality 0 is discarded)
+      if (kept) got.push(`${kept} ${MATERIALS[id].name || part}`);
     }
     // the skill trains by the checks you hit: a good hit 0.03, a great one 0.05 (misses teach nothing); auto counts as
     // three good hits. A little Finesse comes with it.

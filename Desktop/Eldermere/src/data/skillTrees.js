@@ -367,12 +367,12 @@ function genericTree(id) {
     {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
     {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:150,text:'Unlock elemental rotation. Every follow-up must use a different element, and no spell may repeat.',ranks:1,branch:'b'},
     {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'b',needs:['elementalRotation']},
-    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot.',ranks:10,branch:'b',needs:['rotatingForce']},
+    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot.',ranks:5,branch:'b',needs:['rotatingForce']},
     {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
     {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,needs:['steadySequence'],effect:{chainSlots:1}},
     {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
     {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff']},
-    {id:'rotationCapacity',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot. Stacks with Diverse Weave.',ranks:10,branch:'b',needs:['diverseWeave']},
+    {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot. Stacks with Diverse Weave.',ranks:5,branch:'b',needs:['diverseWeave']},
     {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5}
   ]};
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
@@ -408,11 +408,12 @@ for (const tree of Object.values(SKILL_TREES)) for (const n of tree.nodes) if (n
 function migrateChainCastingState(c) {
   const state = c.skillTrees?.chainCasting;
   const nodes = state?.nodes || state;
-  if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, 'chainCapacity')) return;
-  let remaining = Math.max(0, Math.floor(nodes.chainCapacity || 0));
+  if (!nodes || (!Object.prototype.hasOwnProperty.call(nodes, 'chainCapacity') && !Object.prototype.hasOwnProperty.call(nodes, 'rotationCapacity'))) return;
+  // Earlier versions kept generic capacity in two standalone nodes. Fold both investments
+  // into the three universal center passives; the new rotation perks are separate discounts.
+  let remaining = Math.max(0, Math.floor(nodes.chainCapacity || 0)) + Math.max(0, Math.floor(nodes.rotationCapacity || 0));
   delete nodes.chainCapacity;
-  // The old single capacity node is redistributed into the three universal passives.
-  // Existing ranks count toward the new shared capacity; any excess old ranks are refunded.
+  delete nodes.rotationCapacity;
   for (const id of ['steadySequence', 'perfectCadence', 'swiftHandoff']) {
     const have = Math.max(0, Math.min(3, Math.floor(nodes[id] || 0)));
     const add = Math.min(3 - have, remaining);

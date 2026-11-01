@@ -53,7 +53,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (main && !off && (wrist || innate)) return { L: null, R: 'dual', handR: 'L', drawn: true, name: 'weaponWrist' };
     return null;
   }
-  let readied = known()[0] || null, casting = null;
+  let readied = known()[0] || null, casting = null, chainNext = null;
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -181,7 +181,11 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    trainCast(character, spell, { mode: casting.mode, focus: casting.focus }, failed);
+    const chain = (character.spellChain || []).filter(id => preparedOf(character).includes(id) && SPELL_CAST[id]);
+    const chainAt = chain.indexOf(spell.id);
+    const chained = !failed && chainAt >= 0 && chainAt < chain.length - 1;
+    trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
+    chainNext = chained ? chain[chainAt + 1] : null;
     casting = null;
   }
 
@@ -201,6 +205,15 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
+      if (chainNext && !casting && locked && free && body() && !body().combat.busy) {
+        const id = chainNext; chainNext = null;
+        const L = layout(), focus = !!body().gear.stats().focus;
+        if (known().includes(id) && L && vitals.mp >= castProfile(character, SPELLS[id], { mode: 'incantation', focus }).mana && body().combat.cast({ hand: L.handL || L.handR })) {
+          const prof = castProfile(character, SPELLS[id], { mode: 'incantation', focus });
+          casting = { id, mode: 'incantation', focus, prof, t: 0, key: null, auto: true, failOnRelease: false, hand: L.handL || L.handR, chain: true };
+          audio.chant?.(true, prof.castTime);
+        }
+      }
       if (locked && input.pressed('nextSpell')) {
         const k = known(); if (k.length) { readied = k[(k.indexOf(readied) + 1) % k.length]; toast?.(`Readied: ${SPELLS[readied].name}`); }
       }

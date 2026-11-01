@@ -245,11 +245,13 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       // Do not expose the timing window during the throw: wait for its full 0.45 s pose,
       // and require the rig to have cleared the cast action before opening the prompt.
       if (chainReleaseWait > 0) chainReleaseWait = Math.max(0, chainReleaseWait - dt);
-      if (chainQueue.length && !casting && !chainPrompt && chainReleaseWait <= 0 && locked && free && b && !b.combat.busy) {
+      // The release animation is the only timing gate. Combat busy/free flags can remain set
+      // for unrelated locomotion or rig recovery and must not suppress a queued chain prompt.
+      if (chainQueue.length && !casting && !chainPrompt && chainReleaseWait <= 0 && locked && b) {
         chainPrompt = { t: 0, duration: 0.9, hand: b.combat.castHand };
       }
       if (chainPrompt && !casting) {
-        if (!locked || !free || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; }
+        if (!locked || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; }
         else {
           chainPrompt.t += dt;
           const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');

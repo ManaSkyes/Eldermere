@@ -249,7 +249,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     }
     else { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; }
     if (chainQueue.length) chainInput = completedInput;
-    else if (!casting.chain) chainHistory=[];
+    else { chainInput = null; chainHistory=[]; }
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain || chainQueue.length > 0, chainGainMultiplier: 2 }, failed);

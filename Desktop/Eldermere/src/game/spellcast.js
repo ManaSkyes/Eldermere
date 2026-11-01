@@ -185,7 +185,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     const perfect = normalized >= 0.98 && normalized <= 1.18; // Slightly late is more forgiving than early.
     const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
     const failed = Math.random() >= successChance;
-    lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
+    lastPerfect = perfect && !failed; if (lastPerfect) { perfectFlash = 1; audio.perfect?.('combo'); }
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
     if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; } }
@@ -246,6 +246,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
           if (start) {
             if (!perfectStart) { chainPrompt=null; chainQueue=[]; toast?.('Chain timing missed.'); }
             else {
+              audio.perfect?.('combo');
               const id=chainQueue[0], focus=!!b.gear.stats().focus;
               if (!SPELL_CAST[id] || !knowsSpell(character,id)) { chainPrompt=null; chainQueue=[]; }
               else if (!L) { chainPrompt=null; chainQueue=[]; toast?.('Spell chain stopped: no casting focus.'); }

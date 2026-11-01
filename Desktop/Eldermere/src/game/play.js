@@ -23,6 +23,11 @@ import { buildCreature } from '../rpg/creature.js';
 import { createSwingTrail } from '../gfx/swingTrail.js';
 import { createHarvest } from './harvest.js';
 import { learnKill, learnHit, known as knownBeast } from '../rpg/bestiary.js';
+import { discoverPlant } from '../rpg/herbarum.js';
+import { gatherQuality } from '../rpg/quality.js';
+import { MATERIALS } from '../data/materials.js';
+import { buildHerbariumSpecimen } from '../gfx/herbariumModel.js';
+import { createGatherables } from './gatherables.js';
 import { capacity, loadOf, encumbrance } from '../rpg/carry.js';
 import { ITEMS } from '../rpg/equipment.js';
 import { noiseOf, visibilityOf, stepAwareness, awarenessLabel, STEALTH } from '../rpg/stealth.js';
@@ -165,6 +170,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const dummies = createDummies(THREE, scene, TG ? [{ x: 5.5, z: 8.5, yaw: 2.6 }, { x: 7.5, z: 6.5, yaw: 2.2 }, { x: 4.0, z: 11.0, yaw: 2.9 }] : []);
   shapes.push(...dummies.shapes);
   buildTestGrounds(THREE, scene, shapes, dungeon?.decor || [], dungeon?.pathSurfaces || [], dungeon?.groundSplat || null, { field: TG });
+  const gatherables=dungeon?createGatherables(THREE,scene,playtest,DUNGEON_ORIGIN,shapes):null;
   // the map's global settings from the creator's Global tab (src/data/globals.js)
   const G = globalsOf(playtest);
   const dungeonObjs = dungeon ? createDungeonObjects(THREE, scene, playtest, DUNGEON_ORIGIN, shapes) : null;   // its traps and triggers
@@ -855,6 +861,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     let best = null, bestD = 2.4;
     for (const o of playtest.objects) {
       if (OBJECTS[o.type]?.cat !== 'gatherable') continue;
+      if(o.harvestedUntil&&o.harvestedUntil>Date.now())continue;
+      if(o.harvestedUntil&&o.harvestedUntil<=Date.now())delete o.harvestedUntil;
       const dx = DUNGEON_ORIGIN.x + o.x - st.pos.x, dz = DUNGEON_ORIGIN.z + o.z - st.pos.z, dist = Math.hypot(dx, dz);
       if (dist < bestD && dist > 0.001 && (-Math.sin(st.yaw) * dx - Math.cos(st.yaw) * dz) / dist > 0.15) { best = o; bestD = dist; }
     }
@@ -874,17 +882,35 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     return started;
   }
   function gatherPlant(plant) {
-    if (!plant || !body) return false;
-    const equipped = body.gear.equipped().mainHand === 'herbalTool';
-    const carried = inv.items.some(it => it.id === 'herbalTool');
-    if (!equipped) { toast(carried ? 'Equip the Crude Scythe and Trowel in Character → Main hand first.' : 'You need the Crude Scythe and Trowel. Find it as ground loot or take it from the weapon rack.'); return false; }
-    const started = body.actHerbalism({ onEnd: () => {
-      addMaterial(inv, 'sunCupTulip', 50, 1, true);
-      book.render();
-      toast('Gathered Sun Cup tulip ×1.');
-    } });
-    if (started) toast('Gathering Sun Cup tulip…');
-    return started;
+    if(!plant||!body||(plant.harvestedUntil&&plant.harvestedUntil>Date.now()))return false;
+    const material=MATERIALS[plant.type];
+    if(!material||material.category!=='plant'){toast('This plant has no gathering record yet.');return false;}
+    const assignedTool=character.toolSlots?.herbalism,legacyEquipped=body.gear.equipped().mainHand==='herbalTool';
+    if(assignedTool?.id!=='herbalTool'&&!legacyEquipped){toast('Assign the Crude Scythe and Trowel to the Herbalism tool slot in your book (Tab → Tools).');return false;}
+    const previousMain=body.gear.equipped().mainHand||null,wasDrawn=body.combat.drawn;
+    if(previousMain!=='herbalTool'){const equipped=body.gear.equip('herbalTool');if(!equipped.ok){toast(equipped.reason);return false;}}
+    const restoreTool=()=>{
+      const restoreGear=()=>{
+        if(previousMain&&previousMain!=='herbalTool')body.gear.equip(previousMain);
+        else if(previousMain!=='herbalTool')body.gear.unequip('mainHand');
+        if(previousMain&&wasDrawn)body.combat.draw();
+      };
+      if(body.combat.drawn)body.combat.sheathe({onEnd:restoreGear});else restoreGear();
+    };
+    const dx=DUNGEON_ORIGIN.x+plant.x-player.state.pos.x,dz=DUNGEON_ORIGIN.z+plant.z-player.state.pos.z;
+    if(Math.hypot(dx,dz)>0.001)player.state.yaw=Math.atan2(-dx,-dz);
+    bodyYaw=player.state.yaw;turnInPlace=false;
+    const started=body.actHerbalism({onEnd:()=>{
+      const quality=gatherQuality(character,material.id,{tool:0.6,region:0.5});
+      const added=addMaterial(inv,material.id,quality,1,false);
+      discoverPlant(character,material.id);
+      plant.harvestedUntil=Date.now()+5*60*1000;
+      book.render();updateLoad();
+      toast(added?'Gathered '+material.name+' ×1. Its quality is unappraised.':material.name+' was too damaged to keep.');
+      restoreTool();
+    }});
+    if(!started){restoreTool();return false;}
+    toast('Gathering '+material.name+'…');return true;
   }
   const nearRack = () => !!nearStation();
   function openRack(kind = 'weapons') {
@@ -1121,6 +1147,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (sneakXp >= 1) { train(character, 'sneak', sneakXp * 0.6, { stats: ['dexterity'], approach: true }); sneakXp = 0; }
     }
     dungeonObjs?.update(dt, performance.now() / 1000, { pos: st.pos, height: player.height, invulnerable: st.invulnerable }, (pts, why) => hurt(Math.min(1, pts / Math.max(1, d.maxHp)), why), enemies?.units || []);
+    gatherables?.update();
     if (probe.on) {
       const otherMs = Math.max(0, performance.now() - courseT0 - monsterMs);
       probeLaps['World update overhead (excluding monsters)'] = (probeLaps['World update overhead (excluding monsters)'] || 0) * 0.9 + otherMs * 0.1;
@@ -2024,6 +2051,23 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h); renderer.render(beast.scene, beast.cam); renderer.setScissorTest(false);
     renderer.setViewport(0, 0, cr.width, cr.height);
   }
+  const herbModel={id:null,root:null,scene:new THREE.Scene(),cam:new THREE.PerspectiveCamera(30,1,0.05,30),spin:0,size:1};
+  herbModel.scene.background=new THREE.Color('#2b2433');herbModel.scene.add(new THREE.HemisphereLight('#fff4e0','#3a3040',1));
+  {const d=new THREE.DirectionalLight('#ffffff',1.15);d.position.set(3,5,4);herbModel.scene.add(d);}
+  function renderHerbarium(dt){
+    const id=book.herbId,r=book.herbRect();if(!id||!r||r.width<4)return;
+    if(herbModel.id!==id){
+      if(herbModel.root){herbModel.scene.remove(herbModel.root);herbModel.root.traverse(o=>{if(o.isMesh){o.geometry?.dispose?.();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose?.());else o.material?.dispose?.();}});}
+      herbModel.id=id;herbModel.root=buildHerbariumSpecimen(THREE,id);if(!herbModel.root)return;herbModel.scene.add(herbModel.root);
+      const box=new THREE.Box3().setFromObject(herbModel.root);herbModel.size=Math.max(0.45,box.getSize(new THREE.Vector3()).length());
+    }
+    herbModel.spin+=dt*0.18;herbModel.root.rotation.y=herbModel.spin+book.turn;
+    const cr=canvas.getBoundingClientRect(),x=r.left-cr.left+6,y=cr.bottom-r.bottom+6,w=r.width-12,h=r.height-12;
+    herbModel.cam.aspect=w/h;herbModel.cam.updateProjectionMatrix();
+    const dist=herbModel.size*0.62/Math.tan(15*Math.PI/180)/Math.min(1,herbModel.cam.aspect);
+    herbModel.cam.position.set(dist*0.75,dist*0.3,dist*0.6);herbModel.cam.lookAt(0,0,0);
+    renderer.setScissorTest(true);renderer.setScissor(x,y,w,h);renderer.setViewport(x,y,w,h);renderer.render(herbModel.scene,herbModel.cam);renderer.setScissorTest(false);renderer.setViewport(0,0,cr.width,cr.height);
+  }
   // the performance panel's breakdown of the game's own time (each part since the one before; smoothed)
   const probeLaps = {}; let lapT = 0;
   const lap = k => { if (!probe.on) return; const n = performance.now(); probeLaps[k] = (probeLaps[k] || 0) * 0.9 + (n - lapT) * 0.1; lapT = n; };
@@ -2469,6 +2513,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (bench.on) benchStep(cpu1 - cpu0, cpu2 - cpu1);
     if (book.isOpen && body) renderFigure();
     if (book.isOpen) renderBeast(dt);
+    if(book.isOpen)renderHerbarium(dt);
     const st = player.state, S = player.stats();
     bar.style.setProperty('--f', Math.max(0, Math.min(1, st.stamina / S.maxStamina)).toFixed(3));
     bar.classList.toggle('exhausted', st.exhausted);

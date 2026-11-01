@@ -38,6 +38,7 @@ import { createMonsterActors } from './monsterActors.js';
 import { createSpellcast } from './spellcast.js';
 import { buildDungeonShapes, lightDungeon } from './dungeonBuild.js';
 import { createDungeonObjects } from './dungeonObjects.js';
+import { createGroundLoot } from './groundLoot.js';
 import { createEnemies } from './enemies.js';
 import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../data/objects.js';
 import { globalsOf, sunDirection } from '../data/globals.js';
@@ -167,6 +168,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // the map's global settings from the creator's Global tab (src/data/globals.js)
   const G = globalsOf(playtest);
   const dungeonObjs = dungeon ? createDungeonObjects(THREE, scene, playtest, DUNGEON_ORIGIN, shapes) : null;   // its traps and triggers
+  const groundLoot = dungeon ? createGroundLoot(THREE, scene, playtest, DUNGEON_ORIGIN) : null;
   const enemies = dungeon ? createEnemies(THREE, scene, playtest, DUNGEON_ORIGIN, shapes, { floatText: (...a) => dummies.floatText(...a) }) : null;   // and its enemies
   // the new monsters (docs/MONSTERS.md; the F8 panel spawns them in front of you for now)
   const particles = createParticles(THREE, scene);
@@ -858,10 +860,30 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     return best;
   }
+  function nearGroundLoot() { return groundLoot?.nearest(player.state.pos, player.state.yaw) || null; }
+  function pickGroundLoot(drop) {
+    if (!drop || !body) return false;
+    const started = body.act('pickup', { onEvent: event => {
+      if (event !== 'take' || drop.picked) return;
+      const id = drop.itemId;
+      if (!ITEMS[id]) { toast('This ground item has no usable item definition.'); return; }
+      addItem(inv, { id }); groundLoot.take(drop); updateLoad(); book.render();
+      toast(ITEMS[id].name + ' added to your pack. Equip it from Character → Main hand.');
+    } });
+    if (started) toast('Picking up ' + drop.name + '…');
+    return started;
+  }
   function gatherPlant(plant) {
     if (!plant || !body) return false;
-    const started = body.actHerbalism({ onEnd: () => toast(`Gathered ${OBJECTS[plant.type]?.name || 'plant'}.`) });
-    if (started) toast(`Gathering ${OBJECTS[plant.type]?.name || 'plant'}…`);
+    const equipped = body.gear.equipped().mainHand === 'herbalTool';
+    const carried = inv.items.some(it => it.id === 'herbalTool');
+    if (!equipped) { toast(carried ? 'Equip the Crude Scythe and Trowel in Character → Main hand first.' : 'You need the Crude Scythe and Trowel. Find it as ground loot or take it from the weapon rack.'); return false; }
+    const started = body.actHerbalism({ onEnd: () => {
+      addMaterial(inv, 'sunCupTulip', 50, 1, true);
+      book.render();
+      toast('Gathered Sun Cup tulip ×1.');
+    } });
+    if (started) toast('Gathering Sun Cup tulip…');
     return started;
   }
   const nearRack = () => !!nearStation();
@@ -2198,7 +2220,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (input.pressed('inventory')) openInventory();
       if (input.pressed('checkpoint') && activeCp) respawn(activeCp, `Back to ${activeCp.name}.`);
       if (input.pressed('view')) { thirdPerson = !thirdPerson; tpWant = thirdPerson ? tpLast : 0; if (thirdPerson) tpCur = Math.max(tpCur, 0.8); toast(thirdPerson ? 'Third-person view' : 'First-person view'); }
-      if (input.pressed('interact')) { const plant = nearGatherable(); if (plant) gatherPlant(plant); else nearStation()?.open(); }
+      if (input.pressed('interact')) { const drop = nearGroundLoot(), plant = !drop && nearGatherable(); if (drop) pickGroundLoot(drop); else if (plant) gatherPlant(plant); else nearStation()?.open(); }
       wheelUpdate();
       combat.update(dt, input, allTargets(), true);
       comboHud.update(combat.timing);
@@ -2221,7 +2243,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         box.querySelector('.rune').className = `rune s-${sp.school}`; box.querySelector('.rune').textContent = SCHOOL_GLYPH[sp.school] || '✦';
         box.querySelector('b').textContent = sp.name; box.querySelector('small').textContent = lay ? `${Math.ceil(pr.mana)} MP · Q to change` : 'no focus in hand';
         box.classList.toggle('nofocus', !lay); } }
-    { const plant = input.locked && !wheel.open && nearGatherable(), ns = !plant && input.locked && !wheel.open && nearStation(); promptEl.textContent = plant ? `${keyName(input.bindings.interact[0])}: gather ${OBJECTS[plant.type]?.name || 'plant'}` : ns ? `${keyName(input.bindings.interact[0])}: ${ns.name}` : ''; }
+    { const drop = input.locked && !wheel.open && nearGroundLoot(), plant = !drop && input.locked && !wheel.open && nearGatherable(), ns = !drop && !plant && input.locked && !wheel.open && nearStation(); promptEl.textContent = drop ? keyName(input.bindings.interact[0]) + ': pick up ' + drop.name : plant ? keyName(input.bindings.interact[0]) + ': gather ' + (OBJECTS[plant.type]?.name || 'plant') : ns ? keyName(input.bindings.interact[0]) + ': ' + ns.name : ''; }
     regen(dt);
     if (input.locked) stealth(dt);
     lap('Stealth');

@@ -294,7 +294,7 @@ export function createBook(root, ctx) {
       const have = rank(n), buy = canBuy(c, 'chainCasting', n.id);
       return n.innate ? 'Known from the start' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available to learn' : buy.reason;
     };
-    const lanes = { same: 10, rotation: 30, core: 50, rapid: 70, dual: 90 };
+    const lanes = { same: 7, rotation: 29, core: 50, rapid: 71, dual: 93 };
     const tiers = [
       { name: 'Unskilled', range: '0–199', min: 0, max: 200, top: 7, bottom: 19 },
       { name: 'Apprentice', range: '200–499', min: 200, max: 500, top: 21, bottom: 34 },
@@ -313,7 +313,7 @@ export function createBook(root, ctx) {
     }
     // Give each populated rank tier a compact, consistent pixel-height lane.
     // This avoids reserving a quarter of the entire tree for a tier with one node.
-    const tierHeight = 196, tierTop = 64;
+    const tierHeight = 380, tierTop = 72;
     const stageHeight = tierTop + populatedTierIndexes.length * tierHeight + 38;
     const positions = {};
     for (const [key, group] of grouped) {
@@ -325,7 +325,7 @@ export function createBook(root, ctx) {
       const count = group.length;
       group.forEach((n, i) => {
         const yPx = count === 1 ? (bandTopPx + bandBottomPx) / 2
-          : bandTopPx + 52 + (i * (tierHeight - 104) / (count - 1));
+          : bandTopPx + 54 + (i * (tierHeight - 108) / (count - 1));
         positions[n.id] = { x: lanes[lane], y: yPx / stageHeight * 100 };
       });
     }

@@ -16,7 +16,7 @@ const K = {
 };
 
 export function buildProps(d, kit, shapes, origin) {
-  const objs = (d.objects || []).filter(o => ['furniture', 'street'].includes(OBJECTS[o.type]?.cat) && !o.preset);
+  const objs = (d.objects || []).filter(o => ['furniture', 'street', 'gatherable'].includes(OBJECTS[o.type]?.cat) && !o.preset);
   if (!objs.length) return;
   const { box, trim, prism, lamp } = kit;
   // the ground under a point: the highest solid top within this layer (a raised street, a road's collision, the
@@ -77,6 +77,21 @@ export function buildProps(d, kit, shapes, origin) {
     const crate = (u, v, s, y = 0) => { B(u - s, u + s, v - s, v + s, y, y + 2 * s, K.wood, 4); T(u - s - 0.02, u + s + 0.02, v - s - 0.02, v + s + 0.02, y + s * 0.9, y + s * 1.1, K.dark, 4); T(u - s - 0.02, u + s + 0.02, v - s - 0.02, v + s + 0.02, y + 2 * s - 0.06, y + 2 * s, K.dark, 4); };
     const flower = (u, v, y, n) => { if (kit.plant) { for (let i = 0; i < Math.max(1, Math.round(n / 3)); i++) { const [px, pz] = P(u + (rnd() - 0.5) * 0.25, v + (rnd() - 0.5) * 0.25); kit.plant('flower', px, Y + y - 0.1, pz, 0.7 + rnd() * 0.3, rnd() * 6.28, Math.floor(rnd() * 6)); } return; } for (let i = 0; i < n; i++) { const a = u + (rnd() - 0.5) * 0.3, b = v + (rnd() - 0.5) * 0.3, s = 0.06 + rnd() * 0.04; T(a - s, a + s, b - s, b + s, y, y + 0.1 + rnd() * 0.08, K.flowers[Math.floor(rnd() * 5)]); } };
     switch (o.type) {
+      // ---- gatherables ----
+      case 'sunCupTulip': {
+        // A single, deliberately readable low-poly flower: slender stem, two leaves and a warm cup-shaped bloom.
+        B(-0.025, 0.025, -0.025, 0.025, 0, 0.48, '#477d36');
+        const point = (u, v, h) => { const [x, z] = P(u, v); return [x, Y + h, z]; };
+        kit.tris([point(-0.02, 0, 0.18), point(-0.34, 0.12, 0.34), point(-0.08, 0.2, 0.28)], '#5f9b3e', 2);
+        kit.tris([point(0.02, 0.02, 0.26), point(0.3, -0.12, 0.4), point(0.08, -0.2, 0.34)], '#78a943', 2);
+        // Six upright golden petals form the tulip cup; orange inner faces give it a sunlit centre.
+        for (let i = 0; i < 6; i++) {
+          const a = i * Math.PI / 3, u = Math.cos(a) * 0.13, v = Math.sin(a) * 0.13;
+          B(u - 0.075, u + 0.075, v - 0.055, v + 0.055, 0.46, 0.68, i % 2 ? '#f2c94c' : '#ffd95c');
+        }
+        B(-0.045, 0.045, -0.045, 0.045, 0.61, 0.69, '#e99a32');
+        break;
+      }
       // ---- street ----
       case 'cart': {
         B(-0.7, 0.7, -0.9, 1.1, 0.55, 0.65, K.wood, 4);                                       // the bed

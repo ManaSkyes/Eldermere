@@ -846,6 +846,24 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     return null;
   }
+  // Gatherable plants are map objects, placed from the creator's Objects → Gatherables palette.
+  function nearGatherable() {
+    if (!playtest?.objects) return null;
+    const st = player.state;
+    let best = null, bestD = 2.4;
+    for (const o of playtest.objects) {
+      if (OBJECTS[o.type]?.cat !== 'gatherable') continue;
+      const dx = DUNGEON_ORIGIN.x + o.x - st.pos.x, dz = DUNGEON_ORIGIN.z + o.z - st.pos.z, dist = Math.hypot(dx, dz);
+      if (dist < bestD && dist > 0.001 && (-Math.sin(st.yaw) * dx - Math.cos(st.yaw) * dz) / dist > 0.15) { best = o; bestD = dist; }
+    }
+    return best;
+  }
+  function gatherPlant(plant) {
+    if (!plant || !body) return false;
+    const started = body.actHerbalism({ onEnd: () => toast(`Gathered ${OBJECTS[plant.type]?.name || 'plant'}.`) });
+    if (started) toast(`Gathering ${OBJECTS[plant.type]?.name || 'plant'}…`);
+    return started;
+  }
   const nearRack = () => !!nearStation();
   function openRack(kind = 'weapons') {
     invOpen = true; input.unlock(); showPause(false);
@@ -2180,7 +2198,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (input.pressed('inventory')) openInventory();
       if (input.pressed('checkpoint') && activeCp) respawn(activeCp, `Back to ${activeCp.name}.`);
       if (input.pressed('view')) { thirdPerson = !thirdPerson; tpWant = thirdPerson ? tpLast : 0; if (thirdPerson) tpCur = Math.max(tpCur, 0.8); toast(thirdPerson ? 'Third-person view' : 'First-person view'); }
-      if (input.pressed('interact') && nearStation()) nearStation().open();
+      if (input.pressed('interact')) { const plant = nearGatherable(); if (plant) gatherPlant(plant); else nearStation()?.open(); }
       wheelUpdate();
       combat.update(dt, input, allTargets(), true);
       comboHud.update(combat.timing);
@@ -2203,7 +2221,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         box.querySelector('.rune').className = `rune s-${sp.school}`; box.querySelector('.rune').textContent = SCHOOL_GLYPH[sp.school] || '✦';
         box.querySelector('b').textContent = sp.name; box.querySelector('small').textContent = lay ? `${Math.ceil(pr.mana)} MP · Q to change` : 'no focus in hand';
         box.classList.toggle('nofocus', !lay); } }
-    { const ns = input.locked && !wheel.open && nearStation(); promptEl.textContent = ns ? `${keyName(input.bindings.interact[0])}: ${ns.name}` : ''; }
+    { const plant = input.locked && !wheel.open && nearGatherable(), ns = !plant && input.locked && !wheel.open && nearStation(); promptEl.textContent = plant ? `${keyName(input.bindings.interact[0])}: gather ${OBJECTS[plant.type]?.name || 'plant'}` : ns ? `${keyName(input.bindings.interact[0])}: ${ns.name}` : ''; }
     regen(dt);
     if (input.locked) stealth(dt);
     lap('Stealth');

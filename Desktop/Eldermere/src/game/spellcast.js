@@ -54,8 +54,8 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     return null;
   }
   let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null;
-  // A chain may only reopen after the released cast animation has visibly completed.
-  let chainAwaitRelease = false, chainSawRelease = false, chainInput = null;
+  // The released throw animation lasts 0.45 s; wait it out, then also require the rig to be idle.
+  let chainReleaseWait = 0, chainInput = null;
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -185,7 +185,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     const perfect = normalized >= 0.98 && normalized <= 1.18; // Slightly late is more forgiving than early.
     const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
     const failed = Math.random() >= successChance;
-    lastPerfect = perfect && !failed; if (lastPerfect) { perfectFlash = 1; audio.perfect?.('combo'); }
+    lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
     if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; } }
@@ -218,11 +218,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain || chainQueue.length > 0, chainGainMultiplier: 2 }, failed);
     if (chainQueue.length) {
       chainPrompt = null;
-      chainAwaitRelease = true;
-      chainSawRelease = false;
+      chainReleaseWait = 0.45;
     } else {
-      chainAwaitRelease = false;
-      chainSawRelease = false;
+      chainReleaseWait = 0;
       chainInput = null;
     }
     casting = null;
@@ -244,21 +242,14 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
-      // Require the full cast-animation transition: first see the released throw, then see that
-      // cast action disappear. A generic !busy check alone can race the pose update and open early.
-      const action = b?.combat.action;
-      if (chainAwaitRelease) {
-        if (action?.type === 'cast' && !action.hold) chainSawRelease = true;
-        if (chainSawRelease && action?.type !== 'cast') {
-          chainAwaitRelease = false;
-          chainSawRelease = false;
-        }
-      }
-      if (chainQueue.length && !casting && !chainPrompt && !chainAwaitRelease && locked && free && b && !b.combat.busy) {
+      // Do not expose the timing window during the throw: wait for its full 0.45 s pose,
+      // and require the rig to have cleared the cast action before opening the prompt.
+      if (chainReleaseWait > 0) chainReleaseWait = Math.max(0, chainReleaseWait - dt);
+      if (chainQueue.length && !casting && !chainPrompt && chainReleaseWait <= 0 && locked && free && b && !b.combat.busy) {
         chainPrompt = { t: 0, duration: 0.9, hand: b.combat.castHand };
       }
       if (chainPrompt && !casting) {
-        if (!locked || !free || !b) { chainPrompt=null; chainQueue=[]; }
+        if (!locked || !free || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; }
         else {
           chainPrompt.t += dt;
           const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');

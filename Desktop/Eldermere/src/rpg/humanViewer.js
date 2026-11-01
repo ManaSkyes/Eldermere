@@ -2052,7 +2052,7 @@ export function startViewer(THREE, human, ui) {
     // game combat: draw/sheathe, attacks (variant 'light' | 'light2' | 'heavy'; hold: wait at the wind-up
     // until release()), block, and the current action's progress for hit timing
     combat: {
-      draw: () => startAction('draw'), sheathe: () => startAction('sheathe'),
+      draw: (opts = {}) => startAction('draw', opts), sheathe: (opts = {}) => startAction('sheathe', opts),
       attack: (opts = {}) => startAction('attack', opts),
       release() { const a = combat.action; if (a && a.hold) { a.hold = false; } },
       // casting a spell: hands gather (held) until throwCast(), then the throw; cancelCast() lets it go

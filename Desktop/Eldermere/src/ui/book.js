@@ -293,7 +293,7 @@ export function createBook(root, ctx) {
     const selected = byId[chainSelectedNode], rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
     const status = n => { const have = rank(n), buy = canBuy(c, 'chainCasting', n.id); return n.innate ? 'Known' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available' : v < n.gate ? 'Locked · skill' : 'Locked · prerequisite'; };
     const branchX = { same:13, rotation:37, rapid:63, dual:87 };
-    const gateY = gate => 8 + Math.min(1200, gate) / 1200 * 78;
+    const gateY = gate => { const stops=[[0,8],[200,20],[500,38],[1000,56],[5000,76],[10000,96]]; if(gate<=0)return stops[0][1]; for(let i=1;i<stops.length;i++){const [g1,y1]=stops[i-1],[g2,y2]=stops[i];if(gate<=g2)return y1+(gate-g1)/(g2-g1)*(y2-y1);}return 98; };
     const pos = n => ({x:n.branch ? branchX[n.branch] : 50, y:gateY(n.gate)});
     const links = nodes.flatMap(n => [...(n.needs || []), ...(n.needsAny || [])].filter(id => byId[id]).map(id => {
       const a=pos(byId[id]),b=pos(n); return {x1:a.x,y1:a.y,x2:b.x,y2:b.y,branch:n.branch||'core'};

@@ -361,19 +361,18 @@ const TEMPLATES = {
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScript: 'Runic script', firstAid: 'First aid', trapHandling: 'Trap handling', monsterLore: 'Monster lore', crystalHarvesting: 'Crystal harvesting', manaControl: 'Mana control', manaSense: 'Mana sense', heavyArmor: 'Heavy armor', lightArmor: 'Light armor', voiceless: 'Voiceless casting' }[id]; return s || id[0].toUpperCase() + id.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase(); };
 function genericTree(id) {
-  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Three disciplines shape a spell sequence: sustain one element, rotate through distinct elements, or strengthen the universal art of chaining. A spell may appear only once in a chain.', branches:{a:{name:'Same Element',text:'Build power and efficiency by sustaining one element. Repeating an element is allowed on this path, but never repeat the same spell.'},b:{name:'Elemental Rotation',text:'Change element with every spell. No element or spell may repeat; diverse rotations gain extra effective capacity.'}}, nodes:[
+  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Three disciplines shape a spell sequence: sustain one element, rotate through distinct elements, or strengthen the universal art of chaining. A spell may appear only once in a chain.', branches:{a:{name:'Same Element',text:'Build power and efficiency by sustaining one element. Repeating an element is allowed on this path, but never repeat the same spell.'},b:{name:'Elemental Rotation',text:'Change element with every spell. No element or spell may repeat. Weaving perks let more of those distinct spells fit into the same chain capacity.'}}, nodes:[
     {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:150,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
     {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'a',needs:['elementalBoost']},
     {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
     {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:150,text:'Unlock elemental rotation. Every follow-up must use a different element, and no spell may repeat.',ranks:1,branch:'b'},
     {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'b',needs:['elementalRotation']},
-    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'A rotation spell using a previously unused element costs half a chain slot against your rotation capacity.',ranks:1,branch:'b',needs:['rotatingForce']},
-    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank.',ranks:3},
-    {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank.',ranks:3,needs:['steadySequence']},
-    {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank.',ranks:3},
+    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot.',ranks:10,branch:'b',needs:['rotatingForce']},
+    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
+    {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,needs:['steadySequence'],effect:{chainSlots:1}},
+    {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
     {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff']},
-    {id:'chainCapacity',name:'Expanded Sequence',kind:'passive',gate:500,text:'Gain +1 normal chain slot per rank. Rank 9 grants 10 total normal follow-up slots.',ranks:9},
-    {id:'rotationCapacity',name:'Rotational Reserve',kind:'passive',gate:1000,text:'Gain +1 rotation capacity per rank, up to 10 additional slots for elemental rotations.',ranks:10,branch:'b',needs:['diverseWeave']},
+    {id:'rotationCapacity',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank lets one additional distinct-element follow-up consume only half a normal chain slot. Stacks with Diverse Weave.',ranks:10,branch:'b',needs:['diverseWeave']},
     {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5}
   ]};
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
@@ -406,7 +405,22 @@ for (const tree of Object.values(SKILL_TREES)) {
 for (const tree of Object.values(SKILL_TREES)) for (const n of tree.nodes) if (n.oneOf) { n.opposite = n.oneOf; const o = tree.nodes.find(x => x.id === n.oneOf); if (o) o.opposite = n.id; }
 
 // ---- state on the character: c.skillTrees[skill] = { nodes: { id: rank }, branch } ----
-function trees(c) { if (!c.skillTrees) { c.skillTrees = c.weaponTrees || {}; delete c.weaponTrees; } return c.skillTrees; }   // older saves called it weaponTrees
+function migrateChainCastingState(c) {
+  const nodes = c.skillTrees?.chainCasting?.nodes;
+  if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, 'chainCapacity')) return;
+  let remaining = Math.max(0, Math.floor(nodes.chainCapacity || 0));
+  delete nodes.chainCapacity;
+  // The old single capacity node is redistributed into the three universal passives.
+  // Existing ranks count toward the new shared capacity; any excess old ranks are refunded.
+  for (const id of ['steadySequence', 'perfectCadence', 'swiftHandoff']) {
+    const have = Math.max(0, Math.min(3, Math.floor(nodes[id] || 0)));
+    const add = Math.min(3 - have, remaining);
+    if (have + add > 0) nodes[id] = have + add;
+    remaining -= add;
+    if (!remaining) break;
+  }
+}
+function trees(c) { if (!c.skillTrees) { c.skillTrees = c.weaponTrees || {}; delete c.weaponTrees; } migrateChainCastingState(c); return c.skillTrees; }   // older saves called it weaponTrees
 export const treeState = (c, skill) => (trees(c)[skill] ??= { nodes: {}, branch: null });
 export function pointsSpent(c, skill) { return Object.values(trees(c)[skill]?.nodes || {}).reduce((t, n) => t + n, 0); }
 export function pointsFree(c, skill) { return skillPoints(c.skills[skill] ?? 100) - pointsSpent(c, skill); }
@@ -438,7 +452,7 @@ export function hasNode(c, skill, nodeId) {
 // How many ranks of a node the character has (0 if none; innate nodes count as 1).
 export function nodeRank(c, skill, nodeId) {
   const n = SKILL_TREES[skill]?.nodes.find(x => x.id === nodeId); if (!n) return 0;
-  return c.skillTrees?.[skill]?.nodes?.[nodeId] ?? c.weaponTrees?.[skill]?.nodes?.[nodeId] ?? (n.innate ? 1 : 0);
+  return trees(c)[skill]?.nodes?.[nodeId] ?? (n.innate ? 1 : 0);
 }
 export function buyNode(c, skill, nodeId) {
   const r = canBuy(c, skill, nodeId); if (!r.ok) return r;

@@ -44,7 +44,9 @@ export function createHarvest({ THREE, scene, monsters, character, inv, input, p
   let job = null, holdT = 0, near = null, tap = false;
   function start(corpse, mode) {
     const M = corpse.A.M, H = M.harvest, S = stageOf(corpse);
-    job = { corpse, mode, H, S, M, t: 0, hits: 0, great: 0, misses: 0, check: null, nextCheck: 0.8, saw: 0, from: { ...corpse } };
+    const toolId = S.tool === 'butcher' ? 'butcherKnife' : 'skinningKnife';
+    const assignedTool = character.toolSlots?.[S.skill]?.id === toolId;
+    job = { corpse, mode, H, S, M, t: 0, hits: 0, great: 0, misses: 0, check: null, nextCheck: 0.8, saw: 0, from: { ...corpse }, toolQuality: assignedTool ? 1 : 0.3 };
     job.need = S.time * (mode === 'auto' ? 1.3 : 1) * (1.5 - 0.7 * k01());
     knife = KNIVES[S.tool] || KNIVES.skin; knife.visible = true; hud.style.display = 'flex'; cv.style.display = mode === 'manual' ? '' : 'none'; barEl.style.width = '0';
     const what = `${S.verb[0].toUpperCase()}${S.verb.slice(1).replace(/e$/, '')}ing the ${M.name}`;
@@ -72,7 +74,7 @@ export function createHarvest({ THREE, scene, monsters, character, inv, input, p
       const id = `${H.creature}.${part}`; if (!MATERIALS[id]) continue;
       const count = Math.min(hi, sround(lo + (hi - lo) * score));
       let kept = 0;
-      for (let u = 0; u < count; u++) kept += addMaterial(inv, id, gatherQuality(character, id, { bonus: (score - 0.55) * 40 + perk * 20, train: false }), 1, true);   // (your own work: you know its quality; quality 0 is discarded)
+      for (let u = 0; u < count; u++) kept += addMaterial(inv, id, gatherQuality(character, id, { bonus: (score - 0.55) * 40 + perk * 20, tool: j.toolQuality, train: false }), 1, true);   // (your own work: you know its quality; quality 0 is discarded)
       if (kept) got.push(`${kept} ${MATERIALS[id].name || part}`);
     }
     // the skill trains by the checks you hit: a good hit 0.03, a great one 0.05 (misses teach nothing); auto counts as

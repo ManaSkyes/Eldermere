@@ -890,3 +890,6 @@ tr[data-spell] { cursor: grab; }
 .chain-node-tooltip em { display:block;margin-top:.3rem;font-size:.62rem;color:#765b3c;font-style:normal; }
 .chain-skill-node:hover .chain-node-tooltip,.chain-skill-node:focus-visible .chain-node-tooltip { display:block; }
 .chain-skill-node:nth-child(n) .chain-node-tooltip { max-height:180px;overflow:auto; }
+
+/* Let hover descriptions extend beyond the canvas edge instead of being clipped. */
+.chain-tree-canvas { overflow:visible; }

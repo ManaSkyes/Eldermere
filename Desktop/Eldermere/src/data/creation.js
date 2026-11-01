@@ -567,7 +567,7 @@ const KIT_SUB = {
   pyromancer: ['staff'], hydromancer: ['staff'], geomancer: ['staff'], aeromancer: ['staff'], stormcaller: ['staff'],
   moonAcolyte: ['staff'], templar: ['breastplate', 'mace', 'shield'], lightbearer: ['staff'],
   vanguard: ['greatsword'], windblade: ['shortsword'], flameblade: ['sword'],
-  fieldMedic: ['dagger', 'shield'], herbalist: ['sickle', 'alchemyKit'], combatMedic: ['mace'],
+  fieldMedic: ['dagger', 'shield'], herbalist: ['herbalTool', 'alchemyKit'], combatMedic: ['mace'],
   physician: ['dagger'], healer: ['staff'], apothecary: ['dagger', 'alchemyKit'],
   trapper: ['axe', 'trapTools'], beastHunter: ['spear'], tracker: ['bow'],
   blacksmith: ['club', 'smithTools'], leatherworker: ['skinningKnife', 'leatherTools'], gemcutter: ['crystalChisel', 'lapidaryTools'],

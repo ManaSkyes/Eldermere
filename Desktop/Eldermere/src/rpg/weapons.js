@@ -33,7 +33,7 @@ export const WEAPONS = {
   pickaxe: { name: 'Pickaxe', hold: 'two', sheath: 'back', center: 3.0, build: pickaxe(8.5) },
   woodaxe: { name: "Woodcutter's axe", hold: 'two', sheath: 'back', center: 3.5, build: woodaxe(9.5) },
   skinknife: { name: 'Skinning knife', hold: 'one', pose: 'dagger', sheath: 'hip', center: 0.9, build: skinningKnife() },
-  sickle: { name: 'Sickle', hold: 'one', pose: 'dagger', sheath: 'hip', center: 1.2, build: sickle() },
+  herbalTool: { name: 'Crude Scythe and Trowel', hold: 'one', pose: 'dagger', sheath: 'hip', center: 1.4, build: herbalTool() },
   fishingRod: { name: 'Fishing rod', hold: 'two', pose: 'staff', sheath: 'back', center: 5.0, build: fishingRod(17) },
   chisel: { name: 'Crystal chisel and mallet', hold: 'one', pose: 'dagger', sheath: 'hip', center: 0.8, build: crystalChisel() },
   // ---- magic focuses ----
@@ -359,18 +359,32 @@ function skinningKnife() {
     return b.done(mats);
   };
 }
-function sickle() {
+function herbalTool() {
   return (THREE, mats) => {
     const b = builder(THREE);
-    b.cyl(0.13, 0.12, 1.4, -0.7, WOOD, false);
-    b.cyl(0.15, 0.15, 0.15, 0.65, DARK, true);
-    // the crescent blade, sweeping out and back over the hand
+    // One rough wooden haft carries both working ends: a crescent scythe above
+    // the grip and a narrow digging trowel below it.
+    b.cyl(0.14, 0.12, 3.2, -1.6, WOOD, false, 9);
+    b.cyl(0.17, 0.17, 0.9, -0.45, LEATHER, false, 8);
+    b.cyl(0.15, 0.15, 0.18, 1.45, DARK, true);
+    b.box(0.5, 0.42, 0.22, 0.08, 1.3, 0, DARK, true);
     const outer = [], inner = [];
-    for (let i = 0; i <= 16; i++) { const a = Math.PI * 0.05 + i / 16 * Math.PI * 1.15; outer.push([Math.sin(a) * 1.15, 0.8 + 1.15 - Math.cos(a) * 1.15]); inner.push([Math.sin(a) * 0.9, 0.8 + 1.15 - Math.cos(a) * 0.95 + 0.08]); }
-    const shape = new THREE.Shape(); shape.moveTo(outer[0][0], outer[0][1]);
-    for (const p of outer) shape.lineTo(p[0], p[1]);
-    for (const p of inner.reverse()) shape.lineTo(p[0], p[1]);
-    b.add(new THREE.ExtrudeGeometry(shape, { depth: 0.04, bevelEnabled: false }), STEEL, true, b.M(0, -0.1, -0.02));
+    for (let i = 0; i <= 18; i++) {
+      const angle = Math.PI * 0.08 + i / 18 * Math.PI * 1.08;
+      outer.push([Math.sin(angle) * 1.0, 1.35 + 0.98 - Math.cos(angle) * 0.98]);
+      inner.push([Math.sin(angle) * 0.76, 1.35 + 0.98 - Math.cos(angle) * 0.82 + 0.08]);
+    }
+    const crescent = new THREE.Shape(); crescent.moveTo(...outer[0]);
+    for (const point of outer) crescent.lineTo(...point);
+    for (const point of inner.reverse()) crescent.lineTo(...point);
+    b.add(new THREE.ExtrudeGeometry(crescent, { depth: 0.055, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.025, bevelSegments: 1 }), STEEL, true, b.M(0, 0, -0.03));
+    // A small pointed spade at the opposite end makes this a single dual-purpose tool.
+    b.box(0.38, 0.28, 0.2, 0, -1.35, 0, DARK, true);
+    const spade = new THREE.Shape();
+    spade.moveTo(-0.22, -1.35); spade.lineTo(0.22, -1.35);
+    spade.quadraticCurveTo(0.48, -2.05, 0, -2.55);
+    spade.quadraticCurveTo(-0.48, -2.05, -0.22, -1.35);
+    b.add(new THREE.ExtrudeGeometry(spade, { depth: 0.075, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.025, bevelSegments: 1 }), STEEL, true, b.M(0, 0, -0.04));
     return b.done(mats);
   };
 }

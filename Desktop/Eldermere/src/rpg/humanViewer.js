@@ -2034,7 +2034,8 @@ export function startViewer(THREE, human, ui) {
     // testing: hold an attack at a point (u 0..1) — scrubAttack('swFendente', 0.45); scrubAttack(null) lets go. setTurn: the creator's turntable angle
     scrubAttack(variant, u) { if (!variant) { combat.scrub = null; combat.action = null; return; } if (!weaponsDrawn) { weaponsDrawn = true; placeWeapons(); } if (!combat.action || combat.action.variant !== variant) { combat.action = null; startAction('attack', { variant }); } combat.scrub = u; },
     setTurn(a) { rotY = a; },
-    act(name, opts = {}) { return startAction('move', { move: name, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
+    act(name, opts = {}) { return startAction('move', { move: name, ...opts }); },
+    actHerbalism(opts = {}) { const move = Math.random() < 0.5 ? 'herbalismScythe' : 'herbalismTrowel'; if (gear.equipped().mainHand === 'herbalTool' && !weaponsDrawn) { weaponsDrawn = true; placeWeapons(); syncDrawBtn(); } return startAction('move', { move, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
     hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {

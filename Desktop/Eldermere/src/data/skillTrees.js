@@ -361,12 +361,20 @@ const TEMPLATES = {
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScript: 'Runic script', firstAid: 'First aid', trapHandling: 'Trap handling', monsterLore: 'Monster lore', crystalHarvesting: 'Crystal harvesting', manaControl: 'Mana control', manaSense: 'Mana sense', heavyArmor: 'Heavy armor', lightArmor: 'Light armor', voiceless: 'Voiceless casting' }[id]; return s || id[0].toUpperCase() + id.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase(); };
 function genericTree(id) {
-  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Weave prepared openers into longer sequences of learned spells.', branches:{a:{name:'Resonance',text:'Build momentum through repeated elements.'},b:{name:'Flow',text:'Keep the sequence stable and fluid.'}}, nodes:[
-    {id:'elementalBoost',name:'Elemental Boost',kind:'passive',gate:150,text:'Each consecutive chained spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
-    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:150,text:'Reduce backfire chance on chained spells by 4% per rank.',ranks:3,branch:'b'},
-    {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:250,text:'Same-element chains build their elemental momentum more quickly.',ranks:2,branch:'a',needs:['elementalBoost']},
-    {id:'quickHandoff',name:'Quick Handoff',kind:'passive',gate:250,text:'Reduce the pause between chained casts by 8% per rank.',ranks:3,branch:'b',needs:['steadySequence']},
-    {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:550,text:'Chained spells train Chain Casting 10% faster per rank.',ranks:3,branch:'b',needs:['quickHandoff']}
+  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Three disciplines shape a spell sequence: sustain one element, rotate through distinct elements, or strengthen the universal art of chaining. A spell may appear only once in a chain.', branches:{a:{name:'Same Element',text:'Build power and efficiency by sustaining one element. Repeating an element is allowed on this path, but never repeat the same spell.'},b:{name:'Elemental Rotation',text:'Change element with every spell. No element or spell may repeat; diverse rotations gain extra effective capacity.'}}, nodes:[
+    {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:150,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
+    {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'a',needs:['elementalBoost']},
+    {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
+    {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:150,text:'Unlock elemental rotation. Every follow-up must use a different element, and no spell may repeat.',ranks:1,branch:'b'},
+    {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'b',needs:['elementalRotation']},
+    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'A rotation spell using a previously unused element costs half a chain slot against your rotation capacity.',ranks:1,branch:'b',needs:['rotatingForce']},
+    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank.',ranks:3},
+    {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank.',ranks:3,needs:['steadySequence']},
+    {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank.',ranks:3},
+    {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff']},
+    {id:'chainCapacity',name:'Expanded Sequence',kind:'passive',gate:500,text:'Gain +1 normal chain slot per rank. Rank 9 grants 10 total normal follow-up slots.',ranks:9},
+    {id:'rotationCapacity',name:'Rotational Reserve',kind:'passive',gate:1000,text:'Gain +1 rotation capacity per rank, up to 10 additional slots for elemental rotations.',ranks:10,branch:'b',needs:['diverseWeave']},
+    {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5}
   ]};
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
   const S = titleOf(id), sub = t => t.replaceAll('{S}', S).replaceAll('{s}', S.toLowerCase());

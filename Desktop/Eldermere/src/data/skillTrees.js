@@ -378,17 +378,23 @@ function genericTree(id) {
       {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1},layout:{x:50,y:13}},
       {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff'],layout:{x:50,y:3}},
       {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5,layout:{x:50,y:63}},
+      {id:'unbrokenSequence',name:'Unbroken Sequence',kind:'passive',gate:1000,text:'Gain one additional universal follow-up slot per rank.',ranks:3,needs:['swiftHandoff'],effect:{chainSlots:1},layout:{x:50,y:58}},
+      {id:'perfectedHandoff',name:'Perfected Handoff',kind:'passive',gate:2000,text:'Chained spells cast 4% faster per rank.',ranks:3,needs:['unbrokenSequence'],layout:{x:50,y:68}},
 
       // Upper-left: same-element resonance.
       {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:200,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'same',layout:{x:34,y:34}},
       {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'same',needs:['elementalBoost'],layout:{x:20,y:20}},
       {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'same',needs:['resonantFlow'],layout:{x:7,y:8}},
+      {id:'overwhelmingResonance',name:'Overwhelming Resonance',kind:'passive',gate:1000,text:'Same-element follow-up spells gain a further 3% potency per rank.',ranks:3,branch:'same',needs:['focusedCurrent'],layout:{x:7,y:15}},
+      {id:'conservingCurrent',name:'Conserving Current',kind:'passive',gate:2000,text:'Same-element follow-up spells cost a further 2% less mana per rank.',ranks:3,branch:'same',needs:['overwhelmingResonance'],layout:{x:7,y:25}},
 
       // Upper-right: broad elemental rotation.
       {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:200,text:'Unlock elemental rotation. Each follow-up must change element; an element cannot repeat in the chain.',ranks:1,branch:'rotation',layout:{x:66,y:34}},
       {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'rotation',needs:['elementalRotation'],layout:{x:80,y:20}},
       {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells. This half-slot benefit does not apply to Rapid Fire barrages.',ranks:5,branch:'rotation',needs:['rotatingForce'],layout:{x:93,y:8}},
       {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank grants one more rotation slot that can hold two distinct-element follow-up spells. Cannot discount repeated Rapid Fire casts.',ranks:5,branch:'rotation',needs:['diverseWeave'],layout:{x:94,y:29}},
+      {id:'prismaticMomentum',name:'Prismatic Momentum',kind:'passive',gate:1000,text:'Each successful elemental change gains a further 3% potency per rank.',ranks:3,branch:'rotation',needs:['rotatingForce'],layout:{x:41,y:15}},
+      {id:'fluidTransitions',name:'Fluid Transitions',kind:'passive',gate:2000,text:'Rotating follow-up spells cost 2% less mana per rank.',ranks:3,branch:'rotation',needs:['prismaticMomentum'],layout:{x:41,y:25}},
 
       // Rapid Fire is a held voiceless barrage, independent of incantation chains.
       {id:'rapidFire',name:'Rapid Fire',kind:'passive',gate:200,text:'Unlock held Rapid Fire. A barrage repeats the readied voiceless spell; it never creates or joins an incantation chain.',ranks:1,branch:'rapid',layout:{x:34,y:68}},
@@ -417,7 +423,9 @@ function genericTree(id) {
       {id:'pairedElements',name:'Paired Elements',kind:'passive',gate:200,text:'Unlock Two-Element Specialization. A chain may use up to two distinct elements, chosen by its first two elemental spells.',ranks:1,branch:'dual',layout:{x:66,y:68}},
       {id:'twinAttunement',name:'Twin Attunement',kind:'passive',gate:400,text:'Spells cast while your chain stays within its chosen pair gain +3% potency per rank.',ranks:3,branch:'dual',needs:['pairedElements'],layout:{x:80,y:82}},
       {id:'dualWeave',name:'Dual Weave',kind:'passive',gate:800,text:'Spells that alternate between your chosen pair cost 4% less mana per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:93,y:95}},
-      {id:'balancedPair',name:'Balanced Pair',kind:'passive',gate:1200,text:'Changing between your two chosen elements widens the perfect timing window by 3% per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:66,y:95}}
+      {id:'balancedPair',name:'Balanced Pair',kind:'passive',gate:1200,text:'Changing between your two chosen elements widens the perfect timing window by 3% per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:66,y:95}},
+      {id:'harmonicConvergence',name:'Harmonic Convergence',kind:'passive',gate:1000,text:'Spells within your chosen elemental pair gain a further 2% potency per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:88,y:75}},
+      {id:'reciprocalFlow',name:'Reciprocal Flow',kind:'passive',gate:2000,text:'Alternating between your paired elements costs 2% less mana per rank.',ranks:3,branch:'dual',needs:['harmonicConvergence'],layout:{x:97,y:84}}
     ]
   };
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;

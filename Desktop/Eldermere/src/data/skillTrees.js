@@ -1,7 +1,7 @@
 // src/data/skillTrees.js — a skill tree for every skill.
 //
 // A node is bought with a point once its skill gate is reached (and its prerequisites are met).
-// Points come from using the skill: one per 50 skill gained up to 1000, then one per 500 beyond.
+// Points come from using the skill: one per 50 skill gained up to 5000, then one per 500 beyond.
 // Node kinds: 'active' (a technique with its own input), 'passive' (always on).
 // How trees are laid out (from the Fire tree on): actives are core techniques everyone on the path gets;
 // passives sit on the two sides and are what you choose between. Two actives that would use the same
@@ -20,7 +20,7 @@
 // (marked `generic`), to be replaced one by one as the skills are designed.
 import { SKILLS } from '../rpg/stats.js';
 
-export const POINTS = { per: 50, until: 1000, perAfter: 500, from: 100 };
+export const POINTS = { per: 50, until: 5000, perAfter: 500, from: 100 };
 export function skillPoints(skill) {
   const v = Math.floor(skill);
   const early = Math.floor((Math.min(v, POINTS.until) - POINTS.from) / POINTS.per);

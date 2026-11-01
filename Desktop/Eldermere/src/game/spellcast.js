@@ -169,12 +169,11 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
   let lastPerfect = false, perfectFlash = 0;
   function chainProfile(id, focus) {
     const spell = SPELLS[id], prof = castProfile(character, spell, { mode: 'incantation', focus });
-    const nodes = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
     const r = key => nodeRank(character, 'chainCasting', key) || 0;
     const previous = chainHistory[chainHistory.length - 1], previousSchool = SPELLS[previous]?.school;
     const sameElement = !!previous && previousSchool === spell.school;
     const repeatCount = chainHistory.filter(x => x === id).length;
-    const seenSchools = new Set(chainHistory.map(x => SPELLS[x]?.school).filter(Boolean));
+    const seenSchools = new Set([...chainHistory.map(x => SPELLS[x]?.school), spell.school].filter(Boolean));
     if (sameElement) {
       prof.power *= 1 + 0.05 * r('resonantFlow');
       prof.mana *= 1 - 0.04 * r('focusedCurrent');
@@ -187,7 +186,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       prof.mana *= Math.max(0.1, 1 - 0.04 * r('sustainedBarrage') * repeatCount);
       prof.castTime *= 1 - 0.04 * r('focusedBurst');
     }
-    if (r('pairedElements') && seenSchools.has(spell.school) && seenSchools.size <= 2) {
+    if (r('pairedElements') && seenSchools.has(spell.school) && seenSchools.size <= 2 && chainHistory.length > 0) {
       prof.power *= 1 + 0.03 * r('twinAttunement');
       if (previous && previousSchool !== spell.school) prof.mana *= 1 - 0.04 * r('dualWeave');
     }

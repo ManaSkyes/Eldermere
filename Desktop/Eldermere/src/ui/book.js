@@ -94,6 +94,7 @@ export function createBook(root, ctx) {
   el.className = 'book-wrap'; el.hidden = true;
   root.appendChild(el);
   let tab = 'character', prepMode = false, treeView = false, treeReturnTab = 'combat';
+  let chainZoom = 0.62, chainPanX = 0, chainPanY = 0;
   const c = ctx.character;
 
   const bar = (f, cls = '') => `<span class="meter ${cls}"><i style="width:${Math.round(Math.max(0, Math.min(1, f)) * 100)}%"></i></span>`;
@@ -454,7 +455,7 @@ export function createBook(root, ctx) {
       </div>`;
     }).join('');
     const header = `<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="chainCasting">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>`;
-    const workspace = `<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage" style="height:${stageHeight}px"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div></div>`;
+    const workspace = `<div class="chain-tree-workspace"><div class="chain-tree-panel"><div class="chain-tree-tools"><span>Drag to pan · Scroll to zoom</span><div><button type="button" data-chain-zoom-out aria-label="Zoom out">−</button><button type="button" data-chain-zoom-in aria-label="Zoom in">+</button><button type="button" data-chain-zoom-reset>Fit</button></div></div><div class="chain-tree-scroll" data-chain-viewport><div class="chain-tree-stage" data-chain-stage style="width:1600px;height:${stageHeight}px;transform:translate(${chainPanX}px,${chainPanY}px) scale(${chainZoom})"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div></div></div>`;
     return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)} Solid lines show prerequisites; dashed lines show cross-discipline compatibility. Compatible branches can be combined unless a specific mechanic conflicts: Rapid Fire never receives Elemental Rotation's half-slot discount.</p>${workspace}<div class="chain-tree-legend"><span><i class="chain-legend-line"></i>Prerequisite</span><span><i class="chain-legend-line compatible"></i>Compatible disciplines</span></div></section></div>`;
   }
 
@@ -716,6 +717,34 @@ export function createBook(root, ctx) {
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
     let activeChainTip = null;
     const closeChainTip = () => { activeChainTip?.remove(); activeChainTip = null; };
+    const chainViewport = el.querySelector('[data-chain-viewport]'), chainStage = el.querySelector('[data-chain-stage]');
+    if (chainViewport && chainStage) {
+      const applyChainView = () => { chainStage.style.transform = `translate(${chainPanX}px,${chainPanY}px) scale(${chainZoom})`; };
+      const zoomAt = (next, clientX, clientY) => {
+        const r = chainViewport.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
+        const z = Math.max(0.28, Math.min(1.8, next)), ratio = z / chainZoom;
+        chainPanX = x - (x - chainPanX) * ratio; chainPanY = y - (y - chainPanY) * ratio;
+        chainZoom = z; applyChainView();
+      };
+      chainViewport.addEventListener('wheel', ev => {
+        ev.preventDefault(); zoomAt(chainZoom * (ev.deltaY < 0 ? 1.12 : 0.89), ev.clientX, ev.clientY);
+      }, { passive: false });
+      let drag = null;
+      chainViewport.addEventListener('pointerdown', ev => {
+        if (ev.button !== 0 || ev.target.closest('.chain-skill-node,button,.chain-node-tooltip')) return;
+        drag = { x: ev.clientX, y: ev.clientY, panX: chainPanX, panY: chainPanY };
+        chainViewport.classList.add('dragging'); chainViewport.setPointerCapture(ev.pointerId);
+      });
+      chainViewport.addEventListener('pointermove', ev => {
+        if (!drag) return;
+        chainPanX = drag.panX + ev.clientX - drag.x; chainPanY = drag.panY + ev.clientY - drag.y; applyChainView();
+      });
+      const endDrag = () => { drag = null; chainViewport.classList.remove('dragging'); };
+      chainViewport.addEventListener('pointerup', endDrag); chainViewport.addEventListener('pointercancel', endDrag);
+      el.querySelector('[data-chain-zoom-in]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom*1.18,r.left+r.width/2,r.top+r.height/2); });
+      el.querySelector('[data-chain-zoom-out]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom/1.18,r.left+r.width/2,r.top+r.height/2); });
+      el.querySelector('[data-chain-zoom-reset]')?.addEventListener('click', () => { chainZoom=.62; chainPanX=12; chainPanY=12; applyChainView(); });
+    }
     el.querySelectorAll('.chain-skill-node').forEach(node => {
       const sourceTip = node.querySelector('.chain-node-tooltip'); if (!sourceTip) return;
       const show = () => {

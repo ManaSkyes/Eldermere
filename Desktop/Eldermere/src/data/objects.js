@@ -1,4 +1,5 @@
 import { BUILTIN } from './creatures.js';
+import { PLANTS } from './materials.js';
 // src/data/objects.js — things placed inside a map in the creator's Object mode: enemies, traps, loot,
 // furniture, lights, markers. The map stays the layout (src/data/dungeon.js); objects sit on top of it.
 //
@@ -122,6 +123,11 @@ export const OBJECTS = {
   start: { ...M, name: 'Player start', glyph: '★' },
   exit: { ...M, name: 'Exit / level change', glyph: '⇧' },
 };
+// Every non-timber plant material can be placed as an individual gatherable specimen.
+// Timber species are represented by the world tree models and use the logging profession.
+for (const plant of PLANTS) if (plant.kind !== 'wood' && !OBJECTS[plant.id]) {
+  OBJECTS[plant.id] = { ...GA, name: plant.name, glyph: '✿', w: 0.4, d: 0.4, shape: 'round' };
+}
 export const objectsIn = cat => Object.entries(OBJECTS).filter(([, o]) => o.cat === cat).map(([k]) => k);
 // the tabs of the creator's palette (a category with `tab` shows on another's tab)
 export const OBJECT_TABS = Object.keys(OBJECT_CATS).filter(c => !OBJECT_CATS[c].tab);

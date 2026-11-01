@@ -866,7 +866,7 @@ tr[data-spell] { cursor: grab; }
 .chain-skill-node.same .chain-orb { border-color:#a34b37; } .chain-skill-node.rotation .chain-orb { border-color:#39728b; }
 .chain-skill-node.rapid .chain-orb { border-color:#9a6a27; } .chain-skill-node.dual .chain-orb { border-color:#687b45; }
 .chain-skill-node.core .chain-orb { border-color:#77634b;background:#e7d7b5; }
-.chain-node-name { max-width:86px; font-size:.62rem; line-height:1.05; text-align:center; text-shadow:0 1px 0 rgba(255,250,235,.8); }
+.chain-node-name { max-width:124px; font-size:.62rem; line-height:1.05; text-align:center; text-shadow:0 1px 0 rgba(255,250,235,.8); }
 .chain-node-rank { font-size:.57rem;line-height:1;color:var(--ink-soft);font-variant-numeric:tabular-nums; }
 .chain-skill-node.got .chain-orb { box-shadow:0 0 0 3px rgba(177,139,69,.22),0 2px 5px rgba(30,20,10,.2);background:#d9c18e; }
 .chain-skill-node.buyable .chain-orb { box-shadow:0 0 0 2px rgba(124,46,42,.3),0 2px 5px rgba(30,20,10,.2); }
@@ -899,7 +899,7 @@ tr[data-spell] { cursor: grab; }
 .chain-tree-page .tree-single { overflow:visible; }
 .chain-tree-workspace { display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,290px);gap:1rem;align-items:start;margin-top:.8rem; }
 .chain-tree-scroll { height:min(72vh,820px);min-height:540px;overflow:auto;overscroll-behavior:contain;border:1px solid rgba(90,62,36,.25);border-radius:10px;background:linear-gradient(180deg,rgba(198,166,105,.10),rgba(70,50,30,.025)); }
-.chain-tree-stage { position:relative;width:100%;min-width:680px;height:1500px; }
+.chain-tree-stage { position:relative;width:100%;min-width:960px;height:1500px; }
 .chain-tree-milestones { position:absolute;inset:0;z-index:0;pointer-events:none; }
 .chain-tier-band { position:absolute;left:0;right:0;height:0;border-top:1px solid rgba(105,82,54,.32); }
 .chain-tier-band span { position:absolute;left:8px;top:-.8rem;padding:1px 7px;border-radius:4px;background:rgba(245,235,215,.94);color:#765b3c;font:600 .68rem var(--caps);letter-spacing:.06em;text-transform:uppercase; }
@@ -911,7 +911,7 @@ tr[data-spell] { cursor: grab; }
 .chain-tree-links { position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible;pointer-events:none; }
 .chain-link { stroke:rgba(112,91,65,.58);stroke-width:.38;vector-effect:non-scaling-stroke; }
 .chain-link.same { stroke:#a34b37; } .chain-link.rotation { stroke:#39728b; } .chain-link.rapid { stroke:#9a6a27; } .chain-link.dual { stroke:#687b45; }
-.chain-skill-node { position:absolute;z-index:3;transform:translate(-50%,-50%);width:112px;min-height:74px;padding:3px 2px;border:0;background:transparent;color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;cursor:pointer;font:inherit; }
+.chain-skill-node { position:absolute;z-index:3;transform:translate(-50%,-50%);width:132px;min-height:82px;padding:4px 3px;border:0;background:transparent;color:var(--ink);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;cursor:pointer;font:inherit; }
 .chain-orb { width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:grid;place-items:center;border:2px solid rgba(100,75,45,.6);background:#eee0c3;box-shadow:0 2px 5px rgba(30,20,10,.2);font-size:.8rem; }
 .chain-skill-node.same .chain-orb { border-color:#a34b37; } .chain-skill-node.rotation .chain-orb { border-color:#39728b; }
 .chain-skill-node.rapid .chain-orb { border-color:#9a6a27; } .chain-skill-node.dual .chain-orb { border-color:#687b45; }

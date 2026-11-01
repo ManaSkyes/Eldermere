@@ -16,7 +16,7 @@ const K = {
 };
 
 export function buildProps(d, kit, shapes, origin) {
-  const objs = (d.objects || []).filter(o => ['furniture', 'street', 'gatherable'].includes(OBJECTS[o.type]?.cat) && !o.preset);
+  const objs = (d.objects || []).filter(o => ['furniture', 'street'].includes(OBJECTS[o.type]?.cat) && !o.preset);
   if (!objs.length) return;
   const { box, trim, prism, lamp } = kit;
   // the ground under a point: the highest solid top within this layer (a raised street, a road's collision, the

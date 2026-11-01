@@ -14,8 +14,7 @@ import { escapeHtml, label } from './util.js';
 import { MAIN_STATS, SKILLS, effectiveMain, derived, limitState, display, xpToNext, assignPoints } from '../rpg/stats.js';
 import { RANKS, rankOf, rankProgress, titleFor, PROFESSIONS } from '../data/professions.js';
 import { SLOTS, ITEMS } from '../rpg/equipment.js';
-import { MATERIALS, PLANTS } from '../data/materials.js';
-import { HERBARUM_PAGES, classifyPlant, knownPlantIds } from '../rpg/herbarum.js';
+import { MATERIALS } from '../data/materials.js';
 import { SPELLS } from '../data/spells.js';
 import { MASTERY, preparedMax, preparedOf, togglePrepared, castProfile } from '../rpg/magic.js';
 import { POTIONS } from '../data/potions.js';
@@ -399,51 +398,56 @@ export function createBook(root, ctx) {
     </div>`;
   }
 
-  let herbSel = null, herbView = 'collection', herbPage = 0;
   function pageHerbarum() {
-    const all = PLANTS.slice().sort((a,b) => a.name.localeCompare(b.name)), found = new Set(knownPlantIds(c));
-    if (herbView === 'collection') {
-      const pages = HERBARUM_PAGES; herbPage = Math.max(0,Math.min(herbPage,pages.length-1));
-      const current = pages[herbPage], ids = all.filter(p => { const q=classifyPlant(p); return q.family===current.family && q.order===current.order; });
-      const discovered = ids.filter(p => found.has(p.id)).length;
-      const tabs = pages.map((page,index) => '<button class="beast-page-tab '+(index===herbPage?'on':'')+'" data-herb-page="'+index+'" title="'+escapeHtml(page.order)+'"><span>'+escapeHtml(page.order)+'</span></button>').join('');
-      const slots = ids.map(p => { const unlocked=found.has(p.id); return '<button class="beast-slot '+(unlocked?'discovered':'undiscovered')+'" '+(unlocked?'data-herb-open="'+p.id+'" title="Read about '+escapeHtml(p.name)+'"':'disabled title="Undiscovered plant"')+'><span class="beast-slot-icon">'+(unlocked?'❧':'？')+'</span><span class="beast-slot-name">'+(unlocked?escapeHtml(p.name):'Unknown specimen')+'</span><span class="beast-slot-state">'+(unlocked?'Discovered':'Not yet recorded')+'</span></button>'; }).join('');
-      return '<div class="pg beast-collection herbarum-journal"><header class="beast-collection-head"><div><h2>Herbarum</h2><p class="hint">A field journal of the flora known to the guild.</p></div><strong>'+found.size+' <small>/ '+all.length+' discovered</small></strong></header><nav class="beast-page-nav" aria-label="Herbarum categories"><button class="beast-page-arrow" data-herb-prev '+(herbPage===0?'disabled':'')+' aria-label="Previous category">‹</button><div class="beast-page-tabs">'+tabs+'</div><button class="beast-page-arrow" data-herb-next '+(herbPage===pages.length-1?'disabled':'')+' aria-label="Next category">›</button></nav><section class="beast-type-page"><header class="beast-family-head"><div><small>'+escapeHtml(current.family)+'</small><h3>'+escapeHtml(current.order)+'</h3><p>'+escapeHtml(current.description)+'</p></div><small>'+discovered+' / '+ids.length+' recorded</small></header><div class="beast-grid">'+(slots||'<p class="beast-empty">No plants are assigned to this order yet.</p>')+'</div><footer class="beast-page-count">Category '+(herbPage+1)+' of '+pages.length+'</footer></section></div>';
-    }
-    const P=all.find(p=>p.id===herbSel), E=c.herbarum?.[herbSel];
-    if(!P||!found.has(herbSel)){herbView='collection';return pageHerbarum();}
-    const cl=classifyPlant(P), props=Object.entries(P.props||{}).filter(([k,v])=>v!=null&&typeof v!=='object').map(([k,v])=>'<tr><th>'+escapeHtml(label(k))+'</th><td>'+escapeHtml(String(v))+'</td></tr>').join('');
-    return '<div class="pg two bestiary herbarum-entry"><section class="cell-p"><div class="bst-nav"><button data-herb-back title="Back to botanical collection">‹ Catalogue</button></div><h2 class="bst-name">'+escapeHtml(P.name)+'</h2><p class="muted">'+escapeHtml(cl.family)+' · '+escapeHtml(cl.order)+' · '+escapeHtml(label(P.kind))+'</p><p class="bst-lore">'+escapeHtml(P.props?.use||P.note||('A '+P.kind+' plant known to the guild. Its properties are recorded as specimens are gathered and studied.'))+'</p><h3>Botanical record</h3><table class="bsheet"><tr><th>Gathering skill</th><td>'+escapeHtml(label(P.source))+'</td></tr><tr><th>Material tier</th><td>'+P.tier+'</td></tr>'+props+'</table><h3>Field notes</h3><table class="bsheet"><tr><th>Gathered</th><td class="num">'+E.gathers+'</td></tr><tr><th>First recorded</th><td>'+(E.first?new Date(E.first).toLocaleDateString():'—')+'</td></tr><tr><th>Last gathered</th><td>'+(E.last?new Date(E.last).toLocaleDateString():'—')+'</td></tr></table></section><section class="bst-right"><section class="herb-fig" aria-label="'+escapeHtml(P.name)+'"><span class="figure-hint">Drag to turn</span></section><div class="bst-foot"><small class="hint">Specimen study · '+escapeHtml(cl.order)+'</small></div></section></div>';
+    return `<div class="pg herbarum-journal">
+      <header class="herbarum-head"><div><h2>Herbarum</h2>
+        <p class="hint">A field journal of the flora known to the guild.</p></div></header>
+      <section class="herbarum-empty">
+        <span class="herbarum-mark" aria-hidden="true">❧</span>
+        <h3>The botanical catalogue</h3>
+        <p>Plants, herbs, fungi and other flora will be recorded here as they are discovered.</p>
+        <small>No specimens have been catalogued yet.</small>
+      </section>
+    </div>`;
   }
 
   function pageTools() {
+    // One virtual slot per skill that has a declared tool. Several items may serve the same skill;
+    // the player chooses which carried item is assigned to that slot.
     const groups = { gathering: [], crafting: [], other: [] };
-    const body = ctx.body(), worn = body?.gear.equipped() || {};
-    const slotted = new Set(Object.values(c.toolSlots || {}).map(x => x?.uid).filter(Boolean));
     const toolSkills = [...new Set(Object.values(ITEMS).map(item => item.tool?.skill).filter(Boolean))]
-      .filter(id => SKILLS[id]).sort((a,b) => label(a).localeCompare(label(b)));
+      .filter(id => SKILLS[id])
+      .sort((a, b) => label(a).localeCompare(label(b)));
     for (const skill of toolSkills) {
       const category = PROFESSIONS[skill]?.category;
       const group = category === 'gathering' ? 'gathering' : category === 'crafting' ? 'crafting' : 'other';
-      const choices = ctx.inv.items.map((item,index) => ({ item, id:item.id||item.item, key:item.uid||('legacy:'+String(item.id||item.item)+':'+index) }))
-        .filter(x => x.id && ITEMS[x.id]?.tool?.skill === skill && !slotted.has(x.key));
-      const assigned = c.toolSlots?.[skill] || null;
-      const wornId = !assigned && worn.mainHand && ITEMS[worn.mainHand]?.tool?.skill === skill ? worn.mainHand : null;
-      groups[group].push({ skill, choices, assigned, wornId });
+      const choices = ctx.inv.items.map((item, index) => ({
+        item, id: item.id || item.item, key: item.uid || `legacy:${item.id || item.item}:${index}`
+      })).filter(x => x.id && ITEMS[x.id]?.tool?.skill === skill);
+      const assigned = c.toolLoadout?.[skill];
+      const selected = choices.find(x => x.key === assigned) || choices[0] || null;
+      groups[group].push({ skill, choices, selected });
     }
-    const names = { gathering:'Gathering tools', crafting:'Crafting tools', other:'Other skill tools' };
-    const slotRows = group => groups[group].map(({skill,choices,assigned,wornId}) => {
-      const active = assigned ? itemName(assigned.id||assigned.item) : wornId ? itemName(wornId)+' (equipped)' : 'Empty';
-      return '<tr class="tool-slot-row"><th><span>'+escapeHtml(label(skill))+'</span><small>'+escapeHtml(active)+' · '+choices.length+' available</small></th><td><select class="tool-slot-select" data-tool-slot="'+skill+'" aria-label="'+escapeHtml(label(skill))+' tool"><option value="">Empty</option>'+
-        (assigned ? '<option value="'+escapeHtml(assigned.uid)+'" selected>'+escapeHtml(itemName(assigned.id||assigned.item))+' · assigned</option>' : wornId ? '<option value="equipped:'+escapeHtml(wornId)+'" selected>'+escapeHtml(itemName(wornId))+' · equipped</option>' : '')+
-        choices.map(x=>'<option value="'+escapeHtml(x.key)+'">'+escapeHtml(itemName(x.id))+'</option>').join('')+
-        '</select></td></tr>';
-    }).join('');
-    return '<div class="pg two tools-page"><section class="cell-p"><h2>Tools</h2><p class="hint">Assign tools to dedicated skill slots. Assigned tools leave your pack and are kept ready for their profession.</p>'+
-      '<h3>'+names.gathering+'</h3><table class="bsheet skills tool-slots">'+slotRows('gathering')+'</table>'+
-      '<h3>'+names.crafting+'</h3><table class="bsheet skills tool-slots">'+slotRows('crafting')+'</table></section>'+
-      '<section class="cell-p"><h3>'+names.other+'</h3><table class="bsheet skills tool-slots">'+slotRows('other')+'</table>'+
-      '<p class="hint">Tools in these slots do not occupy pack space or count toward pack weight. A tool is moved back to your pack when its slot is cleared or replaced.</p></section></div>';
+    const names = { gathering: 'Gathering tools', crafting: 'Crafting tools', other: 'Other skill tools' };
+    const slotRows = group => groups[group].map(({ skill, choices, selected }) => `
+      <tr class="tool-slot-row">
+        <th><span>${escapeHtml(label(skill))}</span><small>${choices.length ? `${choices.length} carried` : 'No tool carried'}</small></th>
+        <td><select class="tool-slot-select" data-tool-slot="${skill}" aria-label="${escapeHtml(label(skill))} tool">
+          <option value="">Empty</option>
+          ${choices.map(x => `<option value="${escapeHtml(x.key)}" ${selected?.key === x.key ? 'selected' : ''}>${escapeHtml(itemName(x.id))}</option>`).join('')}
+        </select></td>
+      </tr>`).join('');
+    return `<div class="pg two tools-page">
+      <section class="cell-p"><h2>Tools</h2>
+        <p class="hint">Assign a carried tool to each skill. Each skill keeps its own slot, so you can prepare several trades without repeatedly changing your equipment.</p>
+        <h3>${names.gathering}</h3><table class="bsheet skills tool-slots">${slotRows('gathering')}</table>
+        <h3>${names.crafting}</h3><table class="bsheet skills tool-slots">${slotRows('crafting')}</table>
+      </section>
+      <section class="cell-p"><h3>${names.other}</h3>
+        <table class="bsheet skills tool-slots">${slotRows('other')}</table>
+        <p class="hint">Tools remain in your pack and continue to count toward its weight and capacity. A slot is an assignment, not a second copy of the item.</p>
+      </section>
+    </div>`;
   }
 
   function pageNewSection(title, description) {
@@ -480,18 +484,9 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { treeReturnTab = tab; selSkill = t.dataset.tree; resetArmed = false; treeView = true; render(); });
     el.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => { assignPoints(c, b.dataset.assign, 1); ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-tool-slot]').forEach(select => select.onchange = () => {
-      const skill = select.dataset.toolSlot, value = select.value;
-      c.toolSlots ||= {};
-      const old = c.toolSlots[skill];
-      if (old && old.uid === value) return;
-      if (old) { ctx.inv.items.push(old); delete c.toolSlots[skill]; }
-      if (value.startsWith('equipped:')) {
-        const id = value.slice(9), body = ctx.body();
-        if (body?.gear.unequip('mainHand') === id) c.toolSlots[skill] = { uid:'tool-'+Date.now().toString(36), id, enchantments:[] };
-      } else if (value) {
-        const index = ctx.inv.items.findIndex(x => x.uid === value);
-        if (index >= 0) c.toolSlots[skill] = ctx.inv.items.splice(index,1)[0];
-      }
+      c.toolLoadout ||= {};
+      if (select.value) c.toolLoadout[select.dataset.toolSlot] = select.value;
+      else delete c.toolLoadout[select.dataset.toolSlot];
       ctx.onChange?.(); render();
     });
     el.querySelectorAll('.eq.full').forEach(li => li.onclick = () => {
@@ -517,17 +512,12 @@ export function createBook(root, ctx) {
       li.onclick = () => { ctx.onUse(li.dataset.potion); render(); };
     });
     el.querySelectorAll('[data-beast-open]').forEach(b => b.onclick = () => { beastSel = b.dataset.beastOpen; beastView = 'entry'; api.turn = 0; render(); });
-    el.querySelectorAll('[data-herb-open]').forEach(b => b.onclick = () => { herbSel=b.dataset.herbOpen; herbView='entry'; api.turn=0; render(); });
-    el.querySelectorAll('[data-herb-page]').forEach(b => b.onclick = () => { herbPage=Number(b.dataset.herbPage); render(); });
-    el.querySelector('[data-herb-prev]')?.addEventListener('click', () => { herbPage=Math.max(0,herbPage-1); render(); });
-    el.querySelector('[data-herb-next]')?.addEventListener('click', () => { herbPage=Math.min(HERBARUM_PAGES.length-1,herbPage+1); render(); });
-    el.querySelector('[data-herb-back]')?.addEventListener('click', () => { herbView='collection'; api.turn=0; render(); });
     el.querySelectorAll('[data-beast-page]').forEach(b => b.onclick = () => { beastPage = Number(b.dataset.beastPage); render(); });
     el.querySelector('[data-beast-prev]')?.addEventListener('click', () => { beastPage = Math.max(0, beastPage - 1); render(); });
     el.querySelector('[data-beast-next]')?.addEventListener('click', () => { beastPage = Math.min(BEAST_PAGES.length, beastPage + 1); render(); });
     el.querySelector('[data-beast-back]')?.addEventListener('click', () => { beastView = 'collection'; api.turn = 0; render(); });
     // drag on the figure (or the creature) to turn it
-    const fig = el.querySelector('.figure, .beast-fig, .herb-fig');
+    const fig = el.querySelector('.figure, .beast-fig');
     if (fig) fig.onpointerdown = e => {
       fig.setPointerCapture(e.pointerId); let x = e.clientX;
       fig.onpointermove = ev => { api.turn += (ev.clientX - x) * 0.01; x = ev.clientX; };
@@ -547,8 +537,6 @@ export function createBook(root, ctx) {
     // the Bestiary's creature box and whose page it is (play.js draws the creature there)
     beastRect() { const f = !el.hidden && tab === 'bestiary' && beastView === 'entry' && el.querySelector('.beast-fig'); return f ? f.getBoundingClientRect() : null; },
     get beastId() { return tab === 'bestiary' && beastView === 'entry' ? beastSel : null; },
-    herbRect() { const f=!el.hidden&&tab==='herbarum'&&herbView==='entry'&&el.querySelector('.herb-fig'); return f?f.getBoundingClientRect():null; },
-    get herbId() { return tab==='herbarum'&&herbView==='entry'?herbSel:null; },
   };
   return api;
 }

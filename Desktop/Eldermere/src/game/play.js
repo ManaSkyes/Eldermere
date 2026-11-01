@@ -43,6 +43,7 @@ import { createSpellcast } from './spellcast.js';
 import { buildDungeonShapes, lightDungeon } from './dungeonBuild.js';
 import { createDungeonObjects } from './dungeonObjects.js';
 import { createGroundLoot } from './groundLoot.js';
+import { createGatherables } from './gatherables.js';
 import { createEnemies } from './enemies.js';
 import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../data/objects.js';
 import { globalsOf, sunDirection } from '../data/globals.js';
@@ -169,6 +170,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const dummies = createDummies(THREE, scene, TG ? [{ x: 5.5, z: 8.5, yaw: 2.6 }, { x: 7.5, z: 6.5, yaw: 2.2 }, { x: 4.0, z: 11.0, yaw: 2.9 }] : []);
   shapes.push(...dummies.shapes);
   buildTestGrounds(THREE, scene, shapes, dungeon?.decor || [], dungeon?.pathSurfaces || [], dungeon?.groundSplat || null, { field: TG });
+  const gatherables = dungeon ? createGatherables(THREE, scene, playtest, DUNGEON_ORIGIN, shapes) : null;
   // the map's global settings from the creator's Global tab (src/data/globals.js)
   const G = globalsOf(playtest);
   const dungeonObjs = dungeon ? createDungeonObjects(THREE, scene, playtest, DUNGEON_ORIGIN, shapes) : null;   // its traps and triggers
@@ -1152,6 +1154,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (sneakXp >= 1) { train(character, 'sneak', sneakXp * 0.6, { stats: ['dexterity'], approach: true }); sneakXp = 0; }
     }
     dungeonObjs?.update(dt, performance.now() / 1000, { pos: st.pos, height: player.height, invulnerable: st.invulnerable }, (pts, why) => hurt(Math.min(1, pts / Math.max(1, d.maxHp)), why), enemies?.units || []);
+    gatherables?.update();
     if (probe.on) {
       const otherMs = Math.max(0, performance.now() - courseT0 - monsterMs);
       probeLaps['World update overhead (excluding monsters)'] = (probeLaps['World update overhead (excluding monsters)'] || 0) * 0.9 + otherMs * 0.1;

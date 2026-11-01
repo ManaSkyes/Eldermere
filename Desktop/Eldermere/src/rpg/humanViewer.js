@@ -977,7 +977,7 @@ export function startViewer(THREE, human, ui) {
     if (type === 'attack' && (!weaponsDrawn || !h.main)) return false;
     if ((type === 'draw' && weaponsDrawn) || (type === 'sheathe' && !weaponsDrawn)) return false;
     if ((type === 'draw' || type === 'sheathe') && !h.main && !h.off) return false;
-    combat.action = { type, t0: clock.elapsedTime, swapped: false, variant: opts.variant || 'light', hold: !!opts.hold, speed: opts.speed || 1, u: 0, hand: opts.hand || null, onEnd: opts.onEnd || null };
+    combat.action = { type, t0: clock.elapsedTime, swapped: false, variant: opts.variant || 'light', hold: !!opts.hold, speed: opts.speed || 1, u: 0, hand: opts.hand || null };
     return true;
   }
   // which keyframed attack a variant uses for what's held: light (forehand), light2 (backhand), heavy (overhead)
@@ -1023,7 +1023,7 @@ export function startViewer(THREE, human, ui) {
     }
     const dur = 0.75, u = (now - a.t0) / dur;
     if (!a.swapped && u >= 0.5) { a.swapped = true; weaponsDrawn = a.type === 'draw'; placeWeapons(); syncDrawBtn(); }
-    if (u >= 1) { combat.action = null; a.onEnd?.(); return weaponsDrawn ? readyKey() : null; }
+    if (u >= 1) { combat.action = null; return weaponsDrawn ? readyKey() : null; }
     const relaxed = { ...RELAXED }, reach = { ...relaxed, ...reachKey() };
     const from = a.type === 'draw' ? relaxed : ready, to = a.type === 'draw' ? readyKey() : relaxed;
     return u < 0.5 ? lerpKey(from, reach, smooth(u / 0.5)) : lerpKey(reach, to, smooth((u - 0.5) / 0.5));
@@ -1263,7 +1263,7 @@ export function startViewer(THREE, human, ui) {
   }
   function syncDrawBtn() { if (typeof drawBtn !== 'undefined') { drawBtn.textContent = weaponsDrawn ? 'Put weapons away' : 'Draw weapons'; drawBtn.setAttribute('aria-pressed', weaponsDrawn); } }
   window.eldermereCombat = {
-    draw: (opts = {}) => startAction('draw', opts), sheathe: (opts = {}) => startAction('sheathe', opts), attack: () => startAction('attack'),
+    draw: () => startAction('draw'), sheathe: () => startAction('sheathe'), attack: () => startAction('attack'),
     block: on => { combat.blocking = !!on; },
     scrub: u => { combat.scrub = u; },          // testing: freeze an attack at u (0..1), or null to play normally get drawn() { return weaponsDrawn; }, get busy() { return !!combat.action; },
   };
@@ -2035,7 +2035,7 @@ export function startViewer(THREE, human, ui) {
     scrubAttack(variant, u) { if (!variant) { combat.scrub = null; combat.action = null; return; } if (!weaponsDrawn) { weaponsDrawn = true; placeWeapons(); } if (!combat.action || combat.action.variant !== variant) { combat.action = null; startAction('attack', { variant }); } combat.scrub = u; },
     setTurn(a) { rotY = a; },
     act(name, opts = {}) { return startAction('move', { move: name, ...opts }); },
-    actHerbalism(opts = {}) { const move = Math.random() < 0.5 ? 'herbalismScythe' : 'herbalismTrowel'; const begin = () => startAction('move', { move, ...opts }); if (gear.equipped().mainHand === 'herbalTool' && !weaponsDrawn) return startAction('draw', { onEnd: begin }); return begin(); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
+    actHerbalism(opts = {}) { const move = Math.random() < 0.5 ? 'herbalismScythe' : 'herbalismTrowel'; if (gear.equipped().mainHand === 'herbalTool' && !weaponsDrawn) { weaponsDrawn = true; placeWeapons(); syncDrawBtn(); } return startAction('move', { move, ...opts }); }, stopAct() { if (combat.action?.type === 'move') { combat.action = null; hideProps(); } },
     get moves() { return Object.entries(MOVES).map(([id, m]) => ({ id, name: m.name, dur: m.dur })); },
     hairLOD(d) { hairR.lod(d); }, setHairSimulationEnabled(on) { hairSimulationEnabled = !!on; }, bodyLOD(d) { lods.set(d); }, get bodyLevel() { return lods.level; }, hairDebug: () => ({ info: hairR.info, lod: hairR.lodLevel, vis: cardsMesh.visible, sim: hairR.sim?.dbg?.(), parent: cardsMesh.parent?.type, draw: cardsMesh.geometry.drawRange }), setWind(x, y, z) { hairWind = [x, y, z]; }, get hairInfo() { return hairR.info; },   // (timings: clothMs, hairSimMs — the game's performance panel shows them)
     showHead(on) {

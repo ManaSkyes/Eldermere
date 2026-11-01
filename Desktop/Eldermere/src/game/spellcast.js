@@ -234,7 +234,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
-    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.10 } : chainPrompt ? { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 } : null; },
+    get timing() { return chainPrompt ? { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 } : null; },
     get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,

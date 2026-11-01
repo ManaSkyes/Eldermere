@@ -223,14 +223,13 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       else if (rapidBarrage) { rapidBarrage.shots++; rapidBarrage.cooldown = Math.max(0.025, 0.12 * Math.pow(0.94, rapidBarrage.focusedRanks)); }
       chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[];
     }
-    else if (!failed && casting.mode === 'incantation') {
+    else if (!failed && (casting.mode === 'incantation' || (casting.mode === 'voiceless' && perfect && !rapidFireUnlocked))) {
       const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
       chainHistory = [spell.id];
       const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
       // Same-element chaining is the baseline discipline; the left branch improves it.
       // Unlocking Elemental Rotation switches the chain to strict, non-repeating elements.
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
-      const rapidFireUnlocked = false;
       const twoElementUnlocked = (tree.pairedElements || 0) > 0;
       const sameElementUnlocked = !rotationUnlocked || (tree.elementalBoost || 0) > 0;
       const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
@@ -255,7 +254,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       });
     }
     else { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; }
-    if (chainQueue.length && casting.mode === 'incantation') chainInput = completedInput;
+    if (chainQueue.length && (casting.mode === 'incantation' || (casting.mode === 'voiceless' && perfect && !rapidFireUnlocked))) chainInput = completedInput;
     else { chainInput = null; chainHistory=[]; }
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }

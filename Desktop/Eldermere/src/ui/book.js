@@ -292,27 +292,30 @@ export function createBook(root, ctx) {
     if (!byId[chainSelectedNode]) chainSelectedNode = 'unskilledCapacity';
     const selected = byId[chainSelectedNode], rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
     const status = n => { const have = rank(n), buy = canBuy(c, 'chainCasting', n.id); return n.innate ? 'Known' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available' : v < n.gate ? 'Locked · skill' : 'Locked · prerequisite'; };
+    const branchX = { same:13, rotation:37, rapid:63, dual:87 };
+    const gateY = gate => 8 + Math.min(1200, gate) / 1200 * 78;
+    const pos = n => ({x:n.branch ? branchX[n.branch] : 50, y:gateY(n.gate)});
     const links = nodes.flatMap(n => [...(n.needs || []), ...(n.needsAny || [])].filter(id => byId[id]).map(id => {
-      const a = byId[id].layout || {x:50,y:50}, b = n.layout || {x:50,y:50};
-      return {x1:a.x,y1:a.y,x2:b.x,y2:b.y,branch:n.branch || 'core'};
+      const a=pos(byId[id]),b=pos(n); return {x1:a.x,y1:a.y,x2:b.x,y2:b.y,branch:n.branch||'core'};
     }));
     const lines = links.map(l => `<line class="chain-link ${l.branch}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`).join('');
-    const branchNames = [
-      ['same','Same Element','same'],['rotation','Elemental Rotation','rotation'],
-      ['rapid','Rapid Fire','rapid'],['dual','Two-Element','dual']
-    ].map(([id,name]) => `<span class="chain-branch-label ${id}">${name}</span>`).join('');
+    const milestones = [
+      ['Unskilled','0–199',5],['Apprentice','200–499',20],['Journeyman','500–999',38],
+      ['Expert','1,000–4,999',56],['Master','5,000–9,999',76],['Guru','10,000+',96]
+    ].map(([name,range,y])=>`<div class="chain-tier-band" style="top:${y}%"><span>${name}</span><small>${range}</small></div>`).join('');
+    const branchLabels = [
+      ['same','Same Element'],['rotation','Elemental Rotation'],['rapid','Rapid Fire'],['dual','Two-Element']
+    ].map(([id,name])=>`<span class="chain-branch-label ${id}" style="left:${branchX[id]}%">${name}</span>`).join('');
     const circles = nodes.map(n => {
-      const have = rank(n), buy = canBuy(c, 'chainCasting', n.id), lockedByOpposite = !!(n.opposite && rank(byId[n.opposite] || {}) > 0);
-      const cls = [n.branch || 'core', have ? 'got' : '', have >= n.ranks ? 'full' : '', buy.ok ? 'buyable' : '', lockedByOpposite ? 'incompatible' : '', n.id === chainSelectedNode ? 'selected' : ''].join(' ');
-      const pos = n.layout || {x:50,y:50};
-      return `<button class="chain-skill-node ${cls}" data-chain-select="${n.id}" style="left:${pos.x}%;top:${pos.y}%" title="${escapeHtml(n.name)} · ${escapeHtml(status(n))}" aria-label="${escapeHtml(n.name)}"><span class="chain-orb">${n.kind === 'active' ? '✦' : '◆'}</span><span class="chain-node-name">${escapeHtml(n.name)}</span><span class="chain-node-rank">${have}/${n.ranks}</span><span class="chain-node-tooltip"><b>${escapeHtml(n.name)}</b><small>${escapeHtml(n.text)}</small><em>${escapeHtml(status(n))} · Requires ${n.gate}</em></span></button>`;
+      const have=rank(n),buy=canBuy(c,'chainCasting',n.id),p=pos(n);
+      const cls=[n.branch||'core',have?'got':'',have>=n.ranks?'full':'',buy.ok?'buyable':'',n.id===chainSelectedNode?'selected':''].join(' ');
+      return `<button class="chain-skill-node ${cls}" data-chain-select="${n.id}" style="left:${p.x}%;top:${p.y}%" title="${escapeHtml(n.name)} · ${escapeHtml(status(n))}" aria-label="${escapeHtml(n.name)}"><span class="chain-orb">${n.kind==='active'?'✦':'◆'}</span><span class="chain-node-name">${escapeHtml(n.name)}</span><span class="chain-node-rank">${have}/${n.ranks}</span></button>`;
     }).join('');
-    const chosenRank = rank(selected), buy = canBuy(c, 'chainCasting', selected.id);
-    const detail = `<aside class="chain-node-detail"><div class="chain-detail-kicker">${selected.branch ? tree.branches[selected.branch].name : 'Universal foundation'} · ${selected.kind}</div><h3>${escapeHtml(selected.name)}</h3><p>${escapeHtml(selected.text)}</p><div class="chain-detail-meta"><span>Rank ${chosenRank} / ${selected.ranks}</span><span>Requires Chain Casting ${selected.gate}</span><span>${escapeHtml(status(selected))}</span></div>${selected.innate ? '<p class="chain-detail-note">This technique is known from the start.</p>' : `<button class="chain-purchase" data-chain-buy="${selected.id}" ${buy.ok ? '' : 'disabled'}>${chosenRank >= selected.ranks ? 'Mastered' : buy.ok ? 'Learn next rank · 1 point' : escapeHtml(buy.reason)}</button>`}</aside>`;
-    const right = `<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="chainCasting">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>
-      <p class="hint">${escapeHtml(tree.intro)} Branches can be mixed freely. Restrictions apply only to mechanics that directly conflict: Rapid Fire cannot use Elemental Rotation's half-slot discounts.</p>
-      <div class="chain-tree-workspace"><div class="chain-tree-canvas"><div class="chain-tree-labels">${branchNames}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div>${detail}</div>`;
-    return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${right}</section></div>`;
+    const chosenRank=rank(selected),buy=canBuy(c,'chainCasting',selected.id);
+    const detail=`<aside class="chain-node-detail"><div class="chain-detail-kicker">${selected.branch?tree.branches[selected.branch].name:'Universal foundation'} · ${selected.kind}</div><h3>${escapeHtml(selected.name)}</h3><p>${escapeHtml(selected.text)}</p><div class="chain-detail-meta"><span>Rank ${chosenRank} / ${selected.ranks}</span><span>Requires Chain Casting ${selected.gate}</span><span>${escapeHtml(status(selected))}</span></div>${selected.innate?'<p class="chain-detail-note">This technique is known from the start.</p>':`<button class="chain-purchase" data-chain-buy="${selected.id}" ${buy.ok?'':'disabled'}>${chosenRank>=selected.ranks?'Mastered':buy.ok?'Learn next rank · 1 point':escapeHtml(buy.reason)}</button>`}</aside>`;
+    const header=`<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free===1?'':'s'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent?`<button class="tree-reset ${resetArmed?'armed':''}" data-reset="chainCasting">${resetArmed?`Refund ${spent} points?`:'Reset tree'}</button>`:''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>`;
+    const workspace=`<div class="chain-tree-workspace"><div class="chain-tree-scroll"><div class="chain-tree-stage"><div class="chain-tree-milestones">${milestones}</div><div class="chain-tree-branch-labels">${branchLabels}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div></div>${detail}</div>`;
+    return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)} Branches can be mixed freely. Restrictions apply only to mechanics that directly conflict: Rapid Fire cannot use Elemental Rotation's half-slot discounts.</p>${workspace}</section></div>`;
   }
 
   function pageTrees() {

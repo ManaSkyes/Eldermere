@@ -282,11 +282,39 @@ export function createBook(root, ctx) {
   }
 
   // ---- skill trees ----
-  let selSkill = null, resetArmed = false;
+  let selSkill = null, resetArmed = false, chainSelectedNode = 'unskilledCapacity';
   const TIERS = [['Unskilled', 0], ['Apprentice', 200], ['Journeyman', 500], ['Expert', 1000], ['Master', 5000]];
   const TREE_GROUPS = [['Weapons', id => SKILLS[id].group === 'weapon'], ['Combat', id => SKILLS[id].group === 'combat'],
     ['Magic', id => SKILLS[id].group === 'magic' || CASTING.includes(id)], ['Life skills', id => SKILLS[id].group === 'profession'],
     ['General', id => SKILLS[id].group === 'general' && !CASTING.includes(id)]];
+  function pageChainCastingTree(tree, v, st, free, spent) {
+    const nodes = tree.nodes, byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+    if (!byId[chainSelectedNode]) chainSelectedNode = 'unskilledCapacity';
+    const selected = byId[chainSelectedNode], rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
+    const status = n => { const have = rank(n), buy = canBuy(c, 'chainCasting', n.id); return n.innate ? 'Known' : have >= n.ranks ? 'Mastered' : buy.ok ? 'Available' : v < n.gate ? 'Locked · skill' : 'Locked · prerequisite'; };
+    const links = nodes.flatMap(n => [...(n.needs || []), ...(n.needsAny || [])].filter(id => byId[id]).map(id => {
+      const a = byId[id].layout || {x:50,y:50}, b = n.layout || {x:50,y:50};
+      return {x1:a.x,y1:a.y,x2:b.x,y2:b.y,branch:n.branch || 'core'};
+    }));
+    const lines = links.map(l => `<line class="chain-link ${l.branch}" x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}"/>`).join('');
+    const branchNames = [
+      ['same','Same Element','same'],['rotation','Elemental Rotation','rotation'],
+      ['rapid','Rapid Fire','rapid'],['dual','Two-Element','dual']
+    ].map(([id,name]) => `<span class="chain-branch-label ${id}">${name}</span>`).join('');
+    const circles = nodes.map(n => {
+      const have = rank(n), buy = canBuy(c, 'chainCasting', n.id), lockedByOpposite = !!(n.opposite && rank(byId[n.opposite] || {}) > 0);
+      const cls = [n.branch || 'core', have ? 'got' : '', have >= n.ranks ? 'full' : '', buy.ok ? 'buyable' : '', lockedByOpposite ? 'incompatible' : '', n.id === chainSelectedNode ? 'selected' : ''].join(' ');
+      const pos = n.layout || {x:50,y:50};
+      return `<button class="chain-skill-node ${cls}" data-chain-select="${n.id}" style="left:${pos.x}%;top:${pos.y}%" title="${escapeHtml(n.name)} · ${escapeHtml(status(n))}" aria-label="${escapeHtml(n.name)}"><span class="chain-orb">${n.kind === 'active' ? '✦' : '◆'}</span><span class="chain-node-name">${escapeHtml(n.name)}</span><span class="chain-node-rank">${have}/${n.ranks}</span></button>`;
+    }).join('');
+    const chosenRank = rank(selected), buy = canBuy(c, 'chainCasting', selected.id);
+    const detail = `<aside class="chain-node-detail"><div class="chain-detail-kicker">${selected.branch ? tree.branches[selected.branch].name : 'Universal foundation'} · ${selected.kind}</div><h3>${escapeHtml(selected.name)}</h3><p>${escapeHtml(selected.text)}</p><div class="chain-detail-meta"><span>Rank ${chosenRank} / ${selected.ranks}</span><span>Requires Chain Casting ${selected.gate}</span><span>${escapeHtml(status(selected))}</span></div>${selected.innate ? '<p class="chain-detail-note">This technique is known from the start.</p>' : `<button class="chain-purchase" data-chain-buy="${selected.id}" ${buy.ok ? '' : 'disabled'}>${chosenRank >= selected.ranks ? 'Mastered' : buy.ok ? 'Learn next rank · 1 point' : escapeHtml(buy.reason)}</button>`}</aside>`;
+    const right = `<header class="tree-head"><h3>Chain Casting <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="chainCasting">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="chainCasting" title="Test grounds only">+100 (test)</button></span></header>
+      <p class="hint">${escapeHtml(tree.intro)} Branches can be mixed freely. Restrictions apply only to mechanics that directly conflict: Rapid Fire cannot use Elemental Rotation's half-slot discounts.</p>
+      <div class="chain-tree-workspace"><div class="chain-tree-canvas"><div class="chain-tree-labels">${branchNames}</div><svg class="chain-tree-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines}</svg>${circles}</div>${detail}</div>`;
+    return `<div class="pg wtree chain-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${right}</section></div>`;
+  }
+
   function pageTrees() {
     const list = TREE_GROUPS.map(([g, test]) => {
       const ids = Object.keys(SKILL_TREES).filter(test); if (!ids.length) return '';
@@ -297,6 +325,7 @@ export function createBook(root, ctx) {
     }).join('');
     const tree = SKILL_TREES[selSkill], v = c.skills[selSkill] ?? 0;
     const st = treeState(c, selSkill), free = pointsFree(c, selSkill), spent = Object.values(st.nodes).reduce((t, n) => t + n, 0);
+    if (selSkill === 'chainCasting') return pageChainCastingTree(tree, v, st, free, spent);
     const bkeys = Object.keys(tree.branches), [bA, bB] = bkeys;
     const card = n => {
       const have = n.innate ? n.ranks : st.nodes[n.id] ?? 0, r = canBuy(c, selSkill, n.id), br = n.branch ? tree.branches[n.branch] : null;
@@ -533,7 +562,7 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-spell-evolve]').forEach(b => b.onclick = () => { const evo = spellEvolutionOf(c, spellTreeId), node = SPELL_EVOLUTION_NODES.find(n=>n.id===b.dataset.spellEvolve); if (node && (evo.nodes[node.id]||0)<node.max && Math.floor(evo.points)-Object.values(evo.nodes).reduce((a,v)=>a+v,0)>0) { evo.nodes[node.id]=(evo.nodes[node.id]||0)+1; ctx.onChange?.(); } render(); });
     el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
     el.querySelectorAll('[data-chain-start]').forEach(btn => btn.onclick = () => { chainStartId=btn.dataset.chainStart; render(); });
-    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id)) return; const q=spellChain(); if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
+    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id)) return; const q=spellChain(), n=treeState(c,'chainCasting').nodes, rapid=(n.rapidFire||0)>0; if(!rapid && (id===chainStartId || q.includes(id))) return; if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
     el.querySelectorAll('[data-drag-spell]').forEach(tile => { tile.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('text/plain',tile.dataset.dragSpell);ev.dataTransfer.effectAllowed='copy';}); tile.onclick=()=>addChainSpell(tile.dataset.dragSpell); });
     el.querySelectorAll('[data-sequence-drop]').forEach(zone=>{zone.addEventListener('dragover',ev=>{ev.preventDefault();zone.classList.add('drag-over');});zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));zone.addEventListener('drop',ev=>{ev.preventDefault();zone.classList.remove('drag-over');addChainSpell(ev.dataTransfer.getData('text/plain'));});});
     el.querySelectorAll('[data-sequence-remove]').forEach(btn=>btn.onclick=()=>{spellChain().splice(Number(btn.dataset.sequenceRemove),1);ctx.onChange?.();render();});
@@ -542,6 +571,8 @@ export function createBook(root, ctx) {
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
     el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-chain-select]').forEach(nd => { nd.onmouseenter = () => { chainSelectedNode = nd.dataset.chainSelect; const page = el.querySelector('.chain-tree-page'); if (page) { const y = page.scrollTop; render(); page.scrollTop = y; } }; nd.onclick = () => { chainSelectedNode = nd.dataset.chainSelect; render(); }; });
+    el.querySelectorAll('[data-chain-buy]').forEach(btn => btn.onclick = () => { const r = buyNode(c, 'chainCasting', btn.dataset.chainBuy); if (r.ok) { resetArmed = false; ctx.onChange?.(); } render(); });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-train]').forEach(b => b.onclick = () => { c.skills[b.dataset.train] = (c.skills[b.dataset.train] ?? 100) + 100; render(); });
     el.querySelectorAll('.cell-p').forEach((x, i) => { if (keep[i] !== undefined) x.scrollTop = keep[i]; });

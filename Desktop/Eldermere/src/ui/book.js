@@ -333,30 +333,23 @@ export function createBook(root, ctx) {
     // four parallel Apprentice upgrades, then keep each upgrade family in a
     // consistent column through later mastery tiers.
     const rapidColumns = {
-      rapidVolleyApprentice: 22, sustainedBarrageApprentice: 41,
-      efficientBarrageApprentice: 60, focusedBurstApprentice: 79
+      rapidVolley: 22, sustainedBarrage: 41,
+      efficientBarrage: 60, focusedBurst: 79
     };
-    const rapidFamilies = [
-      ['rapidVolley', 'rapidVolley'],
-      ['sustainedBarrage', 'sustainedBarrage'],
-      ['efficientBarrage', 'efficientBarrage'],
-      ['focusedBurst', 'focusedBurst']
-    ];
-    const apprenticeSlot = populatedTierIndexes.indexOf(1);
-    const apprenticeTop = tierTop + Math.max(0, apprenticeSlot) * tierHeight;
-    const rapidFireY = apprenticeTop + 78;
-    positions.rapidFire = { x: 50, y: rapidFireY / stageHeight * 100 };
-    for (const [id, x] of Object.entries(rapidColumns)) {
-      positions[id] = { x, y: (apprenticeTop + 245) / stageHeight * 100 };
-    }
-    for (let tierIndex = 2; tierIndex <= 5; tierIndex++) {
-      const slot = populatedTierIndexes.indexOf(tierIndex);
-      if (slot < 0) continue;
-      const y = (tierTop + slot * tierHeight + tierHeight * .52) / stageHeight * 100;
-      for (const [prefix] of rapidFamilies) {
-        const id = prefix + ['Journeyman', 'Expert', 'Master', 'Grandmaster'][tierIndex - 2];
-        const node = byId[id];
-        if (node) positions[id] = { x: rapidColumns[prefix + 'Apprentice'], y };
+    const tierBandTop = gate => {
+      const slot = populatedTierIndexes.indexOf(tierFor(gate));
+      return tierTop + Math.max(0, slot) * tierHeight;
+    };
+    positions.rapidFire = { x: 50, y: (tierBandTop(200) + 78) / stageHeight * 100 };
+    for (const [prefix, x] of Object.entries(rapidColumns)) {
+      const apprentice = byId[prefix + 'Apprentice'];
+      if (apprentice) positions[apprentice.id] = { x, y: (tierBandTop(200) + 245) / stageHeight * 100 };
+      for (const [suffix, gate, offset] of [
+        ['Journeyman', 500, 190], ['Expert', 1000, 120],
+        ['Master', 2000, 270], ['Grandmaster', 5000, 190]
+      ]) {
+        const node = byId[prefix + suffix];
+        if (node) positions[node.id] = { x, y: (tierBandTop(gate) + offset) / stageHeight * 100 };
       }
     }
     const pathFor = (a, b) => {

@@ -174,16 +174,18 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     const sameElement = !!previous && previousSchool === spell.school;
     const repeatCount = chainHistory.filter(x => x === id).length;
     const seenSchools = new Set([...chainHistory.map(x => SPELLS[x]?.school), spell.school].filter(Boolean));
+    prof.castTime *= Math.max(0.55, 1 - 0.04 * r('perfectedHandoff'));
     if (sameElement) {
-      prof.power *= 1 + 0.05 * r('resonantFlow');
-      prof.mana *= 1 - 0.04 * r('focusedCurrent');
+      prof.power *= 1 + 0.05 * r('resonantFlow') + 0.03 * r('overwhelmingResonance');
+      prof.mana *= 1 - 0.04 * r('focusedCurrent') - 0.02 * r('conservingCurrent');
     }
     if (r('elementalRotation') && previous && previousSchool !== spell.school) {
-      prof.power *= 1 + 0.04 * r('rotatingForce') * chainHistory.length;
+      prof.power *= 1 + (0.04 * r('rotatingForce') + 0.03 * r('prismaticMomentum')) * chainHistory.length;
+      prof.mana *= 1 - 0.02 * r('fluidTransitions');
     }
     if (r('pairedElements') && seenSchools.has(spell.school) && seenSchools.size <= 2 && chainHistory.length > 0) {
-      prof.power *= 1 + 0.03 * r('twinAttunement');
-      if (previous && previousSchool !== spell.school) prof.mana *= 1 - 0.04 * r('dualWeave');
+      prof.power *= 1 + 0.03 * r('twinAttunement') + 0.02 * r('harmonicConvergence');
+      if (previous && previousSchool !== spell.school) prof.mana *= 1 - 0.04 * r('dualWeave') - 0.02 * r('reciprocalFlow');
     }
     return prof;
   }
@@ -232,7 +234,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const rotationUnlocked = (tree.elementalRotation || 0) > 0;
       const twoElementUnlocked = (tree.pairedElements || 0) > 0;
       const sameElementUnlocked = !rotationUnlocked || (tree.elementalBoost || 0) > 0;
-      const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
+      const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff') + nodeRank(character, 'chainCasting', 'unbrokenSequence');
       // Rotation's half-slot weaving is deliberately incompatible with Rapid Fire multicast.
       const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
       const discountedSpellLimit = discountedRotationSlots * 2;

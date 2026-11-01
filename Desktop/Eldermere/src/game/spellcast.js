@@ -55,7 +55,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
   }
   let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null;
   // A chain may only reopen after the released cast animation has visibly completed.
-  let chainAwaitRelease = false, chainSawRelease = false;
+  let chainAwaitRelease = false, chainSawRelease = false, chainInput = null;
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -169,6 +169,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
   let lastPerfect = false, perfectFlash = 0;
   function finishCast() {
     const spell = SPELLS[casting.id], prof = casting.prof, b = body();
+    // Follow-ups inherit the exact button, hand, and quick/chant behavior of this cast.
+    const completedInput = { mode: casting.mode, auto: !!casting.auto, key: casting.key, failOnRelease: !!casting.failOnRelease, hand: casting.hand };
+
     // Overcast: held past ready, more power for more mana (as much as you can pay for)
     let over = casting.over ? Math.min(1, casting.over / 1) : 0;
     if (over > 0) over = Math.min(over, Math.max(0, (vitals.mp / prof.mana - 1) / 0.8));
@@ -185,9 +188,10 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; } }
+    if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; } }
     else if (!failed) chainQueue = (character.spellChains?.[spell.id] || []).filter(id => SPELL_CAST[id] && knowsSpell(character,id));
-    else { chainQueue=[]; chainPrompt=null; }
+    else { chainQueue=[]; chainPrompt=null; chainInput=null; }
+    if (chainQueue.length) chainInput = completedInput;
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
     else { character.chainElement=null; character.chainElementStreak=0; }
     trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain }, failed);
@@ -198,6 +202,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     } else {
       chainAwaitRelease = false;
       chainSawRelease = false;
+      chainInput = null;
     }
     casting = null;
   }
@@ -235,7 +240,8 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         if (!locked || !free || !b) { chainPrompt=null; chainQueue=[]; }
         else {
           chainPrompt.t += dt;
-          const L=layout(), start=L && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')));
+          const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');
+          const start=!!chainBtn && input.pressed(chainBtn);
           const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.78 && chainPrompt.t <= chainPrompt.duration * 0.92;
           if (start) {
             if (!perfectStart) { chainPrompt=null; chainQueue=[]; toast?.('Chain timing missed.'); }
@@ -246,9 +252,10 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
               else {
                 const prof=castProfile(character,SPELLS[id],{mode:'incantation',focus});
                 if(vitals.mp<prof.mana){chainPrompt=null;chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
-                else if(b.combat.cast({hand:L.handL||L.handR})){
-                  casting={id,mode:'incantation',focus,prof,t:0,key:null,auto:true,failOnRelease:false,hand:L.handL||L.handR,chain:true};
-                  chainPrompt=null; audio.chant?.(true,prof.castTime);
+                else if(b.combat.cast({hand:chainInput?.hand || L['hand' + (chainBtn === 'attack' ? 'L' : 'R')]})){
+                  const mode=chainInput?.mode || 'incantation';
+                  casting={id,mode,focus,prof,t:0,key:chainInput?.auto ? null : chainBtn,auto:!!chainInput?.auto,failOnRelease:!!chainInput?.failOnRelease,hand:chainInput?.hand || L['hand' + (chainBtn === 'attack' ? 'L' : 'R')],chain:true};
+                  chainPrompt=null; audio.chant?.(mode === 'incantation',prof.castTime);
                 }
               }
             }

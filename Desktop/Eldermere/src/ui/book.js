@@ -329,29 +329,48 @@ export function createBook(root, ctx) {
         positions[n.id] = { x: lanes[lane], y: yPx / stageHeight * 100 };
       });
     }
-    // Rapid Fire is the entry point of its own branch. Put the unlock above
-    // four parallel Apprentice upgrades, then keep each upgrade family in a
-    // consistent column through later mastery tiers.
-    const rapidColumns = {
-      rapidVolley: 22, sustainedBarrage: 41,
-      efficientBarrage: 60, focusedBurst: 79
+    // Branch regions provide explicit horizontal bounds. Nodes are placed
+    // on region axes or evenly spaced region columns, never against the
+    // canvas-wide center by accident.
+    const regions = {
+      same: { left: 2, right: 21 },
+      rotation: { left: 22, right: 41 },
+      core: { left: 42, right: 58 },
+      rapid: { left: 59, right: 87 },
+      dual: { left: 88, right: 99 }
     };
+    const regionCenter = id => (regions[id].left + regions[id].right) / 2;
+    const regionColumns = (id, count, inset = 1.5) => {
+      const region = regions[id], width = region.right - region.left;
+      return Array.from({ length: count }, (_, i) =>
+        region.left + inset + (width - inset * 2) * ((i + .5) / count));
+    };
+    const rapidFamilies = ['rapidVolley', 'sustainedBarrage', 'efficientBarrage', 'focusedBurst'];
+    const rapidColumns = regionColumns('rapid', rapidFamilies.length, 1.2);
     const tierBandTop = gate => {
       const slot = populatedTierIndexes.indexOf(tierFor(gate));
       return tierTop + Math.max(0, slot) * tierHeight;
     };
-    positions.rapidFire = { x: 50, y: (tierBandTop(200) + 78) / stageHeight * 100 };
-    for (const [prefix, x] of Object.entries(rapidColumns)) {
+    positions.rapidFire = {
+      x: regionCenter('rapid'),
+      y: (tierBandTop(200) + 78) / stageHeight * 100
+    };
+    rapidFamilies.forEach((prefix, index) => {
+      const x = rapidColumns[index];
       const apprentice = byId[prefix + 'Apprentice'];
-      if (apprentice) positions[apprentice.id] = { x, y: (tierBandTop(200) + 245) / stageHeight * 100 };
+      if (apprentice) positions[apprentice.id] = {
+        x, y: (tierBandTop(200) + 245) / stageHeight * 100
+      };
       for (const [suffix, gate, offset] of [
         ['Journeyman', 500, 190], ['Expert', 1000, 120],
         ['Master', 2000, 270], ['Grandmaster', 5000, 190]
       ]) {
         const node = byId[prefix + suffix];
-        if (node) positions[node.id] = { x, y: (tierBandTop(gate) + offset) / stageHeight * 100 };
+        if (node) positions[node.id] = {
+          x, y: (tierBandTop(gate) + offset) / stageHeight * 100
+        };
       }
-    }
+    });
     const pathFor = (a, b) => {
       const bend = Math.max(3, Math.abs(b.x - a.x) * .28);
       const direction = b.x >= a.x ? 1 : -1;

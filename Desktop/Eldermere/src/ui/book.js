@@ -743,7 +743,13 @@ export function createBook(root, ctx) {
       chainViewport.addEventListener('pointerup', endDrag); chainViewport.addEventListener('pointercancel', endDrag);
       el.querySelector('[data-chain-zoom-in]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom*1.18,r.left+r.width/2,r.top+r.height/2); });
       el.querySelector('[data-chain-zoom-out]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom/1.18,r.left+r.width/2,r.top+r.height/2); });
-      el.querySelector('[data-chain-zoom-reset]')?.addEventListener('click', () => { chainZoom=.62; chainPanX=12; chainPanY=12; applyChainView(); });
+      el.querySelector('[data-chain-zoom-reset]')?.addEventListener('click', () => {
+        const scale = Math.min(chainViewport.clientWidth / chainStage.offsetWidth, chainViewport.clientHeight / chainStage.offsetHeight) * .94;
+        chainZoom = Math.max(.28, Math.min(1.8, scale));
+        chainPanX = (chainViewport.clientWidth - chainStage.offsetWidth * chainZoom) / 2;
+        chainPanY = (chainViewport.clientHeight - chainStage.offsetHeight * chainZoom) / 2;
+        applyChainView();
+      });
     }
     el.querySelectorAll('.chain-skill-node').forEach(node => {
       const sourceTip = node.querySelector('.chain-node-tooltip'); if (!sourceTip) return;

@@ -28,7 +28,7 @@ import { comboLength, heavyLength } from '../rpg/combos.js';
 import { BODY_PARTS, HUMAN } from '../rpg/bodyState.js';
 import { RACES as BODY_RACES } from '../rpg/races.js';
 
-export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes']];
+export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes'], ['tools', 'Tools']];
 export const LEFT_TABS = [['combat', 'Combat'], ['runes', 'Runes'], ['magic', 'Magic'], ['spells', 'Spells']];
 export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['herbarum', 'Herbarum'], ['lore', 'Lore']];
 export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
@@ -411,10 +411,49 @@ export function createBook(root, ctx) {
     </div>`;
   }
 
+  function pageTools() {
+    // One virtual slot per skill that has a declared tool. Several items may serve the same skill;
+    // the player chooses which carried item is assigned to that slot.
+    const groups = { gathering: [], crafting: [], other: [] };
+    const toolSkills = [...new Set(Object.values(ITEMS).map(item => item.tool?.skill).filter(Boolean))]
+      .filter(id => SKILLS[id])
+      .sort((a, b) => label(a).localeCompare(label(b)));
+    for (const skill of toolSkills) {
+      const category = PROFESSIONS[skill]?.category;
+      const group = category === 'gathering' ? 'gathering' : category === 'crafting' ? 'crafting' : 'other';
+      const choices = ctx.inv.items.map((item, index) => ({
+        item, id: item.id || item.item, key: item.uid || `legacy:${item.id || item.item}:${index}`
+      })).filter(x => x.id && ITEMS[x.id]?.tool?.skill === skill);
+      const assigned = c.toolLoadout?.[skill];
+      const selected = choices.find(x => x.key === assigned) || choices[0] || null;
+      groups[group].push({ skill, choices, selected });
+    }
+    const names = { gathering: 'Gathering tools', crafting: 'Crafting tools', other: 'Other skill tools' };
+    const slotRows = group => groups[group].map(({ skill, choices, selected }) => `
+      <tr class="tool-slot-row">
+        <th><span>${escapeHtml(label(skill))}</span><small>${choices.length ? `${choices.length} carried` : 'No tool carried'}</small></th>
+        <td><select class="tool-slot-select" data-tool-slot="${skill}" aria-label="${escapeHtml(label(skill))} tool">
+          <option value="">Empty</option>
+          ${choices.map(x => `<option value="${escapeHtml(x.key)}" ${selected?.key === x.key ? 'selected' : ''}>${escapeHtml(itemName(x.id))}</option>`).join('')}
+        </select></td>
+      </tr>`).join('');
+    return `<div class="pg two tools-page">
+      <section class="cell-p"><h2>Tools</h2>
+        <p class="hint">Assign a carried tool to each skill. Each skill keeps its own slot, so you can prepare several trades without repeatedly changing your equipment.</p>
+        <h3>${names.gathering}</h3><table class="bsheet skills tool-slots">${slotRows('gathering')}</table>
+        <h3>${names.crafting}</h3><table class="bsheet skills tool-slots">${slotRows('crafting')}</table>
+      </section>
+      <section class="cell-p"><h3>${names.other}</h3>
+        <table class="bsheet skills tool-slots">${slotRows('other')}</table>
+        <p class="hint">Tools remain in your pack and continue to count toward its weight and capacity. A slot is an assignment, not a second copy of the item.</p>
+      </section>
+    </div>`;
+  }
+
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
-  const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
+  const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, tools: pageTools, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
     spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
     herbarum: pageHerbarum,
@@ -444,6 +483,12 @@ export function createBook(root, ctx) {
     // a skill's name anywhere else in the book opens its tree
     el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { treeReturnTab = tab; selSkill = t.dataset.tree; resetArmed = false; treeView = true; render(); });
     el.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => { assignPoints(c, b.dataset.assign, 1); ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-tool-slot]').forEach(select => select.onchange = () => {
+      c.toolLoadout ||= {};
+      if (select.value) c.toolLoadout[select.dataset.toolSlot] = select.value;
+      else delete c.toolLoadout[select.dataset.toolSlot];
+      ctx.onChange?.(); render();
+    });
     el.querySelectorAll('.eq.full').forEach(li => li.onclick = () => {
       const body = ctx.body(); if (!body) return;
       const id = body.gear.unequip(li.dataset.slot); if (id) { ctx.inv.items.push({ uid: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, id, enchantments: [] }); ctx.onChange?.(); }

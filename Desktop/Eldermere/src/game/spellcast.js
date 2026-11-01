@@ -182,7 +182,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (vitals.mp < mana) { toast?.('Not enough mana.'); b?.combat.cancelCast(); casting = null; return; }
     vitals.mp -= mana;
     const normalized = casting.t / Math.max(0.01, prof.castTime);
-    const perfect = Math.abs(normalized - 1) <= 0.075;
+    const perfect = normalized >= 0.98 && normalized <= 1.18; // Slightly late is more forgiving than early.
     const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
     const failed = Math.random() >= successChance;
     lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
@@ -213,7 +213,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
-    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.075 } : chainPrompt ? { k: chainPrompt.t / chainPrompt.duration, win: 0.12 } : null; },
+    get timing() { return casting ? { k: casting.t / Math.max(0.01, casting.prof.castTime), win: 0.10 } : chainPrompt ? { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 } : null; },
     get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,
@@ -242,7 +242,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
           chainPrompt.t += dt;
           const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');
           const start=!!chainBtn && input.pressed(chainBtn);
-          const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.78 && chainPrompt.t <= chainPrompt.duration * 0.92;
+          const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.98 && chainPrompt.t <= chainPrompt.duration * 1.18;
           if (start) {
             if (!perfectStart) { chainPrompt=null; chainQueue=[]; toast?.('Chain timing missed.'); }
             else {
@@ -259,7 +259,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
                 }
               }
             }
-          } else if (chainPrompt.t >= chainPrompt.duration) { chainPrompt=null; chainQueue=[]; toast?.('Chain window missed.'); }
+          } else if (chainPrompt.t >= chainPrompt.duration * 1.18) { chainPrompt=null; chainQueue=[]; toast?.('Chain window missed.'); }
         }
       }
       if (locked && input.pressed('nextSpell')) {

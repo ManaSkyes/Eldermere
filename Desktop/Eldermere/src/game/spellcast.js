@@ -116,9 +116,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     for (const a of spreads) {
       const c = Math.cos(a), sn = Math.sin(a), dx = dir.x * c - dir.z * sn, dz = dir.x * sn + dir.z * c;
       const v = { x: dx * C.speed, y: dir.y * C.speed, z: dz * C.speed };
-      const core = glowSprite(C.size * 3), light = new THREE.PointLight(C.color, twin ? 1.4 : 2.2, C.kind === 'ball' ? 9 : 6);
-      core.position.set(from.x, from.y, from.z); light.position.copy(core.position); scene.add(light);
-      bolts.push({ spell, C, p: { ...from }, v, life: 3, core, light, dmg: damageOf(spell, prof) * (twin ? 0.75 : 1) * (casting?.power || 1), scale: prof.power / spell.power * (casting?.power || 1),
+      const core = glowSprite(C.size * 3);
+      core.position.set(from.x, from.y, from.z);
+      bolts.push({ spell, C, p: { ...from }, v, life: 3, core, light: null, dmg: damageOf(spell, prof) * (twin ? 0.75 : 1) * (casting?.power || 1), scale: prof.power / spell.power * (casting?.power || 1),
         pierce: pierce ? 3 : 0, hits: new Set(), spoken: casting?.mode === 'incantation' });
     }
     audio.fireLaunch?.(C.kind === 'ball');
@@ -130,8 +130,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // a fireball's burst: everything within the radius burns, less at the edge; walls shelter
     const C = { ...C0, radius: radiusOf(C0) };
     const flash = glowSprite(0.5, 1); flash.position.set(at.x, at.y, at.z);
-    const light = new THREE.PointLight('#ff7a20', 4, C.radius * 4); light.position.copy(flash.position); scene.add(light);
-    bursts.push({ flash, light, t: 0, r: C.radius });
+    bursts.push({ flash, light: null, t: 0, r: C.radius });
     for (let i = 0; i < 18; i++) ember(at, C.radius * 0.8, 0.9);
     if (spoken && fh('inferno')) {                                                  // Inferno: the ground stays ablaze
       const disc = new THREE.Mesh(new THREE.CircleGeometry(C.radius * 0.8, 24), new THREE.MeshBasicMaterial({ color: '#ff5a10', transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -283,7 +282,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       for (const ball of detonate.splice(0)) {                                     // Detonate: burst a fireball mid-flight
         const i = bolts.indexOf(ball); if (i < 0) continue;
         pending.push(burst(ball.p, ball.C, ball.dmg, ball.scale, null, ball.spoken));
-        scene.remove(ball.core); scene.remove(ball.light); ball.core.material.dispose(); bolts.splice(i, 1);
+        scene.remove(ball.core); ball.core.material.dispose(); bolts.splice(i, 1);
       }
       for (let i = bolts.length - 1; i >= 0; i--) {
         const o = bolts[i]; o.life -= dt;
@@ -298,15 +297,15 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         if (!hit && (lineBlocked(shapes, o.p, n) || n.y < 0.02 || o.life <= 0)) stop = true;
         if (hit && o.pierce > 1) {                                                   // Piercing bolt: through it and on, weaker each time
           hitTarget(hit, o.dmg, { x: o.p.x, z: o.p.z }); setBurning(hit, o.C.burn, o.scale); for (let j = 0; j < 6; j++) ember(n, 0.2, 0.5); audio.fireHit?.();
-          o.hits.add(hit); o.pierce--; o.dmg *= 0.75; o.p = n; o.core.position.set(n.x, n.y, n.z); o.light.position.copy(o.core.position); continue;
+          o.hits.add(hit); o.pierce--; o.dmg *= 0.75; o.p = n; o.core.position.set(n.x, n.y, n.z); continue;
         }
         if (hit || stop) {
           if (o.C.kind === 'ball') pending.push(burst(n, o.C, o.dmg, o.scale, hit, o.spoken));
           else if (hit) { hitTarget(hit, o.dmg, { x: o.p.x, z: o.p.z }); setBurning(hit, o.C.burn, o.scale); for (let j = 0; j < 6; j++) ember(n, 0.2, 0.5); audio.fireHit?.(); }
           else for (let j = 0; j < 4; j++) ember(n, 0.15, 0.4);
-          scene.remove(o.core); scene.remove(o.light); o.core.material.dispose(); bolts.splice(i, 1); continue;
+          scene.remove(o.core); o.core.material.dispose(); bolts.splice(i, 1); continue;
         }
-        o.p = n; o.core.position.set(n.x, n.y, n.z); o.light.position.copy(o.core.position);
+        o.p = n; o.core.position.set(n.x, n.y, n.z);
         o.core.scale.setScalar(o.C.size * 3 * (0.9 + 0.2 * Math.random()));
         if (Math.random() < dt * (o.C.kind === 'ball' ? 40 : 25)) ember(n, o.C.size, 0.35);
       }
@@ -315,8 +314,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       for (let i = bursts.length - 1; i >= 0; i--) {
         const x = bursts[i]; x.t += dt; const u = x.t / 0.5;
         x.flash.scale.setScalar(0.5 + x.r * 2.2 * Math.min(1, u * 2)); x.flash.material.opacity = Math.max(0, 1 - u);
-        if (x.light) x.light.intensity = Math.max(0, 4 * (1 - u));
-        if (u >= 1) { scene.remove(x.flash); x.flash.material.dispose(); if (x.light) scene.remove(x.light); bursts.splice(i, 1); }
+        if (u >= 1) { scene.remove(x.flash); x.flash.material.dispose(); bursts.splice(i, 1); }
       }
       // burning: damage once a second, embers rising off whatever's alight
       for (const [t, bn] of burning) {

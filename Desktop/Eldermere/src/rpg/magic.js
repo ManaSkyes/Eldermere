@@ -80,6 +80,21 @@ export function spellTier(level) {
 
 export const masteryOf = (c, spellId) => c.spells?.[spellId] ?? 0;
 
+// A spell can belong to several schools. `school` remains the primary-school fallback for old saves
+// and definitions; hybrid spells receive school training and school-tree modifiers from every type.
+export function schoolsOf(spell) {
+  return [...new Set((spell?.schools?.length ? spell.schools : spell?.types?.length ? spell.types : [spell?.school]).filter(Boolean))];
+}
+
+// Individual spell evolution is deliberately stored separately from school skill trees. This
+// persistent shape is ready for authored spell-specific nodes; points are earned through use.
+export function spellEvolutionOf(c, spellId) {
+  c.spellEvolution ||= {};
+  const state = c.spellEvolution[spellId] ||= { points: 0, nodes: {} };
+  state.nodes ||= {};
+  return state;
+}
+
 // Backfire: the school and the casting skill each cut the chance as they grow past 100, measured against
 // the spell's tier: skill 100 + span·(1 + difficulty) halves it (Fire 400 halves a tier-1 spell's chance;
 // a tier-3 spell needs Fire 700). Voiceless casting is riskier (×1.3) until Voiceless skill makes up for it.
@@ -119,7 +134,8 @@ export function castProfile(c, spell, opts = {}) {
   let backfire = L >= MASTERY.core ? 0 : Math.pow(1 - core, 2) * (LEARN_METHODS[c.spellSources?.[spell.id]]?.backfire ?? 1)
     * backfireSkill(s[spell.school] ?? 100, spell.difficulty, BACKFIRE.school) * backfireSkill(castSkill ?? 100, spell.difficulty, BACKFIRE.casting) * (voiceless ? BACKFIRE.voiceless : 1);
   if (!focus) { power *= NO_FOCUS.power; backfire = Math.min(1, backfire * NO_FOCUS.backfire); }
-  const sm = schoolMods(c, spell.school, voiceless);
+  const schoolModsList = schoolsOf(spell).map(school => schoolMods(c, school, voiceless));
+  const sm = schoolModsList.reduce((a, x) => ({ mana: a.mana * x.mana, time: a.time * x.time, backfire: a.backfire * x.backfire }), { mana: 1, time: 1, backfire: 1 });
   mana *= sm.mana; time *= sm.time; backfire *= sm.backfire;
   return {
     mastery: L,
@@ -195,13 +211,15 @@ export function trainCast(c, spell, opts = {}, backfired = false) {
     ? (MASTERY.core / castsToMaster(spell.difficulty)) * k * masteryPace(L)
     : BONUS_RATE * Math.pow(MASTERY.core / L, 3) * k;
   c.spells[spell.id] = Math.min(MASTERY.max, L < MASTERY.core ? Math.min(MASTERY.core, L + gain) : L + gain);
+  const evolution = spellEvolutionOf(c, spell.id);
+  evolution.points += Math.max(0.01, gain * 10) * (backfired ? 0.5 : 1);
 
   const prof = castProfile(c, spell, opts);
   // School and casting skill: a spell teaches them by its tier (TIER_TEACH), and less and less once
   // they've outgrown it, so cantrips can't carry a school far. A cast takes longer than a swing, but
   // there are far fewer of them, so this is passive pace.
   const casting = opts.mode === 'voiceless' ? 'voiceless' : 'incantation';
-  if (SKILLS[spell.school]) train(c, spell.school, schoolTeach(spell.difficulty, c.skills[spell.school] ?? 100) * (backfired ? 0.5 : 1) * spoken, { practice: 'passive' });
+  for (const school of schoolsOf(spell)) if (SKILLS[school]) train(c, school, schoolTeach(spell.difficulty, c.skills[school] ?? 100) * (backfired ? 0.5 : 1) * spoken / schoolsOf(spell).length, { practice: 'passive' });
   train(c, casting, schoolTeach(spell.difficulty, c.skills[casting] ?? 100) * spoken, { practice: 'passive' });
   spendMana(c, prof.mana);
   return { gain, mastery: c.spells[spell.id] };

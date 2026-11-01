@@ -17,7 +17,7 @@ import { SLOTS, ITEMS } from '../rpg/equipment.js';
 import { MATERIALS, PLANTS } from '../data/materials.js';
 import { HERBARUM_PAGES, classifyPlant, knownPlantIds } from '../rpg/herbarum.js';
 import { SPELLS } from '../data/spells.js';
-import { MASTERY, preparedMax, preparedOf, togglePrepared, castProfile } from '../rpg/magic.js';
+import { MASTERY, preparedMax, preparedOf, togglePrepared, castProfile, masteryOf, schoolsOf, spellEvolutionOf } from '../rpg/magic.js';
 import { POTIONS } from '../data/potions.js';
 import { countOf, stackSummary } from '../rpg/inventory.js';
 import { MONSTERS } from '../data/monsters.js';
@@ -447,9 +447,28 @@ export function createBook(root, ctx) {
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
+  function pageSpells() {
+    const known = Object.entries(c.spells || {}).filter(([id]) => SPELLS[id]).sort((a,b) => SPELLS[a[0]].name.localeCompare(SPELLS[b[0]].name));
+    const prep = preparedOf(c), pmax = preparedMax(c);
+    const cards = known.map(([id]) => {
+      const sp = SPELLS[id], level = masteryOf(c,id), schools = schoolsOf(sp), evolution = spellEvolutionOf(c,id);
+      const progress = Math.min(1, level / MASTERY.core), next = Math.floor(evolution.points);
+      const profile = castProfile(c,sp,{focus:!!ctx.body()?.gear.stats().focus});
+      return `<article class="spell-entry" data-spell-entry="${id}"><header><div><h3>${escapeHtml(sp.name)}</h3><small>${schools.map(s=>escapeHtml(label(s))).join(' + ')} · ${escapeHtml(spellTierLabel(level))}</small></div><strong>${display(level)} <small>mastery</small></strong></header>
+        <p>${escapeHtml(sp.description || 'No description recorded yet.')}</p><p class="hint">${escapeHtml(sp.difficulty <= 0 ? 'Cantrip' : `Difficulty ${sp.difficulty}`)} · ${Math.ceil(profile.mana)} MP · ${profile.castTime.toFixed(1)} s cast</p>
+        <div class="spell-progress">${bar(progress,'xp')}<small>${level >= MASTERY.core ? 'Core mastery complete' : `${Math.round(progress*100)}% to mastery`}</small></div>
+        <div class="spell-evolution"><b>Spell evolution</b><span>${next} evolution point${next===1?'':'s'} earned</span><small>Earned by casting this spell. Its unique evolution paths will unlock here.</small></div>
+        <footer><button data-prepare="${id}" class="prep-btn ${prep.includes(id)?'on':''}">${prep.includes(id)?'✦ Prepared':'Prepare spell'}</button><small>${prep.includes(id)?'Ready to cast':'Not prepared'} · ${evolution.points.toFixed(1)} evolution XP</small></footer></article>`;
+    }).join('');
+    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><h2>Spells</h2><p class="hint">Every spell you learn is recorded here. Practice shapes the spell itself; its schools provide broader techniques.</p></div><strong>${known.length} <small>known</small></strong></header>
+      <section class="spell-journal-summary"><b>Prepared</b><span>${prep.length} / ${pmax}</span><small>Prepared spells are available to the spell wheel and hotbar.</small></section>
+      ${cards ? `<div class="spell-entry-list">${cards}</div>` : '<p class="muted">You have not learned any spells yet. Teachers, scrolls and books can teach you new spells.</p>'}
+    </div>`;
+  }
+  const spellTierLabel = level => level >= 100 ? 'Mastered' : level > 0 ? 'Learning' : 'Unmastered';
   const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, tools: pageTools, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
-    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
+    spells: pageSpells,
     herbarum: pageHerbarum,
     lore: () => pageNewSection('Lore', 'Discoveries, people, factions, places and story entries will be collected here.')
   };
@@ -506,6 +525,7 @@ export function createBook(root, ctx) {
       ctx.onChange?.(); render();
     });
     el.querySelector('[data-prepmode]')?.addEventListener('click', () => { prepMode = !prepMode; render(); });
+    el.querySelectorAll('.spell-entry [data-prepare]').forEach(b => b.onclick = () => { const r = togglePrepared(c,b.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); }));
     el.querySelectorAll('[data-spell]').forEach(li => { li.ondragstart = e => e.dataTransfer.setData('text/plain', 'spell:' + li.dataset.spell); });
     el.querySelectorAll('[data-potion]').forEach(li => {

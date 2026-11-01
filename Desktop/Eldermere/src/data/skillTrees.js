@@ -6,8 +6,8 @@
 // How trees are laid out (from the Fire tree on): actives are core techniques everyone on the path gets;
 // passives sit on the two sides and are what you choose between. Two actives that would use the same
 // input, or that change the same thing in different big ways, are a one-or-the-other pair (oneOf).
-// Branches: two sides per tree. Each side node has an opposite on the other side (the one in the same
-// rank tier and row); buying one locks only its opposite. A reset refunds every point in a tree. Effects are data for the systems to read later.
+// Most trees have two opposing branches. Chain Casting is a four-discipline tree: its branches coexist;
+// only explicit mechanic incompatibilities affect how a particular chain is resolved. A reset refunds every point.
 //
 //   gate:     minimum skill (ranks: 200 Apprentice, 500 Journeyman, 1000 Expert, 5000 Master)
 //   ranks:    how many times it can be bought (one point each)
@@ -361,21 +361,48 @@ const TEMPLATES = {
 const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const titleOf = id => { const s = { throwing: 'Throwing', void: 'Void', runicScript: 'Runic script', firstAid: 'First aid', trapHandling: 'Trap handling', monsterLore: 'Monster lore', crystalHarvesting: 'Crystal harvesting', manaControl: 'Mana control', manaSense: 'Mana sense', heavyArmor: 'Heavy armor', lightArmor: 'Light armor', voiceless: 'Voiceless casting' }[id]; return s || id[0].toUpperCase() + id.slice(1).replace(/([A-Z])/g, ' $1').toLowerCase(); };
 function genericTree(id) {
-  if (id === 'chainCasting') return { name:'Chain Casting', generic:false, intro:'Three disciplines shape a spell sequence: sustain one element, rotate through distinct elements, or strengthen the universal art of chaining. A spell may appear only once in a chain.', branches:{a:{name:'Same Element',text:'Build power and efficiency by sustaining one element. Repeating an element is allowed on this path, but never repeat the same spell.'},b:{name:'Elemental Rotation',text:'Change element with every spell. No element or spell may repeat. Weaving perks let more of those distinct spells fit into the same chain capacity.'}}, nodes:[
-    {id:'unskilledCapacity',name:'First Link',kind:'passive',gate:0,text:'Your first follow-up spell can be woven into a chain. This is the starting universal chain slot.',ranks:1,innate:true,effect:{chainSlots:1}},
-    {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:200,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'a'},
-    {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'a',needs:['elementalBoost']},
-    {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'a',needs:['resonantFlow']},
-    {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:200,text:'Unlock elemental rotation. Every follow-up must use a different element, and no spell may repeat.',ranks:1,branch:'b'},
-    {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'b',needs:['elementalRotation']},
-    {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells.',ranks:5,branch:'b',needs:['rotatingForce']},
-    {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
-    {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,needs:['steadySequence'],effect:{chainSlots:1}},
-    {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1}},
-    {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff']},
-    {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells. Stacks with Diverse Weave.',ranks:5,branch:'b',needs:['diverseWeave']},
-    {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5}
-  ]};
+  if (id === 'chainCasting') return {
+    name: 'Chain Casting', generic: false,
+    intro: 'Four disciplines shape your chains: Same Element, Elemental Rotation, Rapid Fire and Two-Element Specialization. The branches are compatible unless a specific mechanic says otherwise. Universal techniques sit at the centre.',
+    branches: {
+      same: { name: 'Same Element', text: 'Build resonance by sustaining one element across successive spells.' },
+      rotation: { name: 'Elemental Rotation', text: 'Change element between spells; no element repeats. Rotation weaving can fit distinct spells into half-slots.' },
+      rapid: { name: 'Rapid Fire', text: 'Turn chain capacity into a barrage by repeating a spell. Every follow-up slot can become another cast.' },
+      dual: { name: 'Two-Element Specialization', text: 'Focus a chain around a pair of elements. Rotation and other compatible bonuses still apply within that pair.' }
+    },
+    nodes: [
+      // Universal foundation — the central spine.
+      {id:'unskilledCapacity',name:'First Link',kind:'passive',gate:0,text:'Your first follow-up spell can be woven into a chain. This is the starting universal chain slot.',ranks:1,innate:true,effect:{chainSlots:1},layout:{x:50,y:50}},
+      {id:'steadySequence',name:'Steady Sequence',kind:'passive',gate:200,text:'Reduce chained-spell backfire chance by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1},layout:{x:50,y:37}},
+      {id:'perfectCadence',name:'Perfect Cadence',kind:'passive',gate:400,text:'Widen the perfect chain timing window by 4% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,needs:['steadySequence'],effect:{chainSlots:1},layout:{x:50,y:25}},
+      {id:'swiftHandoff',name:'Swift Handoff',kind:'passive',gate:600,text:'Reduce the pause between chained casts by 8% per rank. Also gain +1 universal follow-up slot per rank.',ranks:3,effect:{chainSlots:1},layout:{x:50,y:13}},
+      {id:'quickInvocation',name:'Quick Invocation',kind:'passive',gate:900,text:'Reduce chained spell cast time by 3% per rank.',ranks:3,needs:['swiftHandoff'],layout:{x:50,y:3}},
+      {id:'deepSequence',name:'Deep Sequence',kind:'passive',gate:1200,text:'Chain Casting skill gains increase by 10% per rank.',ranks:5,layout:{x:50,y:63}},
+
+      // Upper-left: same-element resonance.
+      {id:'elementalBoost',name:'Elemental Resonance',kind:'passive',gate:200,text:'Each consecutive spell of the same element gains +4% power per rank, up to five repetitions.',ranks:3,branch:'same',layout:{x:34,y:34}},
+      {id:'resonantFlow',name:'Resonant Flow',kind:'passive',gate:350,text:'Same-element chains gain +5% spell potency per rank.',ranks:3,branch:'same',needs:['elementalBoost'],layout:{x:20,y:20}},
+      {id:'focusedCurrent',name:'Focused Current',kind:'passive',gate:700,text:'Same-element follow-up spells cost 4% less mana per rank.',ranks:3,branch:'same',needs:['resonantFlow'],layout:{x:7,y:8}},
+
+      // Upper-right: broad elemental rotation.
+      {id:'elementalRotation',name:'Elemental Rotation',kind:'passive',gate:200,text:'Unlock elemental rotation. Each follow-up must change element; an element cannot repeat in the chain.',ranks:1,branch:'rotation',layout:{x:66,y:34}},
+      {id:'rotatingForce',name:'Rotating Force',kind:'passive',gate:400,text:'Each successful change of element adds +4% potency per rank, stacking through the chain.',ranks:3,branch:'rotation',needs:['elementalRotation'],layout:{x:80,y:20}},
+      {id:'diverseWeave',name:'Diverse Weave',kind:'passive',gate:800,text:'Each rank grants one rotation slot that can hold two distinct-element follow-up spells. This half-slot benefit does not apply to Rapid Fire barrages.',ranks:5,branch:'rotation',needs:['rotatingForce'],layout:{x:93,y:8}},
+      {id:'wovenMastery',name:'Masterful Weave',kind:'passive',gate:1200,text:'Each rank grants one more rotation slot that can hold two distinct-element follow-up spells. Cannot discount repeated Rapid Fire casts.',ranks:5,branch:'rotation',needs:['diverseWeave'],layout:{x:94,y:29}},
+
+      // Lower-left: repeated-spell barrage.
+      {id:'rapidFire',name:'Rapid Fire',kind:'passive',gate:200,text:'Unlock Rapid Fire: a follow-up may repeat the same spell, turning each available chain slot into another cast of that spell.',ranks:1,branch:'rapid',layout:{x:34,y:68}},
+      {id:'rapidVolley',name:'Rapid Volley',kind:'passive',gate:400,text:'Repeated casts in a Rapid Fire barrage gain +3% potency per rank after the first.',ranks:3,branch:'rapid',needs:['rapidFire'],layout:{x:20,y:82}},
+      {id:'sustainedBarrage',name:'Sustained Barrage',kind:'passive',gate:800,text:'Each repeated cast in a Rapid Fire barrage costs 4% less mana per rank.',ranks:3,branch:'rapid',needs:['rapidVolley'],layout:{x:7,y:95}},
+      {id:'focusedBurst',name:'Focused Burst',kind:'passive',gate:1200,text:'Rapid Fire follow-up casts complete 4% faster per rank.',ranks:3,branch:'rapid',needs:['rapidVolley'],layout:{x:35,y:95}},
+
+      // Lower-right: two-element pairing.
+      {id:'pairedElements',name:'Paired Elements',kind:'passive',gate:200,text:'Unlock Two-Element Specialization. A chain may use up to two distinct elements, chosen by its first two elemental spells.',ranks:1,branch:'dual',layout:{x:66,y:68}},
+      {id:'twinAttunement',name:'Twin Attunement',kind:'passive',gate:400,text:'Spells cast while your chain stays within its chosen pair gain +3% potency per rank.',ranks:3,branch:'dual',needs:['pairedElements'],layout:{x:80,y:82}},
+      {id:'dualWeave',name:'Dual Weave',kind:'passive',gate:800,text:'Spells that alternate between your chosen pair cost 4% less mana per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:93,y:95}},
+      {id:'balancedPair',name:'Balanced Pair',kind:'passive',gate:1200,text:'Changing between your two chosen elements widens the perfect timing window by 3% per rank.',ranks:3,branch:'dual',needs:['twinAttunement'],layout:{x:66,y:95}}
+    ]
+  };
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
   const S = titleOf(id), sub = t => t.replaceAll('{S}', S).replaceAll('{s}', S.toLowerCase());
   return {
@@ -391,7 +418,8 @@ for (const id of Object.keys(SKILLS)) { if (SKILLS[id].hidden) continue; const t
 // order on the other side.
 const TIER_STARTS = [0, 200, 500, 1000, 5000];
 const tierOf = gate => TIER_STARTS.filter(t => gate >= t).length - 1;
-for (const tree of Object.values(SKILL_TREES)) {
+for (const [skillId, tree] of Object.entries(SKILL_TREES)) {
+  if (skillId === 'chainCasting') continue; // Four-discipline tree: branches are compatible unless a node explicitly conflicts.
   const [A, B] = Object.keys(tree.branches);
   for (let t = 0; t < TIER_STARTS.length; t++) {
     for (const kind of ['passive', 'active']) {                         // a passive only ever locks a passive, an active an active

@@ -189,7 +189,23 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
     if (casting.chain) { chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; } }
-    else if (!failed) {\n      const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};\n      const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);\n      const sameElementUnlocked = (tree.elementalBoost || 0) > 0;\n      const rotationUnlocked = (tree.elementalRotation || 0) > 0;\n      const baseSlots = 1 + (tree.chainCapacity || 0), rotationBudget = 2 * (tree.rotationCapacity || 0);\n      let budget = 0;\n      chainQueue = (character.spellChains?.[spell.id] || []).filter(id => {\n        const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id) || usedIds.has(id)) return false;\n        const element = next.school;\n        if (usedElements.has(element) && !sameElementUnlocked) return false;\n        if (rotationUnlocked && usedElements.has(element)) return false;\n        const cost = rotationUnlocked && !usedElements.has(element) ? 0.5 : 1;\n        if (budget + cost > baseSlots + rotationBudget) return false;\n        budget += cost; usedIds.add(id); usedElements.add(element); return true;\n      });\n    }
+    else if (!failed) {
+      const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
+      const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
+      const sameElementUnlocked = (tree.elementalBoost || 0) > 0;
+      const rotationUnlocked = (tree.elementalRotation || 0) > 0;
+      const baseSlots = 1 + (tree.chainCapacity || 0), rotationBudget = 2 * (tree.rotationCapacity || 0);
+      let budget = 0;
+      chainQueue = (character.spellChains?.[spell.id] || []).filter(id => {
+        const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id) || usedIds.has(id)) return false;
+        const element = next.school;
+        if (usedElements.has(element) && !sameElementUnlocked) return false;
+        if (rotationUnlocked && usedElements.has(element)) return false;
+        const cost = rotationUnlocked && !usedElements.has(element) ? 0.5 : 1;
+        if (budget + cost > baseSlots + rotationBudget) return false;
+        budget += cost; usedIds.add(id); usedElements.add(element); return true;
+      });
+    }
     else { chainQueue=[]; chainPrompt=null; chainInput=null; }
     if (chainQueue.length) chainInput = completedInput;
     if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }

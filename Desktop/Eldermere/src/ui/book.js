@@ -94,7 +94,7 @@ export function createBook(root, ctx) {
   el.className = 'book-wrap'; el.hidden = true;
   root.appendChild(el);
   let tab = 'character', prepMode = false, treeView = false, treeReturnTab = 'combat';
-  let chainZoom = 0.62, chainPanX = 0, chainPanY = 0;
+  let chainZoom = 0.62, chainPanX = 0, chainPanY = 0, chainViewInitialized = false;
   const c = ctx.character;
 
   const bar = (f, cls = '') => `<span class="meter ${cls}"><i style="width:${Math.round(Math.max(0, Math.min(1, f)) * 100)}%"></i></span>`;
@@ -722,7 +722,7 @@ export function createBook(root, ctx) {
       const applyChainView = () => { chainStage.style.transform = `translate(${chainPanX}px,${chainPanY}px) scale(${chainZoom})`; };
       const zoomAt = (next, clientX, clientY) => {
         const r = chainViewport.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
-        const z = Math.max(0.28, Math.min(1.8, next)), ratio = z / chainZoom;
+        const z = Math.max(0.16, Math.min(1.8, next)), ratio = z / chainZoom;
         chainPanX = x - (x - chainPanX) * ratio; chainPanY = y - (y - chainPanY) * ratio;
         chainZoom = z; applyChainView();
       };
@@ -743,13 +743,15 @@ export function createBook(root, ctx) {
       chainViewport.addEventListener('pointerup', endDrag); chainViewport.addEventListener('pointercancel', endDrag);
       el.querySelector('[data-chain-zoom-in]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom*1.18,r.left+r.width/2,r.top+r.height/2); });
       el.querySelector('[data-chain-zoom-out]')?.addEventListener('click', () => { const r=chainViewport.getBoundingClientRect(); zoomAt(chainZoom/1.18,r.left+r.width/2,r.top+r.height/2); });
-      el.querySelector('[data-chain-zoom-reset]')?.addEventListener('click', () => {
+      const fitChainView = () => {
         const scale = Math.min(chainViewport.clientWidth / chainStage.offsetWidth, chainViewport.clientHeight / chainStage.offsetHeight) * .94;
-        chainZoom = Math.max(.28, Math.min(1.8, scale));
+        chainZoom = Math.max(.16, Math.min(1.8, scale));
         chainPanX = (chainViewport.clientWidth - chainStage.offsetWidth * chainZoom) / 2;
         chainPanY = (chainViewport.clientHeight - chainStage.offsetHeight * chainZoom) / 2;
-        applyChainView();
-      });
+        applyChainView(); chainViewInitialized = true;
+      };
+      el.querySelector('[data-chain-zoom-reset]')?.addEventListener('click', fitChainView);
+      if (!chainViewInitialized) fitChainView();
     }
     el.querySelectorAll('.chain-skill-node').forEach(node => {
       const sourceTip = node.querySelector('.chain-node-tooltip'); if (!sourceTip) return;

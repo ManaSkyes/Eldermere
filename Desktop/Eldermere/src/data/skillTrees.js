@@ -406,7 +406,8 @@ for (const tree of Object.values(SKILL_TREES)) for (const n of tree.nodes) if (n
 
 // ---- state on the character: c.skillTrees[skill] = { nodes: { id: rank }, branch } ----
 function migrateChainCastingState(c) {
-  const nodes = c.skillTrees?.chainCasting?.nodes;
+  const state = c.skillTrees?.chainCasting;
+  const nodes = state?.nodes || state;
   if (!nodes || !Object.prototype.hasOwnProperty.call(nodes, 'chainCapacity')) return;
   let remaining = Math.max(0, Math.floor(nodes.chainCapacity || 0));
   delete nodes.chainCapacity;

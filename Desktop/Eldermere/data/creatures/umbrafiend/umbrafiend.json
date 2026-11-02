@@ -39,34 +39,54 @@
   "neck:1",
   "neck:0",
   "spine:1",
-  "spine:0"
+  "spine:0",
+  "spine:3",
+  "neck:2",
+  "head:1",
+  "scapula.L:1",
+  "scapula.R:1",
+  "tail:4",
+  "pelvis.L:1",
+  "hind.L:4",
+  "pelvis.R:1",
+  "hind.R:4",
+  "front.R:4"
  ],
  "lods": [
   {
-   "verts": 12915,
-   "tris": 16302,
+   "verts": 10614,
+   "tris": 14502,
    "pos": 0,
-   "nor": 154980,
-   "uv": 206640,
-   "bone": 258300,
-   "ao": 271216,
-   "idx": 284132,
+   "nor": 127368,
+   "uv": 169824,
+   "bone": 212280,
+   "ao": 222896,
+   "idx": 233512,
    "idx32": false
   },
   {
-   "verts": 7259,
-   "tris": 8150,
-   "pos": 381944,
-   "nor": 469052,
-   "uv": 498088,
-   "bone": 527124,
-   "ao": 534384,
-   "idx": 541644,
+   "verts": 5925,
+   "tris": 7250,
+   "pos": 320524,
+   "nor": 391624,
+   "uv": 415324,
+   "bone": 439024,
+   "ao": 444952,
+   "idx": 450880,
    "idx32": false
   }
  ],
  "textures": {
   "normal": "normal.jpg"
  },
- "note": "rigid bone pieces; game space at size 1; see src/game/umbraModel.js"
+ "note": "rigid bone pieces; game space at size 1; see src/game/umbraModel.js",
+ "hull": {
+  "verts": 1983,
+  "tris": 3954,
+  "pos": 494380,
+  "nor": 518176,
+  "skin": 526108,
+  "weight": 534040,
+  "idx": 541972
+ }
 }

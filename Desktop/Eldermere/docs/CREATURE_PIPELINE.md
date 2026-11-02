@@ -54,3 +54,12 @@ Animations: hover and cruise (24 frames each). Data: 3.85 MB plus two 2048² tex
 ## Not done yet
 - **Attacks:** `swoop` and `screech` are baked as VAT moves (36 frames each). While a move plays, the shader blends from the wingbeat into the move at `mo.action.u` (`iMove` = move id, progress), and the instance rides the bone frame's `spine:0` (`followBone`), so the flight path and hit timing stay the game's. Dying bats are drawn the same way (the frame falls and shrinks).
 - **Fur shell:** the optional fur layer for the nearest bats hasn't been added.
+
+## Before and after (Nocturian bat)
+Old procedural model (left) and the Blender model (right), same bestiary lighting:
+
+![Front](images/nocturian_bat_compare_front.png)
+![Three-quarter](images/nocturian_bat_compare_three.png)
+![Top](images/nocturian_bat_compare_top.png)
+
+300 bats: 40–65 fps before, 120–144 fps after (user test, Nov 2026).

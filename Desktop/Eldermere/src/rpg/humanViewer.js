@@ -1382,6 +1382,7 @@ export function startViewer(THREE, human, ui) {
   // ---- UI ----
   const SL = [
     ['Body', [['fem', 'Masc. ↔ Fem.', 0, 1], ['age', 'Age', 0, 1], ['muscle', 'Muscle', 0, 1], ['weight', 'Weight', 0, 1], ['height', 'Height', 0, 1], ['proportions', 'Proportions', 0, 1]]],
+    ['Frame', [['petite', 'Petite frame', 0, 1], ['broad', 'Broad frame', 0, 1], ['long', 'Long frame', 0, 1]]],
     ['Chest', [['bust', 'Size', 0, 1], ['firmness', 'Firmness', 0, 1], ['bustY', 'Height', -1, 1], ['bustSpace', 'Spacing', -1, 1], ['bustShape', 'Shape', -1, 1]]],
   ];
   let queued = false;

@@ -60,6 +60,8 @@ export class Human {
         const o = (start + k) * 3; out[o] = x; out[o + 1] = y; out[o + 2] = z;
       }
     }
+    // 2b. the frame: the build of the skeleton itself (petite / broad / long), not just fat or muscle on an average frame
+    applyFrame(this.meta, out, weights);
     // 3. targets made in code (species shapes), which can move every vertex, including new ones
     for (const [name, w] of Object.entries(weights)) if (this.targets[name]?.post) apply(name, w);
     // the base body is a clothed mannequin: smooth away nipple detail at the source
@@ -108,6 +110,76 @@ export class Human {
     }
     return out;
   }
+}
+
+// ---- Frame (Nov 2026) ----------------------------------------------------------------------------------------
+// The MakeHuman sliders keep one average adult skeleton and scale or inflate it, so a short character is a shrunken
+// average adult and a big one is a fat or muscled average adult. The frame changes the skeleton's proportions:
+// each bone is scaled along its length and across it (girth) about its own joint, children are carried along, and
+// every vertex follows its bones by its skin weights (the joint helper vertices too, so the rig refits itself).
+//   weights['frame-petite'], ['frame-broad'], ['frame-long'] (0..1; they add)
+// Each profile: per bone group [length, girth] (or a single number: uniform scale), relative to 1.
+export const FRAMES = {
+  // small and slight: shorter limbs and torso, narrow shoulders and hips, slim joints, small hands and feet, a head
+  // that keeps nearly its size (so it reads young and petite instead of a shrunk adult)
+  petite: { spine: [0.9, 0.86], clavicle: [0.84, 0.86], neck: [0.92, 0.84], head: 0.97, arm: [0.88, 0.82], hand: 0.86,
+            pelvis: [0.88, 0.86], leg: [0.9, 0.84], foot: 0.86, breast: 0.9 },
+  // a big frame: wide ribcage and shoulders, a thick neck, heavy joints, big hands and feet
+  broad:  { spine: [1.03, 1.14], clavicle: [1.18, 1.1], neck: [0.96, 1.22], head: 1.02, arm: [1.03, 1.14], hand: 1.12,
+            pelvis: [1.0, 1.08], leg: [1.02, 1.12], foot: 1.1, breast: 1.06 },
+  // lanky: long legs, arms, neck and torso, slimmer through the middle
+  long:   { spine: [1.05, 0.96], clavicle: [1.02, 0.97], neck: [1.1, 0.95], head: 0.98, arm: [1.07, 0.95], hand: 1.03,
+            pelvis: [1.0, 0.96], leg: [1.11, 0.95], foot: 1.03, breast: 0.97 },
+};
+const groupOf = n =>
+  /^(spine|root)/.test(n) ? 'spine' : /^clavicle/.test(n) ? 'clavicle' : /^neck/.test(n) ? 'neck' :
+  /^(shoulder|upperarm|lowerarm)/.test(n) ? 'arm' : /^(wrist|finger|metacarpal|thumb)/.test(n) ? 'hand' :
+  /^pelvis/.test(n) ? 'pelvis' : /^(upperleg|lowerleg)/.test(n) ? 'leg' : /^(foot|toe)/.test(n) ? 'foot' :
+  /^breast/.test(n) ? 'breast' : 'head';   // the head, jaw, eyes, tongue and every face bone
+let frameCache = null;
+function applyFrame(meta, out, weights) {
+  const k = Object.keys(FRAMES).map(f => [FRAMES[f], weights['frame-' + f] || 0]).filter(([, w]) => Math.abs(w) > 1e-4);
+  if (!k.length) return;
+  const S = meta.skeleton, nb = S.length;
+  if (!frameCache) frameCache = { group: S.map(b => groupOf(b.name)) };
+  const scaleOf = (g, which) => { let v = 1; for (const [F, w] of k) { const e = F[g] ?? 1, s = Array.isArray(e) ? e[which] : e; v += w * (s - 1); } return v; };
+  const avg = (ids, o) => { let x = 0, y = 0, z = 0; for (const i of ids) { x += out[i * 3]; y += out[i * 3 + 1]; z += out[i * 3 + 2]; } o[0] = x / ids.length; o[1] = y / ids.length; o[2] = z / ids.length; return o; };
+  // joints and bone axes on the current body
+  const H = new Float64Array(nb * 3), A = new Float64Array(nb * 9), H2 = new Float64Array(nb * 3), t = [0, 0, 0], h = [0, 0, 0];
+  for (let i = 0; i < nb; i++) {
+    avg(S[i].head, h); avg(S[i].tail, t); H[i * 3] = h[0]; H[i * 3 + 1] = h[1]; H[i * 3 + 2] = h[2];
+    let ax = t[0] - h[0], ay = t[1] - h[1], az = t[2] - h[2]; const L = Math.hypot(ax, ay, az) || 1; ax /= L; ay /= L; az /= L;
+    const g = frameCache.group[i], e = (FRAMES.petite[g] ?? 1), uniform = !Array.isArray(e);
+    const ls = scaleOf(g, 0), gs = uniform ? ls : scaleOf(g, 1);
+    // A = gs·I + (ls − gs)·a·aᵀ  (length along the bone, girth across it)
+    const d = ls - gs, a = [ax, ay, az];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) A[i * 9 + r * 3 + c] = (r === c ? gs : 0) + d * a[r] * a[c];
+  }
+  // new joints: each child's offset from its parent's joint is carried by the parent's scale
+  for (let i = 0; i < nb; i++) {
+    const p = S[i].parent;
+    if (p < 0) { H2[i * 3] = H[i * 3]; H2[i * 3 + 1] = H[i * 3 + 1]; H2[i * 3 + 2] = H[i * 3 + 2]; continue; }
+    const dx = H[i * 3] - H[p * 3], dy = H[i * 3 + 1] - H[p * 3 + 1], dz = H[i * 3 + 2] - H[p * 3 + 2], M = p * 9;
+    H2[i * 3] = H2[p * 3] + A[M] * dx + A[M + 1] * dy + A[M + 2] * dz;
+    H2[i * 3 + 1] = H2[p * 3 + 1] + A[M + 3] * dx + A[M + 4] * dy + A[M + 5] * dz;
+    H2[i * 3 + 2] = H2[p * 3 + 2] + A[M + 6] * dx + A[M + 7] * dy + A[M + 8] * dz;
+  }
+  // every vertex follows its bones (linear blend of each bone's scale about its joint)
+  const n = meta.vertexCount, SI = meta.skinIndex, SW = meta.skinWeight;
+  let minY0 = Infinity, minY1 = Infinity;
+  for (let v = 0; v < n; v++) {
+    const x = out[v * 3], y = out[v * 3 + 1], z = out[v * 3 + 2]; let nx = 0, ny = 0, nz = 0, ws = 0;
+    for (let j = 0; j < 4; j++) {
+      const w = SW[v * 4 + j] / 255; if (w <= 0) continue; const b = SI[v * 4 + j], M = b * 9;
+      const dx = x - H[b * 3], dy = y - H[b * 3 + 1], dz = z - H[b * 3 + 2];
+      nx += w * (H2[b * 3] + A[M] * dx + A[M + 1] * dy + A[M + 2] * dz);
+      ny += w * (H2[b * 3 + 1] + A[M + 3] * dx + A[M + 4] * dy + A[M + 5] * dz);
+      nz += w * (H2[b * 3 + 2] + A[M + 6] * dx + A[M + 7] * dy + A[M + 8] * dz); ws += w;
+    }
+    if (ws > 0) { if (v < meta.bodyVertexCount) { minY0 = Math.min(minY0, y); } out[v * 3] = nx / ws; out[v * 3 + 1] = ny / ws; out[v * 3 + 2] = nz / ws; if (v < meta.bodyVertexCount) minY1 = Math.min(minY1, out[v * 3 + 1]); }
+  }
+  const dy = minY0 - minY1;   // feet stay on the ground
+  if (isFinite(dy)) for (let v = 0; v < n; v++) out[v * 3 + 1] += dy;
 }
 
 // The chest regions (by skin weight), smoothed after morphing so the shape is round rather than
@@ -169,6 +241,7 @@ export function macroWeights(p) {
   W['breast-trans-up'] = f * ty.up; W['breast-trans-down'] = f * ty.down;
   W['breast-dist-incr'] = f * ts.up; W['breast-dist-decr'] = f * ts.down;
   // shape: the base mesh's default is quite conical, so the neutral setting starts rounder
+  W['frame-petite'] = p.petite || 0; W['frame-broad'] = p.broad || 0; W['frame-long'] = p.long || 0;
   const shape = p.bustShape;                              // neutral = natural; lower rounder and flatter, higher more pointed
   W['breast-point-incr'] = f * Math.max(0, shape); W['breast-point-decr'] = f * Math.max(0, -shape);
   // the base body is a mannequin under its clothes: soften nipple detail
@@ -179,4 +252,5 @@ export function macroWeights(p) {
 export const DEFAULT_PARAMS = {
   fem: 1, age: 0, muscle: 0.5, weight: 0.5, height: 0.5, proportions: 0.5,
   bust: 0.5, firmness: 0.5, bustY: 0, bustSpace: 0, bustShape: 0,
+  petite: 0, broad: 0, long: 0,   // the frame (applyFrame)
 };

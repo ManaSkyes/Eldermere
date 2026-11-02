@@ -29,7 +29,6 @@ export async function loadBatVat(THREE) {
   const load = url => new Promise((res, rej) => tl.load(BASE + url, res, undefined, rej));
   const [color, normal] = await Promise.all([load('color.png'), load('normal.png')]);
   color.encoding = THREE.sRGBEncoding;   // (flipY stays true: Blender UVs have their origin bottom-left, like GL)
-  const F = meta.frames;
   const lods = meta.lods.map(L => {
     const N = L.verts, geo = new THREE.BufferGeometry();
     const uv = new Float32Array(bin, L.uv, N * 2), part = new Uint8Array(bin, L.part, N * 4);
@@ -37,6 +36,7 @@ export async function loadBatVat(THREE) {
     const vid = new Float32Array(N); for (let i = 0; i < N; i++) vid[i] = (i + .5) / N;
     const tex = {};
     for (const [name, A] of Object.entries(L.anims)) {
+      const F = A.frames || meta.frames;
       const half = new Uint16Array(bin, A.pos, F * N * 3), p4 = new Uint16Array(F * N * 4);
       for (let i = 0, j = 0; i < F * N; i++, j += 3) { p4[i * 4] = half[j]; p4[i * 4 + 1] = half[j + 1]; p4[i * 4 + 2] = half[j + 2]; }
       const n8 = new Int8Array(bin, A.nrm, F * N * 4), nu = new Uint8Array(F * N * 4);
@@ -44,7 +44,7 @@ export async function loadBatVat(THREE) {
       const pt = new THREE.DataTexture(p4, N, F, THREE.RGBAFormat, THREE.HalfFloatType);
       const nt = new THREE.DataTexture(nu, N, F, THREE.RGBAFormat, THREE.UnsignedByteType);
       for (const t of [pt, nt]) { t.minFilter = t.magFilter = THREE.NearestFilter; t.generateMipmaps = false; t.flipY = false; t.needsUpdate = true; }
-      tex[name] = { pos: pt, nrm: nt };
+      tex[name] = { pos: pt, nrm: nt, frames: F };
       if (name === 'hover') {   // rest attributes: frame 0 of hover (three needs position/normal; the shader replaces them)
         const pos = new Float32Array(N * 3), nrm = new Float32Array(N * 3);
         const f16 = h => { const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, m = h & 1023; return e === 0 ? s * 2 ** -14 * (m / 1024) : e === 31 ? 0 : s * 2 ** (e - 15) * (1 + m / 1024); };
@@ -64,24 +64,35 @@ export async function loadBatVat(THREE) {
 }
 
 function makeMaterials(THREE, data, uTime) {
-  const F = data.meta.frames;
   return data.lods.map(L => {
+    const F = L.tex.hover.frames, T = L.tex, sw = T.swoop || T.hover, sc = T.screech || T.hover;
     const m = new THREE.MeshStandardMaterial({ map: data.color, normalMap: data.normal, roughness: .82, metalness: 0, side: THREE.DoubleSide });
     m.onBeforeCompile = sh => {
-      Object.assign(sh.uniforms, { uTime, uFrames: { value: F },
+      Object.assign(sh.uniforms, { uTime, uFrames: { value: F }, uFramesS: { value: sw.frames }, uFramesK: { value: sc.frames },
+        uPosS: { value: sw.pos }, uNrmS: { value: sw.nrm }, uPosK: { value: sc.pos }, uNrmK: { value: sc.nrm },
         uPosH: { value: L.tex.hover.pos }, uNrmH: { value: L.tex.hover.nrm }, uPosC: { value: L.tex.cruise.pos }, uNrmC: { value: L.tex.cruise.nrm },
         uSmokeColor: { value: new THREE.Color('#1a0b33') }, uEye: { value: new THREE.Color('#8f55ff').multiplyScalar(2.6) }, uSmokeGlow: { value: new THREE.Color('#3b1a7a') } });
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', `#include <common>
-attribute float vatU; attribute vec4 part; attribute vec4 iAnim;
-uniform sampler2D uPosH, uNrmH, uPosC, uNrmC; uniform float uFrames;
+attribute float vatU; attribute vec4 part; attribute vec4 iAnim; attribute vec2 iMove;
+uniform sampler2D uPosH, uNrmH, uPosC, uNrmC, uPosS, uNrmS, uPosK, uNrmK; uniform float uFrames, uFramesS, uFramesK;
 varying vec4 vPart; varying vec2 vSmokeUv;
 vec3 vatN(sampler2D t, vec2 c) { return texture2D(t, c).xyz * (255.0 / 127.0) - (128.0 / 127.0); }`)
         .replace('#include <beginnormal_vertex>', `
 float vf = fract(iAnim.x) * uFrames, f0 = floor(vf), ft = vf - f0, f1 = mod(f0 + 1.0, uFrames);
 vec2 c0 = vec2(vatU, (f0 + .5) / uFrames), c1 = vec2(vatU, (f1 + .5) / uFrames);
 vec3 vatP = mix(mix(texture2D(uPosH, c0).xyz, texture2D(uPosH, c1).xyz, ft), mix(texture2D(uPosC, c0).xyz, texture2D(uPosC, c1).xyz, ft), iAnim.y);
-vec3 objectNormal = normalize(mix(mix(vatN(uNrmH, c0), vatN(uNrmH, c1), ft), mix(vatN(uNrmC, c0), vatN(uNrmC, c1), ft), iAnim.y));
+vec3 vatNo = mix(mix(vatN(uNrmH, c0), vatN(uNrmH, c1), ft), mix(vatN(uNrmC, c0), vatN(uNrmC, c1), ft), iAnim.y);
+if (iMove.x > .5) {   // a move (1 swoop, 2 screech) at its progress iMove.y, blended in and out at the ends
+  float MF = iMove.x < 1.5 ? uFramesS : uFramesK, mu = clamp(iMove.y, 0.0, 1.0) * (MF - 1.0), m0 = floor(mu), mt = mu - m0, m1 = min(m0 + 1.0, MF - 1.0);
+  vec2 d0 = vec2(vatU, (m0 + .5) / MF), d1 = vec2(vatU, (m1 + .5) / MF);
+  vec3 mp, mn;
+  if (iMove.x < 1.5) { mp = mix(texture2D(uPosS, d0).xyz, texture2D(uPosS, d1).xyz, mt); mn = mix(vatN(uNrmS, d0), vatN(uNrmS, d1), mt); }
+  else { mp = mix(texture2D(uPosK, d0).xyz, texture2D(uPosK, d1).xyz, mt); mn = mix(vatN(uNrmK, d0), vatN(uNrmK, d1), mt); }
+  float mw = smoothstep(0.0, .06, iMove.y) * (1.0 - smoothstep(.94, 1.0, iMove.y));
+  vatP = mix(vatP, mp, mw); vatNo = mix(vatNo, mn, mw);
+}
+vec3 objectNormal = normalize(vatNo);
 #ifdef USE_TANGENT
 vec3 objectTangent = vec3(tangent.xyz);
 #endif
@@ -118,6 +129,7 @@ export function createBatShowcase(THREE, data) {
   for (const [k, a] of Object.entries(base.attributes)) geo.setAttribute(k, a);
   geo.setIndex(base.index); geo.computeBoundingBox(); geo.computeBoundingSphere();
   const ia = new THREE.InstancedBufferAttribute(new Float32Array([0, 0, 0, 0]), 4); geo.setAttribute('iAnim', ia);
+  geo.setAttribute('iMove', new THREE.InstancedBufferAttribute(new Float32Array([0, 0]), 2));
   const mesh = new THREE.InstancedMesh(geo, mat, 1); mesh.setMatrixAt(0, new THREE.Matrix4()); mesh.frustumCulled = false;
   const root = new THREE.Group(); root.add(mesh);
   return { root, update(dt) { uTime.value += dt; ia.array[0] = (ia.array[0] + dt * BEAT.hover) % 1; ia.needsUpdate = true; },
@@ -154,6 +166,7 @@ export function createBatVatSwarm(THREE, scene, data, capacity = 64) {
     if (cap === bk.cap) return;
     if (bk.mesh) scene.remove(bk.mesh);
     bk.geo.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4));
+    bk.geo.setAttribute('iMove', new THREE.InstancedBufferAttribute(new Float32Array(cap * 2), 2));
     const mesh = new THREE.InstancedMesh(bk.geo, mats[bk.lod], cap);
     mesh.name = 'Nocturian swarm (VAT) · ' + bk.key; mesh.count = 0; mesh.frustumCulled = true;
     mesh.castShadow = mesh.receiveShadow = false; mesh.userData.instancedBatSwarm = true;
@@ -187,7 +200,7 @@ export function createBatVatSwarm(THREE, scene, data, capacity = 64) {
       grow(bk, n); batches++;
       const cx = (bk.gx + .5) * CELL, cz = (bk.gz + .5) * CELL, cy = (bk.minY + bk.maxY) * .5;
       bk.geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), Math.hypot(CELL * .7072, (bk.maxY - bk.minY) * .5) + 3);
-      const ia = bk.geo.attributes.iAnim, arr = ia.array;
+      const ia = bk.geo.attributes.iAnim, arr = ia.array, im = bk.geo.attributes.iMove, mv = im.array;
       for (let i = 0; i < n; i++) {
         const A = bk.actors[i], k = (A.sizeK ?? MODEL_SIZE) / MODEL_SIZE;
         // wingbeat: hover when slow, cruise when moving; each bat keeps its own continuous phase
@@ -197,12 +210,14 @@ export function createBatVatSwarm(THREE, scene, data, capacity = 64) {
         if (A._vatPhase == null) A._vatPhase = Math.random();
         A._vatPhase = (A._vatPhase + dt * rate * (.92 + ((A.presentationId || i) % 7) * .025)) % 1;
         arr[i * 4] = A._vatPhase; arr[i * 4 + 1] = A._vatBlend; arr[i * 4 + 2] = ((A.presentationId || i) * .37) % 1; arr[i * 4 + 3] = 0;
-        if (A.mo?.actName && followBone(A, k)) { bk.mesh.setMatrixAt(i, m4); continue; }
+        const act = A.alive === false ? null : A.mo?.actName;
+        mv[i * 2] = act === 'swoop' ? 1 : act === 'screech' ? 2 : 0; mv[i * 2 + 1] = act ? (A.mo.action?.u ?? 0) : 0;
+        if ((act || A.alive === false) && followBone(A, k)) { bk.mesh.setMatrixAt(i, m4); continue; }   // moves and death falls move the bone frame
         p.set(A.pos.x, A.pos.y + (A.M.hover || 0) + (A.alt || 0), A.pos.z);
         q.setFromEuler(e.set(A.pitch || 0, A.yaw || 0, 0, 'YXZ')); s.set(k, k, k);
         bk.mesh.setMatrixAt(i, m4.compose(p, q, s));
       }
-      bk.mesh.count = n; bk.mesh.instanceMatrix.needsUpdate = true; ia.needsUpdate = true;
+      bk.mesh.count = n; bk.mesh.instanceMatrix.needsUpdate = true; ia.needsUpdate = true; im.needsUpdate = true;
     }
     previous.clear(); for (const a of current) previous.add(a);
   }

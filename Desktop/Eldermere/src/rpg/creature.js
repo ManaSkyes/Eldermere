@@ -19,7 +19,7 @@
 //
 //   const C = buildCreature(THREE, spec)  → { root, mesh, bones: { 'chain:joint' → Bone }, chain(name) → [Bone],
 //                                             skeleton, update(t), dispose() }
-export function buildCreature(THREE, spec, { particles = null, instances = null, twoInfluenceVariant = false } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
+export function buildCreature(THREE, spec, { particles = null, instances = null, twoInfluenceVariant = false, bonesOnly = false } = {}) {   // particles: src/gfx/particles.js — a shade's smoke and haze are drawn there (one draw for every creature)
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const root = new THREE.Group(); root.name = 'creature';
   // ---- chains (mirrored copies made here) ----
@@ -46,6 +46,21 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
     });
   }
   const index = new Map(list.map((b, i) => [b, i]));
+  // bonesOnly: no meshes at all, just the invisible bone frame. For creatures drawn some other way (the Nocturian bat's
+  // Blender model, src/game/batVat.js): moves, hit zones, hitboxes and projectile origins still read these bones.
+  if (bonesOnly) {
+    root.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton(list);                       // bind pose = rest (inverses computed from it)
+    root.matrixAutoUpdate = false; for (const b of list) b.matrixAutoUpdate = false;
+    const restLocal = list.map(b => b.userData.rest ? b.userData.rest.clone().sub(b.parent?.userData?.rest || V(0, 0, 0)) : V(0, 0, 0));
+    const sync = () => { root.updateMatrix(); for (let i = 0; i < list.length; i++) list[i].updateMatrix(); root.updateMatrixWorld(true); };
+    const none = () => {};
+    return { root, mesh: null, meshes: [], bones, skeleton, parts: [], glows: [], uniforms: { uTime: { value: 0 }, uSmoke: { value: 0 } }, sync, bonesOnly: true,
+      setBodyVisible: none, setPartsVisible: none, setAttached: none, setLodTier: none, setSmokeAuraVisible: none, setMembranesVisible: none,
+      setGlowsVisible: none, setWispsVisible: none, setSkinnedVariant: none, furOn: none, update: none, dispose: none, puffs: null,
+      chain: name => byChain[name] || [],
+      rest() { for (let i = 0; i < list.length; i++) { const b = list[i], q = b.quaternion, e = b.rotation, lp = restLocal[i]; q._x = q._y = q._z = 0; q._w = 1; e._x = e._y = e._z = 0; b.scale.set(1, 1, 1); b.position.copy(lp); } } };
+  }
   // ---- geometry: built once per distinct spec and shared by every creature made from it (20 bats: one set of
   // buffers on the GPU, and spawning the 2nd..20th costs almost nothing) ----
   const GKEY = JSON.stringify(spec);

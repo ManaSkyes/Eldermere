@@ -31,6 +31,9 @@ Order: **realism pass** (real anatomy and materials, from reference photos) → 
     - Write positions as float16 and normals as int8, per frame and per animation, into the `.bin`, with a `.json` header.
     - Don't use glTF for VAT data: exporters can reorder vertices, which breaks the vertex-to-animation mapping.
 
+## Bones-only creatures
+Creatures drawn by a VAT renderer are built with `buildCreature(THREE, spec, { bonesOnly: true })`: no meshes or materials, just the bone frame. Moves, hit zones, hitboxes and projectile origins still use it. Idle bats aren't posed at all; the frame is moved along with them every 4th frame so hit zones stay right.
+
 ## Game renderer (batVat.js)
 - **Bestiary:** `createBatShowcase(THREE, data)` gives one flapping bat; play.js `renderBeast` uses it for `nocturianBat` once the model has loaded.
 - **Instancing:** one `InstancedMesh` per 20 m cell per LOD (frustum culling per cell). LOD by camera distance (22 m / 55 m).
@@ -49,5 +52,5 @@ Order: **realism pass** (real anatomy and materials, from reference photos) → 
 Animations: hover and cruise (24 frames each). Data: 3.85 MB plus two 2048² textures. Test: 43 bats in 18 draw calls (swiftshader).
 
 ## Not done yet
-- **Attacks:** the model stays on during swoop and bite, riding the hidden procedural body's `spine:0` bone (`followBone` in batVat.js), so it follows the dive path while its wings keep the hover beat. The attack's head and jaw poses and folded-wing dive aren't shown yet. Baking `swoop` and `bite` as VAT animations would add them.
+- **Attacks:** `swoop` and `screech` are baked as VAT moves (36 frames each). While a move plays, the shader blends from the wingbeat into the move at `mo.action.u` (`iMove` = move id, progress), and the instance rides the bone frame's `spine:0` (`followBone`), so the flight path and hit timing stay the game's. Dying bats are drawn the same way (the frame falls and shrinks).
 - **Fur shell:** the optional fur layer for the nearest bats hasn't been added.

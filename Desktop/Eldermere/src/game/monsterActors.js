@@ -180,7 +180,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec, params: P0 } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
+    const { spec, params: P0 } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend', bonesOnly: id === 'nocturianBat' && batInstancing })   // (bats: drawn by batVat.js; only the bone frame is kept), mo = createMotion(C, M);
     if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.setBodyVisible(umbrafiendBodiesVisible); C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
@@ -798,6 +798,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       }
       if (!A.alive) {   // dissolving: it sinks and thins away
         A.dead += dt; attach(A, true); A.mo.update(dt, { speed: 0 }); A.C.uniforms.uSmoke.value = Math.max(0, 0.7 - A.dead * 0.5);
+        if (A.C.bonesOnly && batInstancing) batSwarm.add(A);   // the falling, shrinking bone frame is drawn by the bat renderer
         A.C.root.position.y -= dt * 0.35; A.C.root.scale.multiplyScalar(1 - dt * 0.45); A.C.sync();
         if (A.dead > 2.2) { attach(A, false); if (A.barOn) scene.remove(A.bar.sp); A.C.dispose(); actors.splice(i, 1); targets.splice(targets.indexOf(A.target), 1); const G = A.group; if (G) G.members.splice(G.members.indexOf(A), 1); }
         continue;
@@ -868,7 +869,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       attach(A, vis); const shownNow = vis && A.wasHidden; if (shownNow) A.lodDt = Math.min(A.lodDt || 0, 0.1); A.wasHidden = !vis;   // (shownNow: placed at once below — not drawn where it went out of sight)
       // The engaged layer keeps its full skinned model. Circling/reserve Nocturian bats use a 3-batch proxy;
       // their actor, target, flight path and group brain remain individual and unchanged.
-      if (batInstancing && A.id === 'nocturianBat' && vis && A.alive && (batSwarm.vat || (G.kind === 'swarm' && !A.mo.actName))) batSwarm.add(A);   // the VAT model draws every live bat, attacks included; the old proxy only idle swarm members
+      if (batInstancing && A.id === 'nocturianBat' && vis && A.alive && (A.C.bonesOnly || batSwarm.vat || (G.kind === 'swarm' && !A.mo.actName))) batSwarm.add(A);   // the VAT model draws every live bat, attacks included; the old proxy only idle swarm members
       A.C.furOn?.(tier <= 1);   // (fur only up close)
       if (A.C.puffs) { A.C.puffs.sleep = !vis || (fighting && A.layer > 0); A.C.puffs.extLod = true;   // (the circling and reserve bands give off no smoke)
         A.C.puffs.lod = presentation?.effectLod ?? (isUmbrafiend ? (tier === 0 ? 1 : tier === 1 ? 0.35 : 0.08) : (tier === 0 ? 1 : tier === 1 ? 0.6 : 0.15)); }
@@ -878,7 +879,9 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
         // Match the worker policy when a plan is temporarily unavailable.
         // Keep Umbrafiend moves responsive, but let distant idle poses reuse their last skeleton pose.
         const every = presentation?.animationEvery ?? (isUmbrafiend ? (A.mo.actName ? 1 : tier === 0 ? 1 : tier === 1 ? 3 : 6) : (tier === 0 ? 1 : tier === 1 ? 3 : 10));
-        if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = presentation ? presentation.ik : (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
+        if (A.C.bonesOnly && !A.mo.actName) {   // drawn by batVat.js: no pose needed while idle; just carry the bone frame along (hit zones) every 4th frame
+          A.lodDt = 0; if (shownNow || (frameN + i) % 4 === 0) placeBody(A, true);
+        } else if (shownNow || (frameN + i) % every === 0) { motionOpts.speed = speed; motionOpts.ik = presentation ? presentation.ik : (speed > 0.2 || !!A.mo.actName) && (tier === 0 || (tier === 1 && d < 15)); A.mo.update(Math.min(A.lodDt, 0.2), motionOpts); A.lodDt = 0; placeBody(A); }
       } else { if (A.mo.actName) { motionOpts.speed = 0; motionOpts.ik = false; A.mo.update(A.lodDt, motionOpts); A.lodDt = 0; } A.target.pos.x = A.pos.x; A.target.pos.z = A.pos.z; A.target.pos.y = A.pos.y + (A.M.hover || 0) + (A.alt || 0); }
       if (sampleActor) actorStageMs.poseAndScene += performance.now() - poseStartedAt;
       const combatStartedAt = sampleActor ? performance.now() : 0;

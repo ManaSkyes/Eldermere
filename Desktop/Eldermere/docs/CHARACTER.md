@@ -251,3 +251,12 @@ and body and transformation are central to the game, so the whole character is b
   barge — else the plain counter. Deflect scales 0.9 s +0.3/rank.
 - **Enemies:** bleed (ticks each second), knockdown (tipped flat), launch (thrown up and down), pierce (ignores armor).
 - z44: Guard push moves to the Guardian (right) side, still a one-or-the-other pair with Rising slash.
+
+## Body frame and definition (Nov 2026)
+- **Frame** (`applyFrame` in src/rpg/human.js; creator: Frame → Petite / Broad / Long).
+  - Scales each bone's length and girth by group, about its joint. Vertices and joint helpers follow by skin weight, so the rig refits, and the feet stay on the ground.
+  - Profiles are in `FRAMES`. Races can add their own profiles there. Image: docs/images/body_frames.png.
+- **Definition** (`data/human/definition.json`, sculpted in `art/blender/body.blend`, text block `body_definition.py`).
+  - Big forms the base mesh can hold (its torso and limb edges are ~1.5–2 cm): collarbones, neck cords, deltoid caps, abs and the V line, rib edge, spine groove, erector ridges, shoulder blades, lats, kneecaps, the teardrop, shins, calves, elbows.
+  - Weight = 0.55 + (muscle − 0.5)·1.6 − heaviness·1.4, plus `defined` (an optional param). Image: docs/images/body_definition.png.
+  - Finer detail (tendons, knuckles, veins) needs a normal map, and the body has no UVs yet. That's the next step if wanted.

@@ -10,11 +10,12 @@
 export async function loadHuman(base) {
   // a single-file build embeds the data and provides it here instead of separate files
   if (globalThis.__embeddedHuman) { const { meta, bin } = await globalThis.__embeddedHuman; return new Human(meta, bin); }
-  const [meta, bin] = await Promise.all([
+  const [meta, bin, def] = await Promise.all([
     fetch(base + 'human.json').then(r => r.json()),
     fetch(base + 'human-targets.bin').then(r => r.arrayBuffer()),
+    fetch(base + 'definition.json').then(r => r.ok ? r.json() : null).catch(() => null),   // sculpted body definition (optional)
   ]);
-  return new Human(meta, bin);
+  const h = new Human(meta, bin); if (def) h.definition = { idx: Int32Array.from(def.idx), d: Float32Array.from(def.d) }; return h;
 }
 
 export class Human {
@@ -51,6 +52,10 @@ export class Human {
     };
     // 1. the MakeHuman targets (they only move original vertices)
     for (const [name, w] of Object.entries(weights)) if (!this.targets[name]?.post) apply(name, w);
+    // 1b. sculpted definition (collarbones, neck cords, deltoids, abs, spine groove, shoulder blades, knees, calves):
+    //     stronger on muscled and lean bodies (macroWeights sets 'definition')
+    const dw = weights.definition || 0, D = this.definition;
+    if (D && Math.abs(dw) > 1e-4) for (let k = 0; k < D.idx.length; k++) { const o = D.idx[k] * 3; out[o] += D.d[k * 3] * dw; out[o + 1] += D.d[k * 3 + 1] * dw; out[o + 2] += D.d[k * 3 + 2] * dw; }
     // 2. subdivided vertices follow their parents
     if (this.subdiv) {
       const { start, parents, weights: pw } = this.subdiv;
@@ -241,6 +246,7 @@ export function macroWeights(p) {
   W['breast-trans-up'] = f * ty.up; W['breast-trans-down'] = f * ty.down;
   W['breast-dist-incr'] = f * ts.up; W['breast-dist-decr'] = f * ts.down;
   // shape: the base mesh's default is quite conical, so the neutral setting starts rounder
+  W.definition = Math.max(0, Math.min(1.6, 0.55 + (p.muscle - 0.5) * 1.6 - Math.max(0, p.weight - 0.5) * 1.4 + (p.defined ?? 0)));
   W['frame-petite'] = p.petite || 0; W['frame-broad'] = p.broad || 0; W['frame-long'] = p.long || 0;
   const shape = p.bustShape;                              // neutral = natural; lower rounder and flatter, higher more pointed
   W['breast-point-incr'] = f * Math.max(0, shape); W['breast-point-decr'] = f * Math.max(0, -shape);

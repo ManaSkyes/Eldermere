@@ -278,3 +278,13 @@ Races set the frame through their `macro` offsets in src/rpg/races.js. `petite`,
 - **Piscine:** long .3.
 
 Image: docs/images/race_frames.png (male; left to right: human, stout, elf, Solcaste, Draconian, feline, boar, avian, Piscine).
+
+## Fur groom (Nov 2026)
+`src/rpg/skinDetail.js`: `groomFlow` and `groomLength` give each vertex of the neutral body a fur direction and a length (the attributes `furFlow` and `furLen`).
+- **Direction:** down the limbs toward the paws, down the trunk, down and back on the neck, and away from the nose on the head (over the brow, back over the skull, out along the cheeks). Bones blend by skin weight, with a little gravity.
+- **Length:** short on the face and paws, a ruff on the cheeks and the front of the neck.
+- **Shells:** each layer grows along the normal and leans along the flow, more toward the tips, scaled by the length. Strands sit in a lattice laid along the flow, gathered into clumps.
+- **Base layer:** the strand streaks under the shells follow the flow too.
+- **Reuse:** any creature drawn with skinDetail shells gets this. For other bodies, give `groomFlow`/`groomLength` their own bone groups.
+
+Image: docs/images/fur_groom.png.

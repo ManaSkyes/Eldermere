@@ -113,6 +113,57 @@ function freckleBias(meta, faceMask) {
   return bias;
 }
 
+// ---- Fur groom (Nov 2026): which way fur lies and how long it grows, per vertex on the neutral body ----
+// Smooth over the body, so per-vertex is enough; it rides every morph and pose with the skin.
+// Flow: down the limbs toward the hands and feet, down the back and chest, down and back on the neck, and on the head
+// away from the nose (over the brow, back over the skull, out along the cheeks). Bones blend by skin weight.
+// Length (× the fur length): short on the face and paws, a ruff on the cheeks and the front of the neck.
+const groupOfBone = n => /^(upperarm|lowerarm|wrist|finger|metacarpal|thumb|upperleg|lowerleg|foot|toe)/.test(n) ? 'limb'
+  : /^neck/.test(n) ? 'neck' : /^(spine|root|pelvis|breast|clavicle|shoulder)/.test(n) ? 'trunk' : 'head';
+function boneFrames(meta) {
+  const P = meta.positions, avg = ids => { let x = 0, y = 0, z = 0; for (const i of ids) { x += P[i * 3]; y += P[i * 3 + 1]; z += P[i * 3 + 2]; } return [x / ids.length, y / ids.length, z / ids.length]; };
+  return meta.skeleton.map(b => ({ g: groupOfBone(b.name), h: avg(b.head), t: avg(b.tail), name: b.name }));
+}
+function groomFlow(meta, BN) {
+  const P = meta.positions, n = meta.vertexCount, F = new Float32Array(n * 3), B = boneFrames(meta);
+  const hb = B.find(b => b.name === 'head'), C = hb ? [(hb.h[0] + hb.t[0]) / 2, (hb.h[1] + hb.t[1]) / 2, (hb.h[2] + hb.t[2]) / 2] : [0, 7.6, 0.3];
+  const snout = [0, C[1] - 0.45, C[2] + 1.4];
+  for (let v = 0; v < n; v++) {
+    let fx = 0, fy = 0, fz = 0;
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    for (let k = 0; k < 4; k++) {
+      const w = meta.skinWeight[v * 4 + k] / 255; if (w <= 0) continue; const b = B[meta.skinIndex[v * 4 + k]];
+      let dx, dy, dz;
+      if (b.g === 'limb') { dx = b.t[0] - b.h[0]; dy = b.t[1] - b.h[1]; dz = b.t[2] - b.h[2]; }
+      else if (b.g === 'trunk') { dx = 0; dy = -1; dz = -0.1; }   // (no sideways part: it would flip at the centre line and leave a seam)
+      else if (b.g === 'neck') { dx = 0; dy = -1; dz = -0.35; }
+      else { dx = x - snout[0]; dy = (y - snout[1]) * 0.6 - 0.25; dz = z - snout[2]; }
+      const l = Math.hypot(dx, dy, dz) || 1; fx += w * dx / l; fy += w * dy / l; fz += w * dz / l;
+    }
+    fy -= 0.25;   // a little gravity everywhere
+    const nx = BN[v * 3], ny = BN[v * 3 + 1], nz = BN[v * 3 + 2], d = fx * nx + fy * ny + fz * nz;
+    fx -= nx * d; fy -= ny * d; fz -= nz * d; const l = Math.hypot(fx, fy, fz) || 1;
+    F[v * 3] = fx / l; F[v * 3 + 1] = fy / l; F[v * 3 + 2] = fz / l;
+  }
+  return F;
+}
+function groomLength(meta) {
+  const P = meta.positions, n = meta.vertexCount, L = new Float32Array(n), B = boneFrames(meta);
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let v = 0; v < n; v++) {
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2]; let head = 0, paw = 0, neck = 0;
+    for (let k = 0; k < 4; k++) {
+      const w = meta.skinWeight[v * 4 + k] / 255; if (w <= 0) continue; const b = B[meta.skinIndex[v * 4 + k]];
+      if (b.g === 'head') head += w; else if (b.g === 'neck') neck += w; else if (/^(wrist|finger|metacarpal|thumb|foot|toe)/.test(b.name)) paw += w;
+    }
+    const face = head * sm(0.2, 0.9, z), cheekRuff = head * sm(0.45, 0.75, Math.abs(x)) * sm(7.35, 6.85, y), neckRuff = neck * sm(-0.1, 0.4, z);
+    let len = 1 - face * 0.6 - paw * 0.65 - head * (1 - face) * 0.2;
+    len += cheekRuff * 0.9 + neckRuff * 0.4;
+    L[v] = Math.max(0.2, len);
+  }
+  return L;
+}
+
 export function makeSkinDetail(THREE, meta, material, geometry) {
   const P = meta.positions, n = meta.vertexCount;
   geometry.setAttribute('basePos', new THREE.BufferAttribute(Float32Array.from(P), 3));
@@ -136,6 +187,8 @@ export function makeSkinDetail(THREE, meta, material, geometry) {
     for (let i = 0; i < n; i++) { const l = Math.hypot(BN[i * 3], BN[i * 3 + 1], BN[i * 3 + 2]) || 1; BN[i * 3] /= l; BN[i * 3 + 1] /= l; BN[i * 3 + 2] /= l; }
     geometry.setAttribute('baseNrm', new THREE.BufferAttribute(BN, 3));
   }
+  geometry.setAttribute('furFlow', new THREE.BufferAttribute(groomFlow(meta, geometry.getAttribute('baseNrm').array), 3));
+  geometry.setAttribute('furLen', new THREE.BufferAttribute(groomLength(meta), 1));
   geometry.setAttribute('freckleBias', new THREE.BufferAttribute(freckleBias(meta, mask), 1));
   // lips and eyelids (by their skin weights) never get freckles or moles
   const names = meta.skeleton.map(b => b.name), keepOff = new Float32Array(n);
@@ -181,8 +234,8 @@ export function makeSkinDetail(THREE, meta, material, geometry) {
     Object.assign(sh.uniforms, U);
     if (shellU) Object.assign(sh.uniforms, shellU);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 basePos;\nattribute float breastW;\nvarying float vBreastW;\nattribute float faceMask;\nattribute float freckleBias;\nattribute float spotMask;\nattribute vec3 baseNrm;\nvarying vec3 vBaseN;\nvarying vec3 vBase;\nvarying float vFace;\nvarying float vFreckleBias;\nvarying float vSpotMask;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBase = basePos; vBreastW = breastW; vBaseN = baseNrm; vFace = faceMask; vFreckleBias = freckleBias; vSpotMask = spotMask;');
+      .replace('#include <common>', '#include <common>\nattribute vec3 basePos;\nattribute vec3 furFlow;\nattribute float furLen;\nvarying vec3 vFlow;\nvarying float vFurLen;\nattribute float breastW;\nvarying float vBreastW;\nattribute float faceMask;\nattribute float freckleBias;\nattribute float spotMask;\nattribute vec3 baseNrm;\nvarying vec3 vBaseN;\nvarying vec3 vBase;\nvarying float vFace;\nvarying float vFreckleBias;\nvarying float vSpotMask;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBase = basePos; vFlow = furFlow; vFurLen = furLen; vBreastW = breastW; vBaseN = baseNrm; vFace = faceMask; vFreckleBias = freckleBias; vSpotMask = spotMask;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform vec4 uFreck[2]; uniform vec4 uMole[2]; uniform vec4 uPig[2]; uniform vec4 uRough[2]; uniform vec4 uMove[2]; uniform vec4 uMoveP[2];
@@ -191,7 +244,7 @@ varying vec3 vBaseN;
 uniform vec3 uFreckCol[2]; uniform vec3 uMoleCol[2]; uniform vec3 uPatchCol[2]; uniform vec3 uScarCol[2];
 varying float vFreckleBias; varying float vSpotMask;
 uniform vec4 uScarA[${MAX_SCARS}]; uniform vec4 uScarB[${MAX_SCARS}];
-varying vec3 vBase; varying float vFace;
+varying vec3 vBase; varying float vFace; varying vec3 vFlow; varying float vFurLen;
 uniform sampler2D uDefTex; uniform float uDefK, uDefOn, uDefBreast; varying float vBreastW; uniform vec3 uRA[10], uRB[10], uRF[10]; uniform vec4 uRT[10]; uniform float uRR[10];
 // sculpted definition height (m) at a neutral-space point: the two nearest limb / torso projections, blended at their borders
 float defHeight(vec3 p) {
@@ -282,7 +335,9 @@ ${GLSL_NOISE}`)
         h = sc.y * 0.7 + (1.0 - sc.x) * 0.3; rgh = -0.12;
       } else {
         // fur: fine strands running downward, clumped, with soft variation
-        float strands = sdFbm(vBase * vec3(90.0, 9.0, 90.0) * uCover.w), clump = sdFbm(vBase * 6.0 * uCover.w);
+        vec3 fl = normalize(vFlow), sdv = normalize(cross(fl, normalize(vBaseN)));
+        vec3 fq = vec3(dot(vBase, sdv) * 90.0, dot(vBase, fl) * 7.0, dot(vBase, normalize(vBaseN)) * 20.0);   // strands run with the groom
+        float strands = sdFbm(fq * uCover.w), clump = sdFbm(vBase * 6.0 * uCover.w);
         // zones (neutral body): lighter muzzle and chest/belly, the nose pad
         float muzzle = vFace * smoothstep(0.95, 1.3, vBase.z) * smoothstep(7.2, 6.9, vBase.y);
         float chest = (1.0 - vFace) * smoothstep(0.1, 0.6, vBaseN.z) * (1.0 - smoothstep(0.3, 0.6, abs(vBase.x))) * step(1.2, vBase.y);
@@ -290,7 +345,7 @@ ${GLSL_NOISE}`)
         float ext = max(smoothstep(3.7, 4.4, abs(vBase.x)), smoothstep(-6.4, -7.2, vBase.y));   // hands and feet
         vec3 c = uCovA;
         if (uFurPat > 0.5 && uFurPat < 1.5) {                               // tabby stripes
-          float st = sin(vBase.y * 16.0 + sdFbm(vBase * 2.2) * 5.0 + atan(vBase.x, vBase.z) * 1.5);
+          float st = sin(vBase.y * 16.0 + sdFbm(vBase * 2.2) * 5.0 + abs(atan(vBase.x, vBase.z)) * 1.5);   // (abs: no jump down the middle of the back)
           c = mix(c, uCovC, smoothstep(0.45, 0.75, st) * 0.85);
         } else if (uFurPat > 1.5 && uFurPat < 2.5) {                        // rosettes
           vec3 w = sdWorley2(vBase * 5.0);
@@ -370,15 +425,22 @@ ${GLSL_NOISE}`)
       // combed a little downward), and cut to fewer, thinner strands the further out it is
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nuniform float uShellOff; uniform float uShellT;\nattribute float clothed;\nvarying float vClothed;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothed = clothed;\ntransformed += objectNormal * uShellOff + vec3(0.0, -1.0, 0.0) * uShellOff * 0.5 * uShellT;');
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvClothed = clothed;\ntransformed += (objectNormal + furFlow * (0.35 + 1.1 * uShellT)) * uShellOff * furLen;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', '#define SKIN_SHELL\n#include <common>\nuniform float uShellT; uniform float uShellDen;\nvarying float vClothed;')
         .replace('  vec4 fr = mix(uFreck[1]', `  // shells: throw away empty pixels first, before any pattern work (most of a shell is empty)
   if (uCover.x < 1.5 || uCover.x > 3.5 || vClothed > 0.5) discard;
   {
     bool feather = uCover.x < 2.5;
-    vec3 q = vBase * uShellDen * (feather ? vec3(1.0, 0.4, 1.0) : vec3(1.0));
+    vec3 q;
+    if (feather) q = vBase * uShellDen * vec3(1.0, 0.4, 1.0);
+    else {
+      vec3 fl = normalize(vFlow), nn = normalize(vBaseN), sd2 = normalize(cross(fl, nn));
+      float across = dot(vBase, sd2) + (sdFbm(vBase * 2.6) - 0.5) * 0.35;               // clumps: strands lean together
+      q = vec3(across * uShellDen, dot(vBase, fl) * uShellDen * 0.3, dot(vBase, nn) * uShellDen * 0.5);
+    }
     vec3 id = floor(q), f = fract(q) - 0.5 - (sdHash33(id) - 0.5) * 0.5;
+    if (!feather) f.y *= 0.35;                                                          // long along the flow
     float strand = (1.0 - length(f) * (feather ? 1.6 : 2.3)) * (0.65 + 0.35 * sdHash13(id + 7.0));
     if (strand < uShellT * (feather ? 0.75 : 0.9)) discard;
   }

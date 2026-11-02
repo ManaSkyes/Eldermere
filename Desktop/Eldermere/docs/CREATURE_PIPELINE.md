@@ -63,3 +63,24 @@ Old procedural model (left) and the Blender model (right), same bestiary lightin
 ![Top](images/nocturian_bat_compare_top.png)
 
 300 bats: 40–65 fps before, 120–144 fps after (user test, Nov 2026).
+
+## Rigid-bone creatures (the Umbrafiend, Nov 2026)
+For skeletal creatures whose bones don't bend, use rigid pieces instead of VAT: every vertex follows exactly one game bone, so the model is an ordinary skinned mesh on the creature's bone frame, and the game's own motion, foot IK, moves and hit zones drive it. Walking creatures need this; baked animation can't adapt feet to the ground.
+
+**Blender** (`art/blender/umbrafiend.blend`; text blocks `bone_kit.py` with the shape helpers and `umbra_pipeline.py` with the stages):
+1. Rig: the game skeleton dumped from `buildCreature(..., { bonesOnly: true })` at size 1. Game (x, y, z) = Blender (x, −z, y).
+2. Skull and jaw: a museum scan (docs/CREDITS.md), scaled onto the head bones, jaw closed onto its hinge, decimated (skull 4k, jaw 1.8k tris). A 120k copy is kept for baking.
+3. Body bones: built with `bone_kit.py` (lofts, tubes, ellipsoids → voxel fuse → decimate). Each object carries a custom property `bone` = the game bone it rides on.
+4. `umbra_pipeline.py`:
+   - `stage_uv()`, then a skull/jaw-only UV in [0, 0.97] (body UVs → the flat corner).
+   - Normal bake, scan → low.
+   - `stage_join_ao()` joins a copy of every part (point attribute `bone_id`) and bakes AO to vertex colours.
+   - `stage_export()` writes `data/creatures/umbrafiend/umbrafiend.json` + `.bin` (2 LODs) and `normal.jpg`.
+   - Gotcha: after a selected-to-active bake, pass `use_selected_to_active=False` explicitly; the scene keeps the last setting and every later bake fails with "No valid selected objects".
+
+**Game** (`src/game/umbraModel.js`):
+- The bone inverses come from the size-1 rest frame × the creature's size, and the bind matrix scales by size. Any size or leg length binds; rigid pieces keep their offsets from their bones.
+- Charring is procedural in the shader, from the model-space position: soot, scorching, burnt patches on exposed surfaces (baked AO), grain, hairline cracks.
+- The core lights nearby bones violet (`uCore`), and the cracks smoulder near it.
+- Sink / rise: while `C.melting`, everything below `C.groundY` is discarded along a ragged, drifting violet edge.
+- Numbers: LOD0 16.3k tris, LOD1 8.2k. Data 0.58 MB + a 1.9 MB normal map.

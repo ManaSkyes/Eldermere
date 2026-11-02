@@ -29,7 +29,7 @@ import { MONSTERS, monsterSpec, statsAtLevel } from '../data/monsters.js';
 import { groundAt, lineBlocked, resolveWalls } from './physics.js';
 import { STEALTH } from '../rpg/stealth.js';
 import { getApplicationWorkerPool } from './workers/workerPool.js';
-import { reportProcess, clearProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
+import { reportProcess, clearProcess, clearProcessesByPrefix, monitorEnabled } from './workers/processMonitor.js';
 
 export const RANK_K = { Wood: 1, Bronze: 1.8, Silver: 3, Gold: 5, Crystal: 8 };
 const KIND_TYPE = { fire: 'fire', frost: 'frost', ice: 'frost', lunar: 'lunar', holy: 'light', light: 'light', dark: 'dark', shadow: 'dark', storm: 'storm', lightning: 'storm', earth: 'earth', arcane: 'arcane' };
@@ -54,21 +54,23 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   let presentationWorkerMs = 0, presentationQueueMs = 0, presentationDispatchMs = 0, presentationRoundTripMs = 0, presentationBatchMs = 0, presentationDispatchCount = 0, presentationLastError = '', nextPresentationActorId = 1;
   let aiRoundTripMs = 0, aiBatchMs = 0;
   let presentationPlans = new Map();
-  const SHARED_WORKERS = 12; // Application-wide maximum; the shared pool grows only when queued demand requires it.
+  // Creature sense / presentation jobs are tiny (a few µs of maths); a worker round trip costs more than it saves
+  // and returns a frame late. 'auto' therefore runs them on the main thread; 'worker' remains for measuring (F2).
+  const PRESENTATION_CHUNKS = 2;
   let sharedPool = null, sharedPoolPromise = null;
   const syncSharedWorkerProcesses = snap => {
+    if (!monitorEnabled()) return;
     clearProcessesByPrefix('shared-worker-');
     for (const w of snap?.workers || []) reportProcess('shared-worker-'+w.id, { label:'Shared worker '+w.id, kind:'worker', status:w.busy?'busy':'idle', task:w.task||(w.lastTask?'Idle · last task: '+w.lastTask:'Idle · waiting for shared work') });
     if (snap) reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:snap.queued||snap.busy?'busy':'idle', queued:snap.queued, task:'Shared FIFO · '+snap.busy+'/'+snap.active+' busy · '+snap.queued+' queued' });
   };
-  const shouldUseWorkers = () => aiMode === 'worker' || presentationMode === 'worker' ||
-    (aiMode === 'auto' && actors.length >= 4) || (presentationMode === 'auto' && actors.length >= 4);
+  const shouldUseWorkers = () => aiMode === 'worker' || presentationMode === 'worker';
   const ensureSharedPool = () => {
     if (sharedPool || sharedPoolPromise || !shouldUseWorkers()) return;
     sharedPoolPromise = (async () => {
       const pool = getApplicationWorkerPool();
       await pool.ready();
-      if (!shouldUseWorkers()) { pool.close(); return null; }
+      if (!shouldUseWorkers()) return null;   // never close the shared pool: other systems use it
       sharedPool = pool;
       reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'idle', task:'Shared FIFO · AI perception + creature presentation' });
       syncSharedWorkerProcesses(pool.snapshot());
@@ -99,7 +101,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     maybeCloseSharedPool();
   };
   const dispatchCreatureSense = player => {
-    if (aiMode === 'main' || (aiMode === 'auto' && actors.length < 4)) return;
+    if (aiMode !== 'worker') return;
     ensureSharedPool();
     const now = performance.now();
     // Group detection only reevaluates every 250 ms; don't serialize hundreds of member snapshots every frame.
@@ -140,7 +142,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     return result && performance.now() - result.at < 500 ? result : null;
   };
   const getPresentationPlan = (actor, player) => {
-    if (presentationMode === 'main' || (presentationMode === 'auto' && actors.length < 4)) return null;
+    if (presentationMode !== 'worker') return null;
     if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
         Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
     const plan = presentationPlans.get(actor.presentationId);
@@ -369,7 +371,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     if ((G.seeT -= dt) <= 0) {
       G.seeT = 0.25;
       let nearest = null, nearestD2 = Infinity, aliveCount = 0;
-      const workerSense = aiMode !== 'main' ? getCreatureSense(G) : null;
+      const workerSense = aiMode === 'worker' ? getCreatureSense(G) : null;
       if (workerSense) {
         nearestD2 = workerSense.nearestD2; aliveCount = workerSense.aliveCount;
         nearest = workerSense.nearest ? { pos:workerSense.nearest, M:{hover:workerSense.nearest.hover}, alt:workerSense.nearest.alt } : null;
@@ -712,10 +714,10 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }   // drawn within VIS m (and on screen); a group thinks every frame within WAKE m or while fighting
   function attach(A, on) { if (A.attached === on) return; A.attached = on; if (on) scene.add(A.C.root); else scene.remove(A.C.root); A.C.setAttached?.(on); if (on) A.C.sync(); }
   function dispatchPresentationPlan(snapshot, player) {
-    const shouldUseWorker = presentationMode === 'worker' || (presentationMode === 'auto' && actors.length >= 4);
+    const shouldUseWorker = presentationMode === 'worker';
     if (!snapshot.length) return;
     if (!shouldUseWorker) {
-      if (presentationMode === 'auto') reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:`Auto threshold not reached · ${actors.length}/4 active creatures` });
+      if (presentationMode === 'auto') reportProcess('npc-presentation-queue', { label:'NPC presentation planner', kind:'worker', status:'idle', task:'Auto · main thread (job too small to pay for a worker)' });
       return;
     }
     if (!sharedPool) { ensurePresentationPool(); return; }
@@ -729,7 +731,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     presentationPending = true; presentationPendingSince = now; presentationLastDispatch = now; presentationDispatchCount++; presentationLastError = ''; const batchStartedAt = now;
     const generation = presentationGeneration, sequence = ++presentationSequence;
     const playerAt = { x:player.pos.x, z:player.pos.z };
-    const chunkSize = Math.max(1, Math.ceil(snapshot.length / SHARED_WORKERS));
+    const chunkSize = Math.max(1, Math.ceil(snapshot.length / PRESENTATION_CHUNKS));
     const chunks = [];
     for (let i = 0; i < snapshot.length; i += chunkSize) chunks.push(snapshot.slice(i, i + chunkSize));
     reportProcess('shared-worker-queue', { label:'Shared worker scheduler', kind:'worker', status:'busy', queued:(sharedPool.snapshot().queued||0)+chunks.length, task:'Creature presentation · '+snapshot.length+' actors' });
@@ -780,7 +782,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const actorLoopStartedAt = performance.now();
     nearTargets.length = 0; barCand.length = 0; batSwarm.beginFrame();
     // Presentation plans are rate-limited to 80 ms. Only allocate the 450-actor worker snapshot when a dispatch can actually happen.
-    const collectPresentationSnapshot = presentationMode !== 'main' && actors.length >= 4 && !presentationPending && performance.now() - presentationLastDispatch >= 80;
+    const collectPresentationSnapshot = presentationMode === 'worker' && actors.length >= 1 && !presentationPending && performance.now() - presentationLastDispatch >= 80;
     const visualSnapshots = [];
     // Sample one actor in sixteen to estimate expensive sub-stages without calling performance.now() for every actor.
     const actorStageMs = { visibility:0, behavior:0, ground:0, poseAndScene:0, combatAndAudio:0, sampledActors:0 };

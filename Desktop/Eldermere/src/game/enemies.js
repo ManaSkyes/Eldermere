@@ -20,7 +20,7 @@
 // and they fall to their deaths in pits.
 import { statsOf, variantOf, OBJECTS } from '../data/objects.js';
 import { lineBlocked } from './physics.js';
-import { createWorkerPool } from './workers/workerPool.js';
+import { getApplicationWorkerPool } from './workers/workerPool.js';
 import { reportProcess, clearProcess } from './workers/processMonitor.js';
 
 const C = 10;
@@ -41,11 +41,11 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   let presentationPlans = new Map(), presentationDispatchCount = 0, presentationLastError = '', nextPresentationId = 1;
   const PRESENTATION_WORKERS = 2;
   const ensurePresentationPool = () => {
-    if (presentationPool || presentationPoolPromise || presentationMode === 'main') return;
+    if (presentationPool || presentationPoolPromise || presentationMode !== 'worker') return;
     const generation = presentationGeneration;
     presentationPoolPromise = (async () => {
-      const pool = createWorkerPool(PRESENTATION_WORKERS); await pool.ready();
-      if (presentationMode === 'main' || generation !== presentationGeneration) { pool.close(); return null; }
+      const pool = getApplicationWorkerPool(); await pool.ready();   // the shared pool; never close it
+      if (presentationMode !== 'worker' || generation !== presentationGeneration) return null;
       presentationPool = pool;
       for (const w of pool.snapshot().workers) reportProcess('npc-render-worker-'+w.id, { label:'NPC presentation worker '+w.id, kind:'worker', status:'idle', task:'Ready · waiting for presentation batch' });
       reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:'Visual LOD and effect scheduling' });
@@ -59,15 +59,15 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   const setPresentationMode = mode => {
     presentationMode = ['main','worker','auto'].includes(mode) ? mode : 'main';
     presentationGeneration++; presentationPending = false; presentationPlans.clear(); presentationPlanAt = 0; presentationPlayerAt = null;
-    if (presentationMode === 'main') {
-      presentationPool?.close(); presentationPool = null; presentationPoolPromise = null;
+    if (presentationMode !== 'worker') {   // 'main' and 'auto' both run on the main thread
+      presentationPool = null; presentationPoolPromise = null;
       clearProcess('npc-render-queue'); for (let i=1;i<=PRESENTATION_WORKERS;i++) clearProcess('npc-render-worker-'+i);
       for (const u of units) { u.root.visible = true; }
     } else ensurePresentationPool();
     return presentationMode;
   };
   const getPresentationPlan = (unit, player) => {
-    if (presentationMode === 'main' || (presentationMode === 'auto' && units.length < 4)) return null;
+    if (presentationMode !== 'worker') return null;
     if (!presentationPlanAt || performance.now() - presentationPlanAt > 240 || !presentationPlayerAt ||
         Math.hypot(player.pos.x - presentationPlayerAt.x, player.pos.z - presentationPlayerAt.z) > 3.5) return null;
     const plan = presentationPlans.get(unit.presentationId);
@@ -76,9 +76,9 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   const setAiMode = mode => {
     aiMode = ['main', 'worker', 'auto'].includes(mode) ? mode : 'main';
     aiGeneration++; aiPending = false; aiLastPlayer = null;
-    if (aiMode === 'main') { aiPool?.close(); aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
+    if (aiMode !== 'worker') { aiPool = null; aiPoolPromise = null; clearProcess('npc-ai-queue'); for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
     else if (!aiPoolPromise) {
-      aiPoolPromise = (async () => { const pool = createWorkerPool(AI_WORKERS); await pool.ready(); if (aiMode === 'main') { pool.close(); return null; } aiPool = pool; return pool; })().catch(error => { reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' }); aiPoolPromise = null; return null; });
+      aiPoolPromise = (async () => { const pool = getApplicationWorkerPool(); await pool.ready(); if (aiMode !== 'worker') return null; aiPool = pool; return pool; })().catch(error => { reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Worker startup failed' }); aiPoolPromise = null; return null; });
     }
     return aiMode;
   };
@@ -275,7 +275,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
   // returns { detection (0–1, the most any enemy has on you: up to 0.5 suspicious, above that hunting you),
   //           unaware (enemies close by who don't know you're there), escaped (enemies that just gave up on you) }
   function dispatchPresentationPlan(snapshot, player) {
-    const useWorker = presentationMode === 'worker' || (presentationMode === 'auto' && units.length >= 4);
+    const useWorker = presentationMode === 'worker';   // 'auto' = main thread: these jobs are too small for a worker
     if (!snapshot.length) return;
     if (!useWorker) {
       if (presentationMode === 'auto') reportProcess('npc-render-queue', { label:'NPC mesh / animation / effects', kind:'worker', status:'idle', task:`Auto threshold not reached · ${units.length}/4 active NPCs` });
@@ -467,7 +467,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
     // Dispatch pure sensory-distance work asynchronously. Results are consumed on later frames only
     // while the player remains nearby; combat, collision, animation and scene mutation stay on main.
     aiFrame++;
-    if (aiMode !== 'main' && units.length >= (aiMode === 'auto' ? 24 : 1) && !aiPending &&
+    if (aiMode === 'worker' && units.length >= 1 && !aiPending &&
         (aiFrame % 4 === 0 || !aiLastPlayer || Math.hypot(p.x - aiLastPlayer.x, p.z - aiLastPlayer.z) > 1.25)) {
       const generation = aiGeneration, playerSnap = { x:p.x, y:p.y, z:p.z, loudness:player.loudness || 0 };
       const npcs = units.map((u,index)=>({ index, x:u.pos.x, y:u.pos.y, z:u.pos.z, sight:u.st.sight || 1, hearing:u.st.hearing || 14, perception:u.st.perception || 1, alive:u.alive })).filter(n=>n.alive);
@@ -487,7 +487,7 @@ export function createEnemies(THREE, scene, d, origin, shapes, { floatText } = {
           }
         } catch (error) {
           reportProcess('npc-ai-queue', { label:'NPC AI pipeline', kind:'worker', status:'error', task:error?.message || 'Task failed' });
-          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; aiPool?.close(); aiPool = null; aiPoolPromise = null; for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
+          if (aiMode === 'auto') { aiMode = 'main'; aiGeneration++; aiPool = null; aiPoolPromise = null; for(let i=1;i<=AI_WORKERS;i++)clearProcess('npc-worker-'+i); }
         } finally {
           aiPending = false;
           if (aiMode !== 'main') reportProcess('npc-ai-queue', { label:'NPC AI dispatch', kind:'worker', status:'idle', task:`last ${aiLastWorkerMs.toFixed(2)} ms` });

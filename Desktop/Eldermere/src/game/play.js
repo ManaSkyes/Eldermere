@@ -50,7 +50,7 @@ import { globalsOf, sunDirection } from '../data/globals.js';
 import { createPostFX } from '../gfx/postfx.js';
 import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js';
 import { runWorkerStressTest } from './workers/stressTest.js';
-import { processSnapshot, reportProcess, clearProcessesByPrefix } from './workers/processMonitor.js';
+import { processSnapshot, reportProcess, clearProcessesByPrefix, setMonitorEnabled } from './workers/processMonitor.js';
 import { createSky } from '../gfx/sky.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
@@ -1541,7 +1541,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     const button = processMonitor.querySelector('[data-process-capture]');
     const feedback = processMonitor.querySelector('[data-process-feedback]');
     processCaptureStartedAt = performance.now(); processCaptureSamples = []; processCaptureStats = null;
-    processMonitorOpen = false;
+    processMonitorOpen = false; setMonitorEnabled(false);
     processMonitor.style.display = 'none';
     input.lock();
     if (feedback) feedback.textContent = 'Capturing live gameplay…';
@@ -1556,7 +1556,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       const p95 = values => values.length ? values[Math.min(values.length-1,Math.ceil(values.length*0.95)-1)] : 0;
       processCaptureStats = { samples:processCaptureSamples.length, durationMs, observedFps:processCaptureSamples.length/(durationMs/1000), frameMedianMs:median(sortedFrames), frameP95Ms:p95(sortedFrames), loopCpuMedianMs:median(sortedCpu) };
       refreshProcessMonitor(true);
-      processMonitorOpen = true;
+      processMonitorOpen = true; setMonitorEnabled(true);
       processMonitor.style.display = 'block';
       input.unlock();
       showPause(false);
@@ -1738,7 +1738,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   };
   const probeKeyHandler = e => {
     if (e.code === 'F2') {
-      e.preventDefault(); processMonitorOpen=!processMonitorOpen;
+      e.preventDefault(); processMonitorOpen=!processMonitorOpen; setMonitorEnabled(processMonitorOpen);
       processMonitor.style.display=processMonitorOpen?'block':'none';
       if(processMonitorOpen){input.unlock();showPause(false);refreshProcessMonitor(true);}
       else if(!probe.on&&assignmentEl.hidden)input.lock();
@@ -2556,11 +2556,12 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     removeEventListener('beforeunload', guardClose);
     removeEventListener('keydown', probeKeyHandler);
     if (processCaptureTimer) clearTimeout(processCaptureTimer);
-    processMonitor.remove();
+    processMonitor.remove(); setMonitorEnabled(false);
     enemies?.setAiMode?.('main');
     enemies?.setPresentationMode?.('main');
     monsters?.setPresentationMode?.('main');
     monsters?.setAiMode?.('main');
+    dungeonLights?.foliage?.releaseWorkerData?.();   // free this map's tree data held by the shared workers
     running = false; input.unlock(); input.dispose(); removeEventListener('resize', resize); removeEventListener('keydown', invKeys);
     mirror.dispose(); audio.dispose();
     if (body) { scene.remove(body.root); body.dispose(); body = null; }

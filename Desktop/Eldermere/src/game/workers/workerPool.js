@@ -1,162 +1,158 @@
-// Demand-scaled browser-native worker pool with fair cross-system scheduling. Creature jobs can
-// jump ahead of foliage backlog, while a bounded burst guarantees tree-cull jobs keep progressing.
+// src/game/workers/workerPool.js — the application's worker threads.
+//
+// Rules (keep them when editing):
+// - ONE shared pool for the whole game: getApplicationWorkerPool(). Never create private pools in systems.
+//   Its close() is a no-op, so a subsystem turning its worker mode off cannot kill the pool for everyone.
+// - Fixed size: cores − 2 (main thread + browser/GPU), between 1 and 6. Workers start lazily as work arrives
+//   and then stay alive; there is no spawn/retire churn.
+// - Only offload work that is big enough to pay for the message round trip (a rule of thumb: > 0.5 ms of CPU
+//   per job). Small per-frame maths stays on the main thread; results from a worker arrive a frame or more late.
+// - Large read-only inputs go through `cache` (sent to each worker once, then reused by key) and big outputs
+//   come back as transferable typed arrays.
+//
+// API
+//   run(type, payload, { cache: { key, data }, transfer: [ArrayBuffer], timeoutMs, low }) → Promise<result>
+//   runBatch(tasks, concurrency)   tasks: [{ type, payload, cache?, low? }] → results in task order
+//   evict(prefix)                  drop cached data whose key starts with prefix, in every worker
+//   snapshot()                     { size, active, busy, queued, workers: [{ id, busy, task, lastTask, jobId }] }
+// `low: true` marks bulk work (e.g. tree culling): it never starves, but latency-sensitive jobs go first.
+const MAX_WORKERS = 6, DEFAULT_TIMEOUT_MS = 4000, LOW_PRIORITY_BURST = 3;
+
 export function recommendedWorkerCount() {
-  const cores = Number(globalThis.navigator?.hardwareConcurrency) || 2;
-  return Math.max(1, Math.min(12, cores - 1));
+  const cores = Number(globalThis.navigator?.hardwareConcurrency) || 4;
+  return Math.max(1, Math.min(MAX_WORKERS, cores - 2));
 }
 
-export function createWorkerPool(size = recommendedWorkerCount()) {
-  const maxWorkers = Math.max(1, Math.min(12, Math.floor(Number(size) || 1)));
-  let nextJobId = 1, nextWorkerId = 1, closed = false, readySettled = false, resolveReady, rejectReady;
-  const workers = [], queue = [], pending = new Map();
+export function createWorkerPool(size = recommendedWorkerCount(), { shared = false } = {}) {
+  const maxWorkers = Math.max(1, Math.min(MAX_WORKERS, Math.floor(Number(size) || 1)));
+  let nextJobId = 1, nextWorkerId = 1, closed = false, readySettled = false, resolveReady, rejectReady, highStreak = 0;
+  const workers = [], queue = [], pending = new Map(), cacheKeys = new Set();
   const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const now = () => performance.now();
-  const live = () => workers.filter(w => !w.retired);
-  const idle = () => live().filter(w => !w.busy && w.ready);
+  const live = () => workers.filter(w => !w.dead);
 
-  // Creature work is latency-sensitive; foliage can be spread across frames. Prefer queued
-  // non-foliage work, but guarantee foliage progress after a small burst so neither class starves.
-  const MAX_NON_FOLIAGE_BURST = 3;
-  let consecutiveNonFoliageJobs = 0;
+  // Latency-sensitive jobs first, but after a short burst one low-priority job always gets through.
   const takeNextJob = () => {
-    if (!queue.length) return null;
-    const firstTree = queue.findIndex(job => job.type === 'tree-cull');
-    const firstNonTree = queue.findIndex(job => job.type !== 'tree-cull');
-    if (firstTree < 0) { consecutiveNonFoliageJobs = 0; return queue.shift(); }
-    if (firstNonTree < 0 || consecutiveNonFoliageJobs >= MAX_NON_FOLIAGE_BURST) {
-      consecutiveNonFoliageJobs = 0;
-      return queue.splice(firstTree, 1)[0];
-    }
-    consecutiveNonFoliageJobs++;
-    return queue.splice(firstNonTree, 1)[0];
+    const hi = queue.findIndex(j => !j.low), lo = queue.findIndex(j => j.low);
+    if (hi < 0 && lo < 0) return null;
+    const pick = hi < 0 || (lo >= 0 && highStreak >= LOW_PRIORITY_BURST) ? lo : hi;
+    highStreak = queue[pick].low ? 0 : highStreak + 1;
+    return queue.splice(pick, 1)[0];
+  };
+
+  const finish = (worker, jobId) => {
+    const record = pending.get(jobId); if (!record) return null;
+    pending.delete(jobId); clearTimeout(record.timer);
+    worker.busy = false; worker.jobId = null; worker.task = '';
+    return record;
   };
 
   const dispatch = worker => {
-    if (closed || worker.retired || !worker.ready || worker.busy || !queue.length) return;
-    const job = takeNextJob();
-    worker.busy = true; worker.jobId = job.id; worker.taskType = job.type; worker.lastTaskType = job.type;
-    const startedAt = now();
-    const record = { resolve: job.resolve, reject: job.reject, worker, queuedAt: job.queuedAt, startedAt, dispatchMs: 0 };
+    if (closed || worker.dead || !worker.ready || worker.busy) return;
+    const job = takeNextJob(); if (!job) return;
+    worker.busy = true; worker.jobId = job.id; worker.task = worker.lastTask = job.type;
+    const record = { job, worker, startedAt: now(), dispatchMs: 0, timer: 0 };
     pending.set(job.id, record);
+    const message = { id: job.id, type: job.type, payload: job.payload };
+    if (job.cache && !worker.cached.has(job.cache.key)) { message.cache = job.cache; worker.cached.add(job.cache.key); cacheKeys.add(job.cache.key); }
+    else if (job.cache) message.cacheKey = job.cache.key;
     try {
-      const dispatchStarted = now();
-      worker.instance.postMessage({ id: job.id, type: job.type, payload: job.payload });
-      record.dispatchMs = now() - dispatchStarted;
+      const t = now(); worker.instance.postMessage(message, job.transfer || []); record.dispatchMs = now() - t;
     } catch (error) {
-      pending.delete(job.id); worker.busy = false; worker.jobId = null; worker.taskType = '';
-      job.reject(error); dispatch(worker);
+      finish(worker, job.id); job.reject(error); dispatch(worker); return;
     }
+    record.timer = setTimeout(() => {   // a hung worker is replaced; its job fails instead of blocking forever
+      if (!pending.has(job.id)) return;
+      finish(worker, job.id); job.reject(new Error(`Worker task "${job.type}" timed out after ${job.timeoutMs} ms`));
+      kill(worker); pump();
+    }, job.timeoutMs);
   };
 
-  const scaleToDemand = () => {
+  const pump = () => {
     if (closed) return;
-    // Fill existing idle workers first. Additional workers are created only when queued work
-    // cannot be serviced by current capacity.
-    for (const worker of idle()) { if (!queue.length) break; dispatch(worker); }
-    while (queue.length && live().length < maxWorkers) spawnWorker();
+    for (const w of live()) { if (!queue.length) break; if (w.ready && !w.busy) dispatch(w); }
+    // start another worker only if queued work exceeds what starting workers can absorb
+    const starting = live().filter(w => !w.ready).length;
+    if (queue.length > starting && live().length < maxWorkers) spawn();
   };
 
-  const retireExcessIdle = () => {
-    if (closed) return;
-    const idleWorkers = idle().sort((a,b) => b.index-a.index);
-    while (live().length > 1 && idleWorkers.length) {
-      const worker = idleWorkers.shift();
-      worker.retired = true; worker.instance.terminate();
-    }
-  };
+  function kill(worker) {
+    worker.dead = true; worker.instance.terminate();
+    const record = worker.jobId == null ? null : finish(worker, worker.jobId);
+    if (record) record.job.reject(new Error('Worker stopped'));
+  }
 
-  function spawnWorker() {
-    if (closed || live().length >= maxWorkers) return null;
-    const worker = { index: nextWorkerId++, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }),
-      busy: false, ready: false, jobId: null, taskType: '', lastTaskType: '', retired: false };
+  function spawn() {
+    const worker = { id: nextWorkerId++, instance: new Worker(new URL('./compute.worker.js', import.meta.url), { type: 'module' }),
+      ready: false, busy: false, dead: false, jobId: null, task: '', lastTask: '', cached: new Set() };
+    for (let i = workers.length - 1; i >= 0; i--) if (workers[i].dead) workers.splice(i, 1);   // forget long-dead workers
     workers.push(worker);
-    worker.instance.addEventListener('message', event => {
-      const message = event.data || {};
-      if (message.type === 'ready') {
-        worker.ready = true;
-        if (!readySettled) { readySettled = true; resolveReady(); }
-        scaleToDemand();
-        return;
-      }
-      const record = pending.get(message.id);
-      if (!record) return;
-      pending.delete(message.id);
-      worker.busy = false; worker.jobId = null; worker.taskType = '';
-      const endedAt = now();
-      if (message.ok) {
-        const result = message.result;
-        if (result && typeof result === 'object') result.__timing = {
-          queueMs: Math.max(0, record.startedAt - record.queuedAt),
-          workerMs: Math.max(0, Number(message.workerMs) || 0),
-          dispatchMs: record.dispatchMs,
-          roundTripMs: Math.max(0, endedAt - record.startedAt),
-        };
-        record.resolve(result);
-      } else record.reject(new Error(message.error || 'Worker task failed'));
-      scaleToDemand();
-      // Avoid timer-per-worker churn: each completed job checks whether the pool can shrink.
-      if (live().length > 1 && !queue.length) setTimeout(retireExcessIdle, 5000);
+    worker.instance.addEventListener('message', ({ data: m = {} }) => {
+      if (m.type === 'ready') { worker.ready = true; if (!readySettled) { readySettled = true; resolveReady(); } pump(); return; }
+      const record = finish(worker, m.id); if (!record) return;
+      if (m.ok) {
+        const r = m.result;
+        if (r && typeof r === 'object') r.__timing = { queueMs: record.startedAt - record.job.queuedAt, workerMs: Number(m.workerMs) || 0,
+          dispatchMs: record.dispatchMs, roundTripMs: now() - record.startedAt };
+        record.job.resolve(r);
+      } else record.job.reject(new Error(m.error || 'Worker task failed'));
+      pump();
     });
     worker.instance.addEventListener('error', event => {
-      const record = worker.jobId == null ? null : pending.get(worker.jobId);
-      if (record) { pending.delete(worker.jobId); record.reject(new Error(event.message || 'Worker crashed')); }
-      worker.retired = true; worker.instance.terminate();
-      if (!closed && !readySettled) { readySettled = true; rejectReady(new Error(event.message || 'Worker failed to initialize')); }
-      scaleToDemand();
+      event.preventDefault?.();
+      const msg = event.message || 'Worker crashed';
+      kill(worker);
+      if (!readySettled) { readySettled = true; rejectReady(new Error(msg)); return; }
+      pump();   // replaces the crashed worker if work is waiting
     });
     return worker;
   }
 
-  // Start one worker so ready() remains useful to existing callers without eagerly creating
-  // the maximum pool. The pool scales up only when submitted jobs exceed available capacity.
-  spawnWorker();
-  return {
+  spawn();   // one worker up front so ready() resolves; the rest start on demand
+  const api = {
     size: maxWorkers,
     ready: () => ready,
     snapshot() {
-      const active = live();
-      return { size: maxWorkers, active: active.length, busy: active.filter(w=>w.busy).length,
-        queued: queue.length, workers: active.map(w => ({ id:w.index, busy:w.busy, task:w.taskType||'', lastTask:w.lastTaskType||'', jobId:w.jobId })) };
+      const ws = live();
+      return { size: maxWorkers, active: ws.length, busy: ws.filter(w => w.busy).length, queued: queue.length,
+        workers: ws.map(w => ({ id: w.id, busy: w.busy, task: w.task, lastTask: w.lastTask, jobId: w.jobId })) };
     },
-    run(type, payload) {
+    run(type, payload, { cache = null, transfer = null, timeoutMs = DEFAULT_TIMEOUT_MS, low = false } = {}) {
       if (closed) return Promise.reject(new Error('Worker pool is closed'));
       return new Promise((resolve, reject) => {
-        queue.push({ id: nextJobId++, type, payload, resolve, reject, queuedAt: now() });
-        scaleToDemand();
+        queue.push({ id: nextJobId++, type, payload, cache, transfer, timeoutMs, low, resolve, reject, queuedAt: now() });
+        pump();
       });
     },
-    async runBatch(tasks, concurrency = tasks.length) {
+    async runBatch(tasks, concurrency = maxWorkers) {
       await ready;
-      // Use a sliding window for bulk jobs so background work does not flood the shared queue.
-      const limit = Math.max(1, Math.min(tasks.length || 1, Math.floor(Number(concurrency) || tasks.length || 1)));
-      const results = new Array(tasks.length);
-      let next = 0;
-      const runners = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
-        while (next < tasks.length) {
-          const index = next++;
-          const task = tasks[index];
-          results[index] = await this.run(task.type, task.payload);
-        }
-      });
-      await Promise.all(runners);
+      const limit = Math.max(1, Math.min(tasks.length || 1, Math.floor(Number(concurrency) || maxWorkers)));
+      const results = new Array(tasks.length); let next = 0;
+      await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+        while (next < tasks.length) { const i = next++, t = tasks[i]; results[i] = await api.run(t.type, t.payload, t); }
+      }));
       return results;
     },
+    evict(prefix) {
+      for (const k of [...cacheKeys]) if (k.startsWith(prefix)) cacheKeys.delete(k);
+      for (const w of live()) {
+        for (const k of [...w.cached]) if (k.startsWith(prefix)) w.cached.delete(k);
+        try { w.instance.postMessage({ type: '__evict', prefix }); } catch {}
+      }
+    },
     close() {
-      if (closed) return;
-      closed = true;
+      if (shared) { console.warn('[workers] close() ignored on the shared application pool'); return; }
+      if (closed) return; closed = true;
       for (const job of queue.splice(0)) job.reject(new Error('Worker pool closed'));
-      for (const [id, record] of pending) { record.reject(new Error('Worker pool closed')); pending.delete(id); }
-      for (const worker of workers) { worker.retired = true; worker.instance.terminate(); }
+      for (const w of workers) if (!w.dead) kill(w);
     },
   };
+  return api;
 }
 
-
-// One application-wide worker budget shared by foliage, creature AI, and presentation.
-// The underlying pool scales up only when queued demand exceeds current capacity and
-// retires excess idle workers after a quiet period.
+// The one pool every system uses. Do not create others.
 let applicationWorkerPool = null;
 export function getApplicationWorkerPool() {
-  if (!applicationWorkerPool) applicationWorkerPool = createWorkerPool(recommendedWorkerCount());
+  if (!applicationWorkerPool) applicationWorkerPool = createWorkerPool(recommendedWorkerCount(), { shared: true });
   return applicationWorkerPool;
 }

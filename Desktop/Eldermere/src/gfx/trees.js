@@ -226,28 +226,26 @@ const TREE_WIND = TILE => `${windCore(TILE)}
   transformed += transpose(mat3(instanceMatrix)) * off * isc;`;
 const DITHER = `{ float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd < vF2.x || hd >= vF2.y) discard; }`;
 
+let treesInstanceSeq = 0;
 export function createTrees(THREE, scene, plants, wind, stages = {}) {
+  const treeCacheKey = 'trees' + (++treesInstanceSeq) + ':';   // worker-side cache of this instance's positions
   let workerMode = 'main', workerAllocationMode = 'auto', workerPool = null, workerPending = false, workerFailed = false, workerCount = 2, workerLimit = 12, workerGeneration = 0;
   const TREE_WORKER_CHUNK_SIZE = 4096;
   const workerState = { status: 'main thread', lastMs: 0, queueMs: 0, workerMs: 0, dispatchMs: 0, applyMs: 0, jobs: 0, workerCount, workerLimit, workerAllocationMode, chunkSize: TREE_WORKER_CHUNK_SIZE, error: '' };
-  const ensureWorker = async (queuedTasks = 1) => {
-    if (workerAllocationMode === 'auto') {
-      // Grow only when a batch has enough independent chunks to keep more workers busy.
-      // Auto mode scales up to the configured cap and stays there to avoid pool churn.
-      const desired = Math.max(workerCount, Math.min(workerLimit, Math.max(1, Math.floor(queuedTasks))));
-      workerCount = desired;
-      workerState.workerCount = workerCount;
-    }
+  const ensureWorker = async () => {
     if (!workerPool) {
       const { getApplicationWorkerPool } = await import('../game/workers/workerPool.js');
       workerPool = getApplicationWorkerPool();
       workerState.status = 'starting';
       await workerPool.ready();
-      workerCount = workerPool.size;
-      workerState.workerCount = workerCount;
     }
+    workerCount = Math.min(workerPool.size, workerLimit);   // how many workers tree culling may use at once
+    workerState.workerCount = workerCount;
     return workerPool;
   };
+  // Each set's positions are sent to a worker once (by key) and reused by every later cull job.
+  const cullTask = (si, start, end, extra) => { const S = sets[si]; return { si, offset: start, type: 'tree-cull', low: true,
+    cache: { key: treeCacheKey + si, data: { X: S.X, Y: S.Y, Z: S.Z, Sc: S.Sc } }, payload: { start, end, mid: S.mid, ...extra } }; };
   const sets = [];
   if (!plants.some(p => SPECIES[p.k])) return { hidden: false, sets, bake() {}, cull() {} };
   const A = atlas(THREE);
@@ -383,6 +381,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     diagnostics,
     workerState,
     get workerPoolSnapshot() { return workerPool?.snapshot?.() || null; },
+    releaseWorkerData() { workerPool?.evict?.(treeCacheKey); },   // call when this trees instance is thrown away
     get workerMode() { return workerMode; },
     get workerCount() { return workerCount; },
     get workerAllocationMode() { return workerAllocationMode; },
@@ -487,10 +486,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
                 const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
                 instancesTested += end - offset;
-                tasks.push({ si, lod: L, offset, type: 'tree-cull', payload: {
-                  X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
-                  cx, cy, cz, mid: S.mid, edges, hidden: false, baked, targetLod: L
-                }});
+                tasks.push({ ...cullTask(si, offset, end, { cx, cy, cz, edges, hidden: false, baked, targetLod: L }), lod: L });
               }
             }
           }
@@ -510,14 +506,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           const requestPosition = camera.position.clone();
           
           workerState.status = 'queued · zone workers';
-          ensureWorker(tasks.length).then(pool => {
+          ensureWorker().then(pool => {
             workerState.workerCount = workerCount;
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
             // Leave four workers of headroom for latency-sensitive creature AI and presentation.
             // runBatch is a sliding window, so limiting tree concurrency prevents a steady tree
             // stream from occupying every worker before creature jobs can be dispatched.
-            return pool.runBatch(tasks, 8).then(results => {
+            return pool.runBatch(tasks, workerCount).then(results => {
               // Apply completed work as an interim frame even if the player moved during the batch.
               // Discarding every result after only 0.5 m of movement starves LOD updates while running.
               // Fade bands are distance-dependent, so refresh all LOD buffers together after modest
@@ -535,7 +531,9 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               const countsBySet = sets.map(() => [0, 0, 0]);
               for (let ri = 0; ri < results.length; ri++) {
                 const result = results[ri], task = tasks[ri], S = sets[task.si], L = task.lod, mesh = S.meshes[L], counts = countsBySet[task.si];
-                for (const [localIndex, _lod, lo, hi] of result.records) {
+                const R = result.records;
+                for (let k = 0; k < R.length; k += 4) {
+                  const localIndex = R[k], lo = R[k + 2], hi = R[k + 3];
                   const i = task.offset + localIndex, j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
                   const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
                   a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
@@ -627,17 +625,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
             const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
             instancesTested += end - offset;
-            tasks.push({ si, offset, type: 'tree-cull', payload: {
-              X: S.X.subarray(offset, end), Y: S.Y.subarray(offset, end), Z: S.Z.subarray(offset, end), Sc: S.Sc.subarray(offset, end),
-              cx, cy, cz, mid: S.mid, edges: S.edges, hidden: !!this.hidden, baked
-            }});
+            tasks.push(cullTask(si, offset, end, { cx, cy, cz, edges: S.edges, hidden: !!this.hidden, baked }));
           }
         }
         if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
         ensureWorker().then(pool => {
           workerState.status = 'running';
           const batchStarted = performance.now();
-          return pool.runBatch(tasks, 8).then(results => {
+          return pool.runBatch(tasks, workerCount).then(results => {
             // A newer camera/visibility request supersedes this batch. Never upload stale buffers.
             if (requestGeneration !== workerGeneration) { last.x = 1e9; return; }
             workerState.lastMs = performance.now() - batchStarted;
@@ -650,7 +645,9 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             const countsBySet = sets.map(() => [0, 0, 0]);
             for (let ri = 0; ri < results.length; ri++) {
               const result = results[ri], task = tasks[ri], S = sets[task.si], counts = countsBySet[task.si], M = S.meshes;
-              for (const [localIndex, L, lo, hi] of result.records) {
+              const R = result.records;
+              for (let k = 0; k < R.length; k += 4) {
+                const localIndex = R[k], L = R[k + 1], lo = R[k + 2], hi = R[k + 3];
                 const i = task.offset + localIndex;
                 const mesh = M[L], j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
                 const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];

@@ -1,12 +1,22 @@
 // CPU-only jobs for the worker pool. Keep this file free of DOM and Three.js access.
+// Large read-only inputs arrive once per worker as `cache: { key, data }` and are reused by later jobs via
+// `cacheKey` (see workerPool.js). '__evict' drops cached entries by key prefix.
+const cache = new Map();
 self.onmessage = ({ data }) => {
   const { id, type, payload } = data || {};
+  if (type === '__evict') { for (const k of [...cache.keys()]) if (k.startsWith(data.prefix)) cache.delete(k); return; }
+  if (data?.cache) cache.set(data.cache.key, data.cache.data);
+  const cached = data?.cache ? data.cache.data : data?.cacheKey != null ? cache.get(data.cacheKey) : null;
+  if ((data?.cache || data?.cacheKey != null) && !cached) { self.postMessage({ id, ok: false, error: 'Missing cached data for ' + data.cacheKey }); return; }
   const workerStarted = performance.now();
   try {
     if (type === 'tree-cull') {
-      const { X, Y, Z, Sc, cx, cy, cz, mid, edges, hidden, baked, targetLod } = payload;
-      const records = [], wv = edges.map(e => Math.max(3, e * 0.1));
-      if (!hidden) for (let i = 0; i < X.length; i++) {
+      // Positions come from the cached set ({ X, Y, Z, Sc }); the job only carries a range and the camera.
+      // Result: Float32Array of [localIndex, lod, fadeLo, fadeHi] × n, transferred (no copy, no per-tree arrays).
+      const { X, Y, Z, Sc } = cached, { start, end, cx, cy, cz, mid, edges, hidden, baked, targetLod } = payload;
+      const out = new Float32Array((end - start) * 3 * 4); let n = 0;   // a tree can sit in up to 3 LOD fades
+      const wv = edges.map(e => Math.max(3, e * 0.1)), blend = [0, 0, 0];
+      if (!hidden) for (let i = start; i < end; i++) {
         const dx = X[i] - cx, dy = Y[i] + mid * Sc[i] - cy, dz = Z[i] - cz;
         const distanceSq = dx * dx + dy * dy + dz * dz;
         const far = edges[edges.length - 1];
@@ -14,7 +24,6 @@ self.onmessage = ({ data }) => {
         if (distanceSq > far * far) continue;
         const d = Math.sqrt(distanceSq);
         // Cell-level frustum rejection happens on the main thread; avoid retesting each tree here.
-        const blend = [0, 0, 0];
         for (let b = 0; b < 2; b++) blend[b] = Math.min(1, Math.max(0, (d - (edges[b] - wv[b])) / (2 * wv[b])));
         blend[2] = Math.min(1, Math.max(0, (d - (far - wv[2])) / wv[2]));
         if (!baked) blend[1] = blend[2];
@@ -23,10 +32,11 @@ self.onmessage = ({ data }) => {
         const lastLod = Number.isInteger(targetLod) ? targetLod + 1 : lodCount;
         for (let L = firstLod; L < Math.min(lastLod, lodCount); L++) {
           const lo = L === 0 ? 0 : 1 - blend[L - 1], hi = 1 - blend[L];
-          if (lo < hi) records.push([i, L, lo, hi]);
+          if (lo < hi) { out[n++] = i - start; out[n++] = L; out[n++] = lo; out[n++] = hi; }
         }
       }
-      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: X.length } });
+      const records = out.slice(0, n);   // compact copy; its buffer is transferred, not cloned
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: end - start } }, [records.buffer]);
     } else if (type === 'npc-presentation-plan') {
       // CPU-only NPC presentation scheduling. The worker chooses mesh visibility/LOD,
       // animation cadence and effect budgets; the main thread still applies Three.js

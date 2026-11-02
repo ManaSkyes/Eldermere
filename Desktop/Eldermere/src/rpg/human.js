@@ -7,6 +7,9 @@
 // Params (all 0..1 unless noted): fem, age, muscle, weight, height, proportions,
 // bust, firmness, bustY (-1..1), bustSpace (-1..1), bustShape (-1..1)
 
+// sculpted targets: weight key → file in data/human/ (weights come through the usual custom/species weights)
+const SCULPTS = [['species-feline-sculpt', 'species_feline.json']];
+
 export async function loadHuman(base) {
   // a single-file build embeds the data and provides it here instead of separate files
   if (globalThis.__embeddedHuman) { const { meta, bin } = await globalThis.__embeddedHuman; return new Human(meta, bin); }
@@ -15,7 +18,11 @@ export async function loadHuman(base) {
     fetch(base + 'human-targets.bin').then(r => r.arrayBuffer()),
     fetch(base + 'definition.json').then(r => r.ok ? r.json() : null).catch(() => null),   // sculpted body definition (optional)
   ]);
-  const h = new Human(meta, bin); if (def) h.definition = { idx: Int32Array.from(def.idx), d: Float32Array.from(def.d) }; return h;
+  const h = new Human(meta, bin); if (def) h.definition = { idx: Int32Array.from(def.idx), d: Float32Array.from(def.d) };
+  // shapes sculpted in Blender (art/blender/body.blend), applied after everything else like the code-made species shapes
+  h.sculpts = {};
+  await Promise.all(SCULPTS.map(([name, file]) => fetch(base + file).then(r => r.ok ? r.json() : null).then(d => { if (d) h.sculpts[name] = { idx: Int32Array.from(d.idx), d: Float32Array.from(d.d) }; }).catch(() => {})));
+  return h;
 }
 
 export class Human {
@@ -69,6 +76,8 @@ export class Human {
     applyFrame(this.meta, out, weights);
     // 3. targets made in code (species shapes), which can move every vertex, including new ones
     for (const [name, w] of Object.entries(weights)) if (this.targets[name]?.post) apply(name, w);
+    for (const [name, S] of Object.entries(this.sculpts || {})) { const w = weights[name] || 0; if (Math.abs(w) < 1e-4) continue;
+      for (let k = 0; k < S.idx.length; k++) { const o = S.idx[k] * 3; out[o] += S.d[k * 3] * w; out[o + 1] += S.d[k * 3 + 1] * w; out[o + 2] += S.d[k * 3 + 2] * w; } }
     // the base body is a clothed mannequin: smooth away nipple detail at the source
     for (const r of this.soften) {
       // Taubin smoothing: alternating shrink and inflate steps remove small detail without flattening the shape

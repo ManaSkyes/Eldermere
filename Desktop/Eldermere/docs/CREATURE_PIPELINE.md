@@ -32,6 +32,7 @@ Order: **realism pass** (real anatomy and materials, from reference photos) → 
     - Don't use glTF for VAT data: exporters can reorder vertices, which breaks the vertex-to-animation mapping.
 
 ## Game renderer (batVat.js)
+- **Bestiary:** `createBatShowcase(THREE, data)` gives one flapping bat; play.js `renderBeast` uses it for `nocturianBat` once the model has loaded.
 - **Instancing:** one `InstancedMesh` per 20 m cell per LOD (frustum culling per cell). LOD by camera distance (22 m / 55 m).
 - **Animation on the GPU:** the vertex shader reads its position and normal from DataTextures (width = vertices, height = frames), interpolates between frames, and blends hover → cruise.
 - **Per-instance data** (`iAnim`): phase (advanced on the CPU, so speed changes never pop), animation blend, and a noise offset.
@@ -48,5 +49,5 @@ Order: **realism pass** (real anatomy and materials, from reference photos) → 
 Animations: hover and cruise (24 frames each). Data: 3.85 MB plus two 2048² textures. Test: 43 bats in 18 draw calls (swiftshader).
 
 ## Not done yet
-- **Attacks:** swoop and bite still use the procedural creature (a bat switches back to it while performing a move). Baking swoop/bite as VAT animations would remove that switch.
+- **Attacks:** the model stays on during swoop and bite, riding the hidden procedural body's `spine:0` bone (`followBone` in batVat.js), so it follows the dive path while its wings keep the hover beat. The attack's head and jaw poses and folded-wing dive aren't shown yet. Baking `swoop` and `bite` as VAT animations would add them.
 - **Fur shell:** the optional fur layer for the nearest bats hasn't been added.

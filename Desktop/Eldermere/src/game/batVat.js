@@ -14,6 +14,12 @@ const LOD_DIST = [22, 55];          // metres: LOD0 nearer than 22 m, LOD1 to 55
 const MODEL_SIZE = 1.6;             // the model matches the monster spec at size param 1.6
 const BEAT = { hover: 5.2 / (2 * Math.PI), cruise: 5.2 / 1.6 / (2 * Math.PI) };   // wingbeats per second (monsters.js flight)
 
+let shared = null, sharedPromise = null;
+export function getBatVat(THREE) {          // load once for the whole game (swarm, bestiary)
+  if (!sharedPromise) sharedPromise = loadBatVat(THREE).then(d => (shared = d));
+  return sharedPromise;
+}
+export const loadedBatVat = () => shared;
 export async function loadBatVat(THREE) {
   const [meta, bin] = await Promise.all([
     fetch(BASE + 'nocturian_bat.json').then(r => { if (!r.ok) throw new Error('bat model json ' + r.status); return r.json(); }),
@@ -57,10 +63,9 @@ export async function loadBatVat(THREE) {
   return { meta, lods, color, normal };
 }
 
-export function createBatVatSwarm(THREE, scene, data, capacity = 64) {
-  const CELL = 20, F = data.meta.frames;
-  const uTime = { value: 0 };
-  const mats = data.lods.map(L => {
+function makeMaterials(THREE, data, uTime) {
+  const F = data.meta.frames;
+  return data.lods.map(L => {
     const m = new THREE.MeshStandardMaterial({ map: data.color, normalMap: data.normal, roughness: .82, metalness: 0, side: THREE.DoubleSide });
     m.onBeforeCompile = sh => {
       Object.assign(sh.uniforms, { uTime, uFrames: { value: F },
@@ -105,9 +110,38 @@ totalEmissiveRadiance += uEye * vPart.g + uSmokeGlow * smoke * wisp * .35;`);
     m.customProgramCacheKey = () => 'batVat' + L.N;
     return m;
   });
+}
+
+// One flapping bat for the Bestiary page: { root, update(dt) }.
+export function createBatShowcase(THREE, data) {
+  const uTime = { value: 0 }, mat = makeMaterials(THREE, data, uTime)[0], base = data.lods[0].geo, geo = new THREE.BufferGeometry();
+  for (const [k, a] of Object.entries(base.attributes)) geo.setAttribute(k, a);
+  geo.setIndex(base.index); geo.computeBoundingBox(); geo.computeBoundingSphere();
+  const ia = new THREE.InstancedBufferAttribute(new Float32Array([0, 0, 0, 0]), 4); geo.setAttribute('iAnim', ia);
+  const mesh = new THREE.InstancedMesh(geo, mat, 1); mesh.setMatrixAt(0, new THREE.Matrix4()); mesh.frustumCulled = false;
+  const root = new THREE.Group(); root.add(mesh);
+  return { root, update(dt) { uTime.value += dt; ia.array[0] = (ia.array[0] + dt * BEAT.hover) % 1; ia.needsUpdate = true; },
+    dispose() { geo.dispose(); mat.dispose(); } };
+}
+
+export function createBatVatSwarm(THREE, scene, data, capacity = 64) {
+  const CELL = 20;
+  const uTime = { value: 0 };
+  const mats = makeMaterials(THREE, data, uTime);
   const buckets = new Map(), previous = new Set(), current = [];
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), s = new THREE.Vector3(), p = new THREE.Vector3();
   let lastTime = null, batches = 0;
+  const bind = new WeakMap(), mInv = new THREE.Matrix4(), mS = new THREE.Matrix4();
+  // Attacks (swoop, bite) move the creature's body through its bones, not its position. While one plays, the model
+  // follows the procedural body's spine bone: world = bone · (bone's bind pose relative to the creature)⁻¹ · scale.
+  function followBone(A, k) {
+    const C = A.C, bone = C?.bones?.['spine:0'], sk = C?.skeleton; if (!bone || !sk) return false;
+    let inv = bind.get(C);
+    if (!inv) { const j = sk.bones.indexOf(bone); if (j < 0) return false; inv = sk.boneInverses[j].clone(); bind.set(C, inv); }   // boneInverse = (bind pose)⁻¹
+    C.sync ? C.sync() : bone.updateWorldMatrix(true, false);   // creature bones don't auto-update; sync() computes them (only attacking bats get here)
+    m4.multiplyMatrices(bone.matrixWorld, inv).multiply(mS.makeScale(k, k, k));
+    return true;
+  }
   function makeBucket(key, gx, gz, lod) {
     const base = data.lods[lod].geo, geo = new THREE.BufferGeometry();
     for (const [k, a] of Object.entries(base.attributes)) geo.setAttribute(k, a);
@@ -163,6 +197,7 @@ totalEmissiveRadiance += uEye * vPart.g + uSmokeGlow * smoke * wisp * .35;`);
         if (A._vatPhase == null) A._vatPhase = Math.random();
         A._vatPhase = (A._vatPhase + dt * rate * (.92 + ((A.presentationId || i) % 7) * .025)) % 1;
         arr[i * 4] = A._vatPhase; arr[i * 4 + 1] = A._vatBlend; arr[i * 4 + 2] = ((A.presentationId || i) * .37) % 1; arr[i * 4 + 3] = 0;
+        if (A.mo?.actName && followBone(A, k)) { bk.mesh.setMatrixAt(i, m4); continue; }
         p.set(A.pos.x, A.pos.y + (A.M.hover || 0) + (A.alt || 0), A.pos.z);
         q.setFromEuler(e.set(A.pitch || 0, A.yaw || 0, 0, 'YXZ')); s.set(k, k, k);
         bk.mesh.setMatrixAt(i, m4.compose(p, q, s));

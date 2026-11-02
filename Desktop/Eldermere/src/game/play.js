@@ -20,6 +20,7 @@ import { createAudio } from './audio.js';
 import { createParticles } from '../gfx/particles.js';
 import { MONSTERS, monsterSpec } from '../data/monsters.js';
 import { buildCreature } from '../rpg/creature.js';
+import { loadedBatVat, createBatShowcase } from './batVat.js';
 import { createSwingTrail } from '../gfx/swingTrail.js';
 import { createHarvest } from './harvest.js';
 import { learnKill, learnHit, known as knownBeast } from '../rpg/bestiary.js';
@@ -2035,15 +2036,18 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   beast.scene.add(new THREE.HemisphereLight('#fff4e0', '#3a3040', 0.9)); { const d = new THREE.DirectionalLight('#ffffff', 1.1); d.position.set(3, 5, 4); beast.scene.add(d); }
   function renderBeast(dt) {
     const id = book.beastId, r = book.beastRect(); if (!id || !r || r.width < 4) return;
+    if (beast.id === id && id === 'nocturianBat' && beast.C && !beast.C.update && loadedBatVat()) beast.id = null;   // the Blender model finished loading: swap it in
     if (beast.id !== id) {
-      if (beast.C) { beast.scene.remove(beast.C.root); beast.C.root.traverse(o => { if (o.isMesh) o.material?.dispose?.(); }); }
+      if (beast.C) { beast.scene.remove(beast.C.root); if (beast.C.dispose) beast.C.dispose(); else beast.C.root.traverse(o => { if (o.isMesh) o.material?.dispose?.(); }); }
       beast.id = id; beast.C = null;
-      try { beast.C = buildCreature(THREE, monsterSpec(id).spec); } catch (e) { console.warn('bestiary model', e); return; }
+      // creatures with a finished Blender model show it (flapping); the rest are built from their procedural spec
+      const vat = id === 'nocturianBat' ? loadedBatVat() : null;
+      try { beast.C = vat ? createBatShowcase(THREE, vat) : buildCreature(THREE, monsterSpec(id).spec); } catch (e) { console.warn('bestiary model', e); return; }
       beast.scene.add(beast.C.root); beast.C.sync?.();
       const box = new THREE.Box3().setFromObject(beast.C.root); box.getCenter(beast.mid); beast.size = Math.max(0.3, box.getSize(new THREE.Vector3()).length());
     }
     if (!beast.C) return;
-    beast.spin += dt * 0.25; beast.C.root.rotation.y = beast.spin + book.turn; beast.C.sync?.();
+    beast.spin += dt * 0.25; beast.C.root.rotation.y = beast.spin + book.turn; beast.C.sync?.(); beast.C.update?.(dt);
     const cr = canvas.getBoundingClientRect(), x = r.left - cr.left + 6, y = cr.bottom - r.bottom + 6, w = r.width - 12, h = r.height - 12;
     beast.cam.aspect = w / h; beast.cam.updateProjectionMatrix();
     const dist = beast.size * 0.62 / Math.tan(15 * Math.PI / 180) / Math.min(1, beast.cam.aspect);

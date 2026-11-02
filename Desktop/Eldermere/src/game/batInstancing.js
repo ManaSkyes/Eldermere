@@ -133,11 +133,11 @@ function createProxySwarm(THREE, scene, capacity = 128) {
   } };
 }
 
-import { loadBatVat, createBatVatSwarm } from './batVat.js';
+import { getBatVat, createBatVatSwarm } from './batVat.js';
 let vatData = null, vatPromise = null;
 export function createBatSwarmInstances(THREE, scene, capacity = 128) {
   let impl = createProxySwarm(THREE, scene, capacity), frameOpen = false;
-  if (!vatPromise) vatPromise = loadBatVat(THREE).then(d => (vatData = d)).catch(err => { console.warn('[bats] VAT model unavailable, using proxies:', err); return null; });
+  if (!vatPromise) vatPromise = getBatVat(THREE).then(d => (vatData = d)).catch(err => { console.warn('[bats] VAT model unavailable, using proxies:', err); return null; });
   vatPromise.then(d => {
     if (!d || impl.vat || impl.disposed) return;
     const old = impl; impl = createBatVatSwarm(THREE, scene, d); old.dispose();

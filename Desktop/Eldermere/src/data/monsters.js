@@ -34,7 +34,8 @@ export const MONSTERS = {
     classification: ['Essence Tiers', 'Spectral Essence'], hazard: 'Nuisance', rank: ['Wood', 'Bronze'], activity: 'Lunar',
     resist: { slash: 0.05, pierce: 0.05, blunt: 0.05, crush: 0.05, fire: 2, lunar: 2, light: 2, dark: 0, shadow: 0 },   // (the Umbrafiends' kind: darkness and smoke)
     lore: 'Kin of the Umbrafiends: a bat-shaped knot of darkness the size of a hound, smoke trailing off wings wider than a man is tall. Hunts in packs at night, dropping on its prey from the dark. Steel barely touches it; light tears it apart.',
-    params: { size: [0.6, 1.6, 1, 'Size'], wings: [0.7, 1.4, 1, 'Wingspan'], ears: [0.5, 1.8, 1, 'Ears'], girth: [0.8, 1.8, 1.3, 'Body'], smoke: [0, 1, 0.7, 'Smoke'] },
+    params: { size: [0.8, 2.2, 1.6, 'Size'],   // 1.6: a large predator (matches the Blender model, data/creatures/nocturian_bat)
+      wings: [0.7, 1.4, 1, 'Wingspan'], ears: [0.5, 1.8, 1, 'Ears'], girth: [0.8, 1.8, 1.3, 'Body'], smoke: [0, 1, 0.7, 'Smoke'] },
     spec(p) {
       const s = p.size, w = p.wings, g = p.girth, e = p.ears;
       const W = (x, y, z) => [x * w, y, z];                                                   // wing points stretch with the span

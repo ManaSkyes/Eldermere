@@ -180,7 +180,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
+    const { spec, params: P0 } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend' }), mo = createMotion(C, M);
     if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.setBodyVisible(umbrafiendBodiesVisible); C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
@@ -188,7 +188,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     const rk = LV ? 1 : RANK_K[rank || M.rank[0]] || 1, K = scale || {}, S = { ...B0, hp: B0.hp * (K.hp ?? 1), speed: B0.speed * (K.speed ?? 1), aggro: B0.aggro * (K.sight ?? 1) };
     const A = { id, M, C, mo, S, group, level, presentationId: nextPresentationActorId++, armor: LV?.armor || 0, exp: Math.round(LV?.exp ?? M.stats.exp ?? S.hp * 0.35 * rk),   // (combat exp for killing it: its level chart's, or by its health)
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
-      alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
+      sizeK: P0.size ?? 1, alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
     scene.add(C.root); A.attached = true; C.setAttached?.(true); C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
     A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0;   // (a swarm starts up high) A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;
     mo.onCommit = (dx, dz) => { const c = Math.cos(A.yaw), s = Math.sin(A.yaw); A.pos.x += dx * c + dz * s; A.pos.z += -dx * s + dz * c; if (A.landDy) { A.pos.y += A.landDy; A.landDy = 0; } A.gx = 1e9; if (!M.flight && shapes.length) { const r = settle(A, A.pos.x, A.pos.z); A.pos.x = r.x; A.pos.z = r.z; } };
@@ -907,7 +907,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
     }
     lastUpdateTelemetry = telemetry;
     updateCreatureShadows(player);
-    batSwarm.finish(performance.now() / 1000);
+    batSwarm.finish(performance.now() / 1000, hooks.ear?.position);
     // health bars: only the five nearest of those fighting you (a swarm of thirty bars is clutter, and thirty sprites)
     barCand.sort((a, b) => a.barD - b.barD);
     const want = new Set(barCand.slice(0, 5));

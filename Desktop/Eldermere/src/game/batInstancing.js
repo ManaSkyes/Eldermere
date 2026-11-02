@@ -1,7 +1,9 @@
-// src/game/batInstancing.js — spatially batched low-detail visuals for Nocturian swarms.
+// src/game/batInstancing.js — the Nocturian swarm's batched visuals.
+// createBatSwarmInstances draws the Blender model with baked wing animation (batVat.js) once it has loaded; until then,
+// or if loading fails, it uses the original low-detail proxy below (body, head and two wing planes).
 // Actors keep individual AI, movement, targets and combat. Their proxy meshes are split into world cells so
 // Three.js can frustum-cull whole cells instead of keeping one giant, always-visible swarm batch.
-export function createBatSwarmInstances(THREE, scene, capacity = 128) {
+function createProxySwarm(THREE, scene, capacity = 128) {
   const CELL = 20;
   const bodyGeo = new THREE.SphereGeometry(0.12, 7, 5);
   const headGeo = new THREE.SphereGeometry(0.075, 7, 5);
@@ -129,4 +131,22 @@ export function createBatSwarmInstances(THREE, scene, capacity = 128) {
   return { beginFrame, add, finish, dispose, get count() { return current.length; }, get batches() {
     let n = 0; for (const bucket of buckets.values()) if (bucket.actors.length) n += 3; return n;
   } };
+}
+
+import { loadBatVat, createBatVatSwarm } from './batVat.js';
+let vatData = null, vatPromise = null;
+export function createBatSwarmInstances(THREE, scene, capacity = 128) {
+  let impl = createProxySwarm(THREE, scene, capacity), frameOpen = false;
+  if (!vatPromise) vatPromise = loadBatVat(THREE).then(d => (vatData = d)).catch(err => { console.warn('[bats] VAT model unavailable, using proxies:', err); return null; });
+  vatPromise.then(d => {
+    if (!d || impl.vat || impl.disposed) return;
+    const old = impl; impl = createBatVatSwarm(THREE, scene, d); old.dispose();
+  });
+  return {
+    beginFrame() { frameOpen = true; impl.beginFrame(); },
+    add(actor) { return impl.add(actor); },
+    finish(time, camPos) { frameOpen = false; impl.finish(time, camPos); },
+    dispose() { impl.disposed = true; impl.dispose(); },
+    get count() { return impl.count; }, get batches() { return impl.batches; }, get vat() { return !!impl.vat; },
+  };
 }

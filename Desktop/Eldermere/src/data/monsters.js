@@ -111,37 +111,40 @@ export const MONSTERS = {
     resist: { slash: 0.05, pierce: 0.05, blunt: 0.05, crush: 0.05, fire: 2, lunar: 2, light: 2, dark: 0, shadow: 0 },
     lore: 'A beast of living shadow. Steel passes through it like smoke; only light truly wounds it. It sinks into the dark and rises behind its prey. A core burns inside it.',
     params: { size: [0.7, 1.6, 1, 'Size'], legs: [0.8, 1.3, 1, 'Leg length'], tail: [0.5, 1.6, 1, 'Tail'], smoke: [0, 1, 0.65, 'Smoke'], core: [0, 2, 1, 'Core glow'] },
-    // A dark, bony frame like the bat's — a long skull, a spine of thin vertebrae, a cage of ribs, thin jointed legs —
-    // and where its flesh would be, a purple aura: a rolling cloud in the shape of its body round the bones, the core
-    // burning inside the ribs.
+    // Hyena build (realism pass, Nov 2026; reference: a spotted-hyena skeleton). A short, deep-chested body whose back
+    // slopes down from tall shoulders to low hips; long forelegs, short hind legs; a thick neck and a heavy skull with a
+    // tall crest and two short, sharp nub horns; a short tail (its bushiness is smoke). Charred, rigid bones: each bone is
+    // a separate hard piece. The core burns inside the ribcage; eyes and core are the focal points.
     spec(p) {
-      const s = p.size, L = p.legs, T = p.tail, lift = (L - 1) * 0.9;              // longer legs raise the body
+      const s = p.size, L = p.legs, T = p.tail, lift = (L - 1) * 0.75;              // longer legs raise the body
       const Y = y => y + lift, c = '#07040c';
-      const leg = (x, top, z0, z1, z2) => [[x, Y(top), z0], [x + 0.02, 0.6 * L, z1], [x, 0.25 * L, z2], [x, 0.03, z2 + 0.08], [x, 0.01, z2 + 0.18]];   // hip, knee, ankle, paw, toes
-      const legR = [[0.055, 0.06], [0.04, 0.04], [0.03, 0.03], [0.024, 0.02], [0.008, 0.006]];
-      // ribs: from the spine, out, down round the chest and in under it (shorter toward the back)
+      const legR = [[0.05, 0.055], [0.036, 0.036], [0.026, 0.026], [0.022, 0.018], [0.008, 0.006]];
+      // ribs: from the spine, out, down round the deep chest and in under it (shorter toward the hips)
       const rib = (i, parent, z, yS, k) => ({ name: `rib${i}`, parent, mirror: true, color: c, sides: 8, seg: 5,
-        pts: sc(s, [[0.04, Y(yS), z], [0.2 * k, Y(yS - 0.05), z], [0.27 * k, Y(yS - 0.26 * k), z + 0.03], [0.21 * k, Y(yS - 0.48 * k), z + 0.06], [0.07, Y(yS - 0.58 * k), z + 0.08]]),
-        r: scr(s, [[0.024, 0.024], [0.02, 0.02], [0.018, 0.018], [0.015, 0.015], [0.01, 0.01]]) });
-      const ribs = [rib(0, 'spine:1', -0.12, 1.02, 0.8), rib(1, 'spine:2', 0.06, 1.06, 0.92), rib(2, 'spine:2', 0.24, 1.08, 1), rib(3, 'spine:3', 0.42, 1.1, 0.95)];
+        pts: sc(s, [[0.035, Y(yS), z], [0.16 * k, Y(yS - 0.05), z], [0.21 * k, Y(yS - 0.24 * k), z + 0.03], [0.16 * k, Y(yS - 0.44 * k), z + 0.06], [0.05, Y(yS - 0.52 * k), z + 0.08]]),
+        r: scr(s, [[0.02, 0.02], [0.017, 0.017], [0.015, 0.015], [0.013, 0.013], [0.009, 0.009]]) });
+      const ribs = [rib(0, 'spine:1', -0.14, 0.9, 0.82), rib(1, 'spine:1', 0.0, 0.94, 0.94), rib(2, 'spine:2', 0.13, 0.98, 1), rib(3, 'spine:2', 0.25, 1.0, 0.96)];
       return {
         chains: [
-          { name: 'spine', pts: sc(s, [[0, Y(0.95), -0.6], [0, Y(1.0), -0.2], [0, Y(1.08), 0.2], [0, Y(1.1), 0.5]]), r: scr(s, [[0.06, 0.07], [0.065, 0.075], [0.07, 0.08], [0.065, 0.075]]), color: c, sides: 12, seg: 6, aura: scr(s, [[0.21, 0.24], [0.25, 0.3], [0.29, 0.37], [0.25, 0.32]]) },
-          { name: 'neck', parent: 'spine:3', pts: sc(s, [[0, Y(1.12), 0.5], [0, Y(1.25), 0.75], [0, Y(1.3), 0.9]]), r: scr(s, [[0.06, 0.07], [0.05, 0.055], [0.055, 0.06]]), color: c, sides: 12, seg: 5, aura: scr(s, [[0.19, 0.22], [0.14, 0.16], [0.13, 0.14]]) },
-          { name: 'head', parent: 'neck:2', pts: sc(s, [[0, Y(1.3), 0.88], [0, Y(1.32), 1.02], [0, Y(1.24), 1.32]]), r: scr(s, [[0.1, 0.1], [0.095, 0.085], [0.035, 0.035]]), color: c, sides: 14, seg: 5, aura: scr(s, [[0.14, 0.14], [0.13, 0.12], [0.06, 0.06]]) },
-          { name: 'jaw', parent: 'head:0', pts: sc(s, [[0, Y(1.2), 0.96], [0, Y(1.13), 1.27]]), r: scr(s, [[0.045, 0.022], [0.022, 0.012]]), color: c, sides: 8 },
-          { name: 'horn', parent: 'head:0', mirror: true, pts: sc(s, [[0.06, Y(1.38), 0.92], [0.15, Y(1.5), 0.8], [0.2, Y(1.55), 0.6]]), r: scr(s, [[0.026, 0.026], [0.016, 0.016], [0.003, 0.003]]), color: c, sides: 8, fade: [0.7, 1] },
-          { name: 'scapula', parent: 'spine:3', mirror: true, pts: sc(s, [[0.05, Y(1.12), 0.48], [0.18, Y(1.0), 0.44]]), r: scr(s, [[0.035, 0.04], [0.045, 0.05]]), color: c, sides: 8 },
-          { name: 'pelvis', parent: 'spine:0', mirror: true, pts: sc(s, [[0.04, Y(0.95), -0.58], [0.17, Y(0.9), -0.56]]), r: scr(s, [[0.04, 0.045], [0.05, 0.055]]), color: c, sides: 8 },
-          { name: 'front', parent: 'scapula:1', mirror: true, pts: sc(s, leg(0.18, 1.0, 0.44, 0.5, 0.42)), r: scr(s, legR), color: c, sides: 10, seg: 5, fade: [0.72, 1], aura: scr(s, [[0.12, 0.14], [0.08, 0.085], [0.05, 0.05], [0.03, 0.03], [0.01, 0.01]]), auraFade: [0.55, 1] },
-          { name: 'hind', parent: 'pelvis:1', mirror: true, pts: sc(s, leg(0.17, 0.9, -0.56, -0.4, -0.65)), r: scr(s, legR.map(r => r.map(v => v * 1.1))), color: c, sides: 10, seg: 5, fade: [0.72, 1], aura: scr(s, [[0.14, 0.17], [0.08, 0.085], [0.05, 0.05], [0.03, 0.03], [0.01, 0.01]]), auraFade: [0.55, 1] },
-          { name: 'tail', parent: 'spine:0', pts: sc(s, [[0, Y(0.95), -0.6], [0, Y(0.9), -0.6 - 0.35 * T], [0, Y(0.75), -0.6 - 0.7 * T], [0, Y(0.65), -0.6 - 1.0 * T], [0, Y(0.6), -0.6 - 1.25 * T]]), r: scr(s, [[0.045, 0.045], [0.035, 0.035], [0.026, 0.026], [0.018, 0.018], [0.006, 0.006]]), color: c, sides: 8, seg: 5, fade: [0.65, 1], aura: scr(s, [[0.11, 0.11], [0.08, 0.08], [0.06, 0.06], [0.04, 0.04], [0.01, 0.01]]), auraFade: [0.4, 1] },
+          { name: 'spine', pts: sc(s, [[0, Y(0.8), -0.45], [0, Y(0.88), -0.18], [0, Y(0.97), 0.1], [0, Y(1.02), 0.35]]), r: scr(s, [[0.05, 0.06], [0.055, 0.065], [0.06, 0.07], [0.065, 0.075]]), color: c, sides: 12, seg: 6, aura: scr(s, [[0.2, 0.22], [0.25, 0.3], [0.29, 0.36], [0.28, 0.34]]) },
+          { name: 'neck', parent: 'spine:3', pts: sc(s, [[0, Y(1.03), 0.37], [0, Y(1.1), 0.52], [0, Y(1.15), 0.62]]), r: scr(s, [[0.07, 0.08], [0.065, 0.07], [0.06, 0.065]]), color: c, sides: 12, seg: 5, aura: scr(s, [[0.24, 0.26], [0.2, 0.22], [0.16, 0.17]]) },
+          { name: 'head', parent: 'neck:2', pts: sc(s, [[0, Y(1.15), 0.62], [0, Y(1.17), 0.8], [0, Y(1.05), 1.04]]), r: scr(s, [[0.11, 0.11], [0.09, 0.08], [0.04, 0.04]]), color: c, sides: 14, seg: 5, aura: scr(s, [[0.16, 0.16], [0.13, 0.12], [0.06, 0.06]]) },
+          { name: 'jaw', parent: 'head:0', pts: sc(s, [[0, Y(1.03), 0.66], [0, Y(0.97), 0.99]]), r: scr(s, [[0.05, 0.025], [0.024, 0.014]]), color: c, sides: 8 },
+          { name: 'horn', parent: 'head:0', mirror: true, pts: sc(s, [[0.045, Y(1.25), 0.68], [0.08, Y(1.31), 0.63], [0.1, Y(1.34), 0.58]]), r: scr(s, [[0.022, 0.022], [0.013, 0.013], [0.003, 0.003]]), color: c, sides: 8 },
+          { name: 'scapula', parent: 'spine:3', mirror: true, pts: sc(s, [[0.05, Y(1.03), 0.33], [0.16, Y(0.84), 0.37]]), r: scr(s, [[0.035, 0.04], [0.045, 0.05]]), color: c, sides: 8 },
+          { name: 'pelvis', parent: 'spine:0', mirror: true, pts: sc(s, [[0.04, Y(0.8), -0.43], [0.14, Y(0.73), -0.44]]), r: scr(s, [[0.04, 0.045], [0.05, 0.055]]), color: c, sides: 8 },
+          // forelegs long and straight; elbow, wrist, paw, toes
+          { name: 'front', parent: 'scapula:1', mirror: true, pts: sc(s, [[0.16, Y(0.84), 0.37], [0.17, 0.55 * L, 0.29], [0.16, 0.2 * L, 0.36], [0.16, 0.03, 0.42], [0.16, 0.01, 0.51]]), r: scr(s, legR), color: c, sides: 10, seg: 5, fade: [0.72, 1], aura: scr(s, [[0.13, 0.15], [0.08, 0.085], [0.05, 0.05], [0.03, 0.03], [0.01, 0.01]]), auraFade: [0.55, 1] },
+          // hind legs short and crouched: knee forward, hock back
+          { name: 'hind', parent: 'pelvis:1', mirror: true, pts: sc(s, [[0.14, Y(0.73), -0.44], [0.15, 0.47 * L, -0.28], [0.14, 0.19 * L, -0.55], [0.14, 0.03, -0.47], [0.14, 0.01, -0.38]]), r: scr(s, legR.map(r => r.map(v => v * 1.1))), color: c, sides: 10, seg: 5, fade: [0.72, 1], aura: scr(s, [[0.16, 0.18], [0.08, 0.085], [0.05, 0.05], [0.03, 0.03], [0.01, 0.01]]), auraFade: [0.55, 1] },
+          // a short tail; the bushy look comes from smoke
+          { name: 'tail', parent: 'spine:0', pts: sc(s, [[0, Y(0.8), -0.45], [0, Y(0.76), -0.45 - 0.14 * T], [0, Y(0.66), -0.45 - 0.27 * T], [0, Y(0.56), -0.45 - 0.35 * T], [0, Y(0.48), -0.45 - 0.4 * T]]), r: scr(s, [[0.035, 0.035], [0.028, 0.028], [0.022, 0.022], [0.016, 0.016], [0.006, 0.006]]), color: c, sides: 8, seg: 5, fade: [0.65, 1], aura: scr(s, [[0.1, 0.1], [0.11, 0.11], [0.12, 0.12], [0.1, 0.1], [0.06, 0.06]]) },
           ...ribs,
         ],
         parts: [
-          ...voidEyes('head:1', [0.062 * s, Y(1.36) * s, 1.07 * s], 0.026 * s),
-          { bone: 'spine:2', kind: 'sphere', at: [0, Y(0.82) * s, 0.2 * s], r: 0.08 * s, emissive: '#9a60ff' },
-          { bone: 'spine:2', kind: 'glow', at: [0, Y(0.82) * s, 0.2 * s], r: 0.4 * s * p.core, color: '#8040ff', opacity: 0.6 * Math.min(1, p.core) },
+          ...voidEyes('head:1', [0.058 * s, Y(1.2) * s, 0.83 * s], 0.024 * s),
+          { bone: 'spine:2', kind: 'sphere', at: [0, Y(0.72) * s, 0.06 * s], r: 0.075 * s, emissive: '#9a60ff' },
+          { bone: 'spine:2', kind: 'glow', at: [0, Y(0.72) * s, 0.06 * s], r: 0.4 * s * p.core, color: '#8040ff', opacity: 0.6 * Math.min(1, p.core) },
         ],
         look: { shade: true, smoke: p.smoke, coreGlow: p.core, rim: '#2a1250', body: '#030206', smokeColor: '#0c0616', aura: '#1e0c40', auraGlow: '#5a28b8', wispRise: 0.45, wispSize: 0.8, puffK: 0.6 },   // puffK: a pack creature's smoke, thinner but denser puffs (8 up close was a lot of overdraw)
       };
@@ -151,7 +154,7 @@ export const MONSTERS = {
       legs: [{ chain: 'hind.L', walk: 0, trot: 0.5 }, { chain: 'front.L', walk: 0.25, trot: 0 }, { chain: 'hind.R', walk: 0.5, trot: 0 }, { chain: 'front.R', walk: 0.75, trot: 0.5 }] },
     maxSpeed: 7,
     voice: { step: 'fiendStep', growl: 'fiendGrowl', hurt: 'fiendHurt', die: 'fiendDie' },
-    stats: { hp: 70, poise: 34, speed: 5.6, aggro: 14, radius: 0.5, height: 1.4, len: 0.6 },
+    stats: { hp: 70, poise: 34, speed: 5.6, aggro: 14, radius: 0.5, height: 1.25, len: 0.6 },
     zones: { core: { bones: ['spine:2'], mult: 2.5, at: [0, -0.25, 0] }, head: { bones: ['head:1'], mult: 1.4 }, body: { bones: ['spine:1', 'spine:3'], mult: 1 }, legs: { bones: ['front.L:1', 'front.R:1', 'hind.L:1', 'hind.R:1'], mult: 0.7 }, tail: { bones: ['tail:2'], mult: 0.5 } },
     // idle life: slow breaths, the head swinging to look, the tail coiling, the core pulsing
     idle(C, t, p) {

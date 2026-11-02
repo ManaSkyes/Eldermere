@@ -29,7 +29,22 @@ Styles are combinations, for example:
   - `ribbon()`: cards along guides.
   - `shell_cap()`: opaque cap whose strand tips fray the hairline.
   - Every vertex carries `col` (atlas column), `gid` (guide; −1 = rigid shell), `t` (root→tip), and a UV (u across / around, v root→tip; u tiles inside the column).
-- Parts live in collection `Parts`, named `<Slot>_<name>`. Done so far: `Base_short`, `Front_curtain` (first pass).
+- Parts live in collection `Parts`, named `<Slot>_<name>`. `STYLES` and `show(name)` in `hair_kit.py` preview reference looks.
+- Done (first pass), all from FF12 references:
+  - **Bases:** `Base_short`, `Base_medium`, `Base_buzz`.
+  - **Fronts:** `Front_blunt` (+ `_under`), `Front_sideswept`.
+  - **Sides:** `Sides_longlocks`, `Sides_wavy`.
+  - **Backs:** `Back_bob` (+ `_under`), `Back_wavy`.
+  - **Top:** `Top_sweptback`.
+  - **Extensions:** `Ext_braid_L/R`, `Ext_ponytail_long`.
+- Style recipes:
+  - penelo = short + blunt + long locks + braids
+  - ashe = medium + bob + side-swept
+  - balthier = buzz + swept-back top
+  - fran = medium + wavy sides + wavy back + long ponytail
+- Known issues:
+  - The long ponytail arcs too far back, and a few strands snap sideways at the cut neck (the head mesh ends there). The game's physics and body collision should settle it; refine after export.
+  - Penelo still needs braid roots, a smoother back, a crown braid band and feather ties (tie accessory).
 
 ## Still to do
 1. The remaining pilot parts, with guides exported for physics (the existing guide simulation in `hairCards.js` is kept).

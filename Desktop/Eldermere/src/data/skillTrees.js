@@ -478,6 +478,8 @@ function genericTree(id) {
 // Every visible skill's tree: hand-written where it exists, generic otherwise.
 export const SKILL_TREES = {};
 for (const id of Object.keys(SKILLS)) { if (SKILLS[id].hidden) continue; const t = WRITTEN[id] || genericTree(id); if (t) SKILL_TREES[id] = t; }
+// Use the automatic flow layout for every written and generated skill tree.
+for (const tree of Object.values(SKILL_TREES)) tree.flow ||= {};
 // Pair each side node with its opposite: same rank tier, same kind (passive with passive, active with active), same
 // order on the other side.
 const TIER_STARTS = [0, 200, 500, 1000, 5000];

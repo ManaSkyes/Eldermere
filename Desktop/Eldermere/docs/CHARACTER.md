@@ -267,3 +267,14 @@ and body and transformation are central to the game, so the whole character is b
   - Strength = (definition − 0.45)·1.25 (`setDefinition`). It fades on breasts by chest size, and is off on the face.
 - **Creator**: Body → Muscle definition (−1 smooth … +1 cut), on top of muscle and leanness. Image: docs/images/body_definition_detail.png.
 - **To re-make in Blender**: edit `body_fine.py`, rebuild `Body_Hi` (a SIMPLE subsurf ×2 of `Body_Defined`), compute the `h` attribute, then bake EMIT selected → active onto `Body_Defined` (UV `DefMap`; pass `use_selected_to_active` explicitly).
+
+### Race frames (Nov 2026)
+Races set the frame through their `macro` offsets in src/rpg/races.js. `petite`, `broad`, `long` and `defined` start from 0, not the 0.5 midpoint (`FRAME_KEYS` in humanViewer.js).
+- **Human:** Stout broad .4; Half-elf long .25; Half-Solcaste broad .45 + petite .2.
+- **Elf:** long .55, defined .15.
+- **Solcaste:** petite .45 + broad .95 (short limbs, heavy frame).
+- **Draconian:** broad .45 + long .2, defined .2.
+- **Therian:** Feline long .35; Boar broad .75; Avian petite .25 + long .25.
+- **Piscine:** long .3.
+
+Image: docs/images/race_frames.png (male; left to right: human, stout, elf, Solcaste, Draconian, feline, boar, avian, Piscine).

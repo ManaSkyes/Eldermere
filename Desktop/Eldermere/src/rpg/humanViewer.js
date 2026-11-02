@@ -1,6 +1,7 @@
 // src/rpg/humanViewer.js — step 1 test viewer for the morphable human.
 // Builds the body, clothing shells and eyes, and wires the sliders.
 import { macroWeights, DEFAULT_PARAMS } from './human.js';
+const FRAME_KEYS = { petite: 1, broad: 1, long: 1, defined: 1 };   // race offsets on these start from 0 (not the 0.5 midpoint)
 import { labelFor, detailWeights } from './humanSliders.js';
 import { createRig, applyPose, lookTwist, squatDrop } from './humanRig.js';
 import { GARMENTS, makeGarment, fitGarment, fitHang, layerOver, makeShoes, fitShoes, HANG_SIZE } from './clothing.js';
@@ -1288,7 +1289,7 @@ export function startViewer(THREE, human, ui) {
     const partSex = SEX_PARTS.map(id => (bodyState.parts[id].sex + 1) / 2);
     const mixed = partSex.some(v => Math.abs(v - partSex[0]) > 0.005);
     const effParams = { ...params, fem: mixed ? 1 : partSex[0], chestFem: mixed ? 1 : partSex[2] }, effDetails = { ...details };
-    for (const [key, v] of Object.entries(R.macro)) effParams[key] = Math.min(1, Math.max(0, (effParams[key] ?? 0.5) + v));
+    for (const [key, v] of Object.entries(R.macro)) effParams[key] = Math.min(1, Math.max(key === 'defined' ? -1 : 0, (effParams[key] ?? (key in FRAME_KEYS ? 0 : 0.5)) + v));   // (frame keys and definition start at 0, the rest at 0.5)
     for (const [key, v] of Object.entries(R.details)) effDetails[key] = Math.min(1, Math.max(-1, (effDetails[key] || 0) + v));
     const W = detailWeights(meta.modifiers, effDetails, macroWeights(effParams));
     for (const [key, v] of Object.entries(R.custom)) W[key] = (W[key] || 0) + v;

@@ -494,6 +494,7 @@ export function startViewer(THREE, human, ui) {
     fin: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, vertexColors: true, skinning: true, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }),
     membrane: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.65, vertexColors: true, skinning: true, side: THREE.DoubleSide }),
     feather: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, vertexColors: true, skinning: true, side: THREE.DoubleSide, map: featherTexture(THREE), alphaTest: 0.4 }),
+    fur: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, vertexColors: true, skinning: true }),   // furred parts (the Blender cat ear): the coat's colour, the vertex colours paint the pink inside
   };
   const partMeshes = {};
   let tailLook = () => {};                                  // set once the tail exists
@@ -521,6 +522,7 @@ export function startViewer(THREE, human, ui) {
     partMats.skin.color.copy(skinMat.color); partMats.fin.color.copy(skinMat.color).multiplyScalar(1.15);
     partMats.membrane.color.copy(race.coverA ? lin(race.coverA) : skinMat.color).multiplyScalar(0.9);
     partMats.feather.color.copy(race.coverA ? lin(race.coverA) : skinMat.color.clone().multiplyScalar(0.85));
+    partMats.fur.color.copy(cA);
     tailLook();
   }
   // color pickers fire continuously while dragging: apply at most once per frame

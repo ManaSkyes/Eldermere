@@ -5,6 +5,13 @@
 // parts grow in during a transformation and appear partially on mixed races.
 // Units: decimeters. Head frame at rest: +y up, +z forward, +x the character's left.
 
+// Parts sculpted in Blender (data/parts/*.json: { pos, col, idx } in the part's local frame, decimetres at size 1).
+// Loaded before anything is built (top-level await); a part falls back to its code-made shape if its file is missing.
+const MODELS = {};
+await Promise.all([['catEar', 'cat_ear.json']].map(([k, f]) =>
+  fetch(new URL('../../data/parts/' + f, import.meta.url)).then(r => r.ok ? r.json() : null).then(d => { if (d) MODELS[k] = d; }).catch(() => {})));
+const scaled = (m, s) => ({ pos: m.pos.map(v => v * s), idx: m.idx.slice(), col: m.col.slice() });
+
 // Shapes as tubes and fans: helpers return { pos[], idx[], col[] } in a local frame
 // (origin at the anchor, +y along the part's main direction).
 export function tube(path, radius, ringN = 10, shade = t => 1) {
@@ -203,8 +210,9 @@ export const PARTS = {
     },
   },
   catEars: {
-    name: 'Ears', material: 'skin', anchor: [0.46, 0.78, 0.25], frame: [0.15, 0.1, -0.45], sink: 0.16,
-    build(size) { return leaf(0.6 * size, 0.85 * size, { cup: -0.22, bend: -0.1, inner: 0.82, shape: t => Math.pow(1 - t, 0.85) }); },
+    name: 'Ears', material: 'fur', anchor: [0.46, 0.78, 0.25], frame: [0.15, 0.1, -0.45], sink: 0.16,
+    // the sculpted ear from Blender (data/parts/cat_ear.json) when it loaded; the old code-made leaf otherwise
+    build(size) { return MODELS.catEar ? scaled(MODELS.catEar, size) : leaf(0.6 * size, 0.85 * size, { cup: -0.22, bend: -0.1, inner: 0.82, shape: t => Math.pow(1 - t, 0.85) }); },
   },
   boarEars: {
     name: 'Ears', material: 'skin', anchor: [0.62, 0.62, 0.1], frame: [0.6, 0.3, -1.1], sink: 0.06,

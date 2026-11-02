@@ -1292,6 +1292,7 @@ export function startViewer(THREE, human, ui) {
     for (const [key, v] of Object.entries(R.details)) effDetails[key] = Math.min(1, Math.max(-1, (effDetails[key] || 0) + v));
     const W = detailWeights(meta.modifiers, effDetails, macroWeights(effParams));
     for (const [key, v] of Object.entries(R.custom)) W[key] = (W[key] || 0) + v;
+    skinDetail.setDefinition?.(W.definition, (effParams.chestFem ?? effParams.fem) * (0.4 + 0.6 * (effParams.bust ?? 0.5)));   // the fine definition bump follows the same strength as the sculpted shape
     mark('resolve');
     let P = human.compute(W);
     if (mixed) {
@@ -1381,7 +1382,7 @@ export function startViewer(THREE, human, ui) {
 
   // ---- UI ----
   const SL = [
-    ['Body', [['fem', 'Masc. ↔ Fem.', 0, 1], ['age', 'Age', 0, 1], ['muscle', 'Muscle', 0, 1], ['weight', 'Weight', 0, 1], ['height', 'Height', 0, 1], ['proportions', 'Proportions', 0, 1]]],
+    ['Body', [['fem', 'Masc. ↔ Fem.', 0, 1], ['age', 'Age', 0, 1], ['muscle', 'Muscle', 0, 1], ['weight', 'Weight', 0, 1], ['height', 'Height', 0, 1], ['proportions', 'Proportions', 0, 1], ['defined', 'Muscle definition', -1, 1]]],
     ['Frame', [['petite', 'Petite frame', 0, 1], ['broad', 'Broad frame', 0, 1], ['long', 'Long frame', 0, 1]]],
     ['Chest', [['bust', 'Size', 0, 1], ['firmness', 'Firmness', 0, 1], ['bustY', 'Height', -1, 1], ['bustSpace', 'Spacing', -1, 1], ['bustShape', 'Shape', -1, 1]]],
   ];

@@ -259,4 +259,5 @@ export const DEFAULT_PARAMS = {
   fem: 1, age: 0, muscle: 0.5, weight: 0.5, height: 0.5, proportions: 0.5,
   bust: 0.5, firmness: 0.5, bustY: 0, bustSpace: 0, bustShape: 0,
   petite: 0, broad: 0, long: 0,   // the frame (applyFrame)
+  defined: 0,   // muscle definition: -1 smooth .. +1 cut (with muscle and leanness)
 };

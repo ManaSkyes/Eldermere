@@ -259,4 +259,11 @@ and body and transformation are central to the game, so the whole character is b
 - **Definition** (`data/human/definition.json`, sculpted in `art/blender/body.blend`, text block `body_definition.py`).
   - Big forms the base mesh can hold (its torso and limb edges are ~1.5–2 cm): collarbones, neck cords, deltoid caps, abs and the V line, rib edge, spine groove, erector ridges, shoulder blades, lats, kneecaps, the teardrop, shins, calves, elbows.
   - Weight = 0.55 + (muscle − 0.5)·1.6 − heaviness·1.4, plus `defined` (an optional param). Image: docs/images/body_definition.png.
-  - Finer detail (tendons, knuckles, veins) needs a normal map, and the body has no UVs yet. That's the next step if wanted.
+- **Fine definition (bump)**: `data/human/definition_height.png` + `definition_maps.json`, sampled in `src/rpg/skinDetail.js` (`defHeight`).
+  - The body has no UVs, so the atlas is laid round the torso and each limb by cylinder projections in the neutral body's space (10 regions: torso, neck, the upper arms, forearms, thighs and shins).
+  - Seams are on the left side, the inside of the limbs and the back of the neck, and the bump fades out at them.
+  - Sculpted on a 610k-vertex copy (`Body_Hi`, text block `body_fine.py`): pectoral border, serratus, ab tendons, outer ab edge, inguinal crease, trapezius, scapula spine, vertebrae, erector, arm and leg muscle lines, kneecap outline, Achilles.
+  - Baked as height (±3 mm, then a Gaussian blur of 2.2 px).
+  - Strength = (definition − 0.45)·1.25 (`setDefinition`). It fades on breasts by chest size, and is off on the face.
+- **Creator**: Body → Muscle definition (−1 smooth … +1 cut), on top of muscle and leanness. Image: docs/images/body_definition_detail.png.
+- **To re-make in Blender**: edit `body_fine.py`, rebuild `Body_Hi` (a SIMPLE subsurf ×2 of `Body_Defined`), compute the `h` attribute, then bake EMIT selected → active onto `Body_Defined` (UV `DefMap`; pass `use_selected_to_active` explicitly).

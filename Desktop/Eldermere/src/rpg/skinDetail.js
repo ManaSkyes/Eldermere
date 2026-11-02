@@ -119,6 +119,11 @@ export function makeSkinDetail(THREE, meta, material, geometry) {
   const mask = new Float32Array(n);
   for (let i = 0; i < n; i++) { const y = P[i * 3 + 1], u = Math.min(1, Math.max(0, (y - 6.15) / 0.4)); mask[i] = u * u * (3 - 2 * u); }
   geometry.setAttribute('faceMask', new THREE.BufferAttribute(mask, 1));
+  {   // how much each vertex belongs to a breast (the definition bump fades there on a chest)
+    const bi = meta.skeleton.map((b, i) => /^breast/.test(b.name) ? i : -1).filter(i => i >= 0), bw = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let w = 0; for (let k = 0; k < 4; k++) if (bi.includes(meta.skinIndex[i * 4 + k])) w += meta.skinWeight[i * 4 + k] / 255; bw[i] = Math.min(1, w * 2.2); }
+    geometry.setAttribute('breastW', new THREE.BufferAttribute(bw, 1));
+  }
   {
     const Tt = meta.bodyTris, BN = new Float32Array(n * 3);
     for (let t = 0; t < Tt.length; t += 3) {
@@ -152,12 +157,32 @@ export function makeSkinDetail(THREE, meta, material, geometry) {
     uScarA: { value: Array.from({ length: MAX_SCARS }, () => new THREE.Vector4()) }, uScarB: { value: Array.from({ length: MAX_SCARS }, () => new THREE.Vector4()) },
   };
   material.extensions = { derivatives: true };
+  // fine muscle definition (data/human/definition_height.png, sculpted in art/blender/body.blend): a height atlas laid
+  // round the torso and each limb by cylinder projections in the neutral body's space, so it stays on the same
+  // muscles through every slider and pose; used as a bump (setDefinition: 0 = smooth .. ~1.6 = cut)
+  const DEF_N = 10;
+  Object.assign(U, { uDefTex: { value: null }, uDefK: { value: 0 }, uDefOn: { value: 0 }, uDefBreast: { value: 0 },
+    uRA: { value: Array.from({ length: DEF_N }, () => new THREE.Vector3()) }, uRB: { value: Array.from({ length: DEF_N }, () => new THREE.Vector3(0, 1e-3, 0)) },
+    uRF: { value: Array.from({ length: DEF_N }, () => new THREE.Vector3(0, 0, 1)) }, uRT: { value: Array.from({ length: DEF_N }, () => new THREE.Vector4()) },
+    uRR: { value: new Array(DEF_N).fill(1) } });
+  {
+    const base = new URL('../../data/human/', import.meta.url).href;
+    Promise.all([fetch(base + 'definition_maps.json').then(r => r.json()), new Promise((res, rej) => new THREE.TextureLoader().load(base + 'definition_height.png', res, undefined, rej))])
+      .then(([M, tex]) => {
+        M.regions.slice(0, DEF_N).forEach((R, i) => {
+          const a = new THREE.Vector3(...R.a), b = new THREE.Vector3(...R.b), w = b.clone().sub(a).normalize(), f = new THREE.Vector3(...R.front);
+          f.addScaledVector(w, -f.dot(w)).normalize();
+          U.uRA.value[i].copy(a); U.uRB.value[i].copy(b); U.uRF.value[i].copy(f); U.uRT.value[i].set(...R.tile); U.uRR.value[i] = R.r;
+        });
+        tex.anisotropy = 4; U.uDefTex.value = tex; U.uDefOn.value = 1;
+      }).catch(e => console.warn('[skin] no muscle definition map', e));
+  }
   const patch = (sh, shellU) => {
     Object.assign(sh.uniforms, U);
     if (shellU) Object.assign(sh.uniforms, shellU);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec3 basePos;\nattribute float faceMask;\nattribute float freckleBias;\nattribute float spotMask;\nattribute vec3 baseNrm;\nvarying vec3 vBaseN;\nvarying vec3 vBase;\nvarying float vFace;\nvarying float vFreckleBias;\nvarying float vSpotMask;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBase = basePos; vBaseN = baseNrm; vFace = faceMask; vFreckleBias = freckleBias; vSpotMask = spotMask;');
+      .replace('#include <common>', '#include <common>\nattribute vec3 basePos;\nattribute float breastW;\nvarying float vBreastW;\nattribute float faceMask;\nattribute float freckleBias;\nattribute float spotMask;\nattribute vec3 baseNrm;\nvarying vec3 vBaseN;\nvarying vec3 vBase;\nvarying float vFace;\nvarying float vFreckleBias;\nvarying float vSpotMask;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBase = basePos; vBreastW = breastW; vBaseN = baseNrm; vFace = faceMask; vFreckleBias = freckleBias; vSpotMask = spotMask;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform vec4 uFreck[2]; uniform vec4 uMole[2]; uniform vec4 uPig[2]; uniform vec4 uRough[2]; uniform vec4 uMove[2]; uniform vec4 uMoveP[2];
@@ -167,6 +192,24 @@ uniform vec3 uFreckCol[2]; uniform vec3 uMoleCol[2]; uniform vec3 uPatchCol[2]; 
 varying float vFreckleBias; varying float vSpotMask;
 uniform vec4 uScarA[${MAX_SCARS}]; uniform vec4 uScarB[${MAX_SCARS}];
 varying vec3 vBase; varying float vFace;
+uniform sampler2D uDefTex; uniform float uDefK, uDefOn, uDefBreast; varying float vBreastW; uniform vec3 uRA[10], uRB[10], uRF[10]; uniform vec4 uRT[10]; uniform float uRR[10];
+// sculpted definition height (m) at a neutral-space point: the two nearest limb / torso projections, blended at their borders
+float defHeight(vec3 p) {
+  float b1 = 9.0, b2 = 9.0, f1 = 0.0, f2 = 0.0; vec2 t1 = vec2(0.0), t2 = vec2(0.0);
+  for (int i = 0; i < 10; i++) {
+    vec3 a = uRA[i], ab = uRB[i] - a; float t = dot(p - a, ab) / dot(ab, ab);
+    if (t < -0.15 || t > 1.15) continue;
+    vec3 d = p - (a + ab * clamp(t, 0.0, 1.0)); float nd = length(d) / uRR[i];
+    vec3 w = normalize(ab), f = uRF[i], s = cross(w, f);
+    float u = atan(dot(d, s), dot(d, f)) / 6.2831853 + 0.5, v = (t + 0.15) / 1.3;
+    vec2 uv = uRT[i].xy + (0.02 + 0.96 * vec2(u, v)) * uRT[i].zw;
+    float fade = smoothstep(0.0, 0.04, min(u, 1.0 - u)) * smoothstep(1.7, 1.3, nd);
+    if (nd < b1) { b2 = b1; t2 = t1; f2 = f1; b1 = nd; t1 = uv; f1 = fade; } else if (nd < b2) { b2 = nd; t2 = uv; f2 = fade; }
+  }
+  if (b1 > 8.0) return 0.0;
+  float h1 = (texture2D(uDefTex, t1).r - 0.5) * f1, h2 = b2 < 8.0 ? (texture2D(uDefTex, t2).r - 0.5) * f2 : h1;
+  return mix((h1 + h2) * 0.5, h1, smoothstep(0.0, 0.2, b2 - b1)) * 0.006;
+}
 ${GLSL_NOISE}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec4 fr = mix(uFreck[1], uFreck[0], vFace), mo = mix(uMole[1], uMole[0], vFace);
@@ -298,6 +341,16 @@ ${GLSL_NOISE}`)
     float det = dot(sx, r1);
     vec3 grad = sign(det) * (hx * r1 + hy * r2);
     normal = normalize(abs(det) * normal - grad);
+  }`);
+    if (!shellU) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+  if (uDefOn > 0.5 && uDefK > 0.01 && vFace < 0.5) {
+    // muscle definition: a bump from the sculpted height (screen-space derivatives), true scale × 1.6
+    float dH = defHeight(vBase) * uDefK * 1.6 * (1.0 - uDefBreast * vBreastW);
+    vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
+    float hx = dFdx(dH), hy = dFdy(dH);
+    vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
+    float det = dot(sx, r1);
+    normal = normalize(abs(det) * normal - sign(det) * (hx * r1 + hy * r2));
   }`);
     if (!shellU) {
       // skin lets light in: the diffuse light wraps past the shadow line, more in red than in green and blue (a cheap
@@ -435,5 +488,8 @@ ${GLSL_NOISE}`)
   }
   // how much light the skin lets through (0 none .. 1.6); saved with the look
   function setTranslucency(k) { skinWrap.value.set(0.42, 0.17, 0.11).multiplyScalar(Math.max(0, k)); }
-  return { apply, setCover, shellMaterial, setShells, setClothed, setTranslucency };
+  // k: the body's definition weight (human.js macroWeights: ~0.55 average, up to 1.6 lean and muscled); breast 0..1: how
+  // much chest the body has (its pectoral lines fade there)
+  const setDefinition = (k, breast = 0) => { U.uDefK.value = Math.min(1.5, Math.max(0, ((k || 0) - 0.45) * 1.25)); U.uDefBreast.value = breast; };
+  return { apply, setCover, shellMaterial, setShells, setClothed, setTranslucency, setDefinition };
 }

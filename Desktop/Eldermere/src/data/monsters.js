@@ -113,7 +113,7 @@ export const MONSTERS = {
     params: { size: [0.7, 1.6, 1, 'Size'], legs: [0.8, 1.3, 1, 'Leg length'], tail: [0.5, 1.6, 1, 'Tail'], smoke: [0, 1, 0.65, 'Smoke'], core: [0, 2, 1, 'Core glow'] },
     // Hyena build (realism pass, Nov 2026; reference: a spotted-hyena skeleton). A short, deep-chested body whose back
     // slopes down from tall shoulders to low hips; long forelegs, short hind legs; a thick neck and a heavy skull with a
-    // tall crest and two short, sharp nub horns; a short tail (its bushiness is smoke). Charred, rigid bones: each bone is
+    // tall crest; a short tail (its bushiness is smoke). Charred, rigid bones: each bone is
     // a separate hard piece. The core burns inside the ribcage; eyes and core are the focal points.
     spec(p) {
       const s = p.size, L = p.legs, T = p.tail, lift = (L - 1) * 0.75;              // longer legs raise the body
@@ -130,7 +130,6 @@ export const MONSTERS = {
           { name: 'neck', parent: 'spine:3', pts: sc(s, [[0, Y(1.03), 0.37], [0, Y(1.1), 0.52], [0, Y(1.15), 0.62]]), r: scr(s, [[0.07, 0.08], [0.065, 0.07], [0.06, 0.065]]), color: c, sides: 12, seg: 5, aura: scr(s, [[0.24, 0.26], [0.2, 0.22], [0.16, 0.17]]) },
           { name: 'head', parent: 'neck:2', pts: sc(s, [[0, Y(1.15), 0.62], [0, Y(1.17), 0.8], [0, Y(1.05), 1.04]]), r: scr(s, [[0.11, 0.11], [0.09, 0.08], [0.04, 0.04]]), color: c, sides: 14, seg: 5, aura: scr(s, [[0.16, 0.16], [0.13, 0.12], [0.06, 0.06]]) },
           { name: 'jaw', parent: 'head:0', pts: sc(s, [[0, Y(1.03), 0.66], [0, Y(0.97), 0.99]]), r: scr(s, [[0.05, 0.025], [0.024, 0.014]]), color: c, sides: 8 },
-          { name: 'horn', parent: 'head:0', mirror: true, pts: sc(s, [[0.045, Y(1.25), 0.68], [0.08, Y(1.31), 0.63], [0.1, Y(1.34), 0.58]]), r: scr(s, [[0.022, 0.022], [0.013, 0.013], [0.003, 0.003]]), color: c, sides: 8 },
           { name: 'scapula', parent: 'spine:3', mirror: true, pts: sc(s, [[0.05, Y(1.03), 0.33], [0.16, Y(0.84), 0.37]]), r: scr(s, [[0.035, 0.04], [0.045, 0.05]]), color: c, sides: 8 },
           { name: 'pelvis', parent: 'spine:0', mirror: true, pts: sc(s, [[0.04, Y(0.8), -0.43], [0.14, Y(0.73), -0.44]]), r: scr(s, [[0.04, 0.045], [0.05, 0.055]]), color: c, sides: 8 },
           // forelegs long and straight; elbow, wrist, paw, toes

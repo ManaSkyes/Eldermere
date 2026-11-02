@@ -117,15 +117,46 @@ runner (401, needs Tightrope, also Athletics 401), Cloaked dodge (501), Ghost wa
 (5001). Acrobat: Wire slide (300, also Athletics 300), Pole swing (600), Spire hop (600), Cat's balance
 (1200), Shadow dancer (5001). Nodes may carry `also: { skill: level }` (hybrid), checked by canBuy.
 
-## Flow trees (Chain Casting first)
-`src/ui/flowTree.js` draws any tree that has a `flow` block (book.js routes `tree.flow` trees there).
-- **Shape:** the innate gate-0 node is the root, top-centre; disciplines flow down from it. Rank tiers (Unskilled → Guru) are horizontal bands that bow downward like rings around the root; empty tiers are skipped. Band labels stay pinned on the left while scrolling.
-- **Columns:** `flow.columns` sets discipline order (`core` = nodes with no `branch`). Inside a column, a node whose in-column children split gets one sub-lane per child (Rapid Fire's four families, Dual Weave / Balanced Pair). Several nodes of one chain in the same tier stack as sub-rows.
-- **Lines:** solid = prerequisite (brighter once the parent is learned); dotted = flow from the root or a column's previous technique; dashed colour-gradient = `flow.compat` synergy, curved and routed to avoid unrelated nodes. The selected node's synergies turn solid.
-- **View:** opens fitted to the whole tree. Drag to pan, mouse wheel zooms at the cursor, and the corner buttons do + / − / fit. The view is kept while you buy nodes and resets when you open a tree.
-- **Interaction:** hover = short tooltip; click = side panel (full text, rank pips, requirements, Learn button, clickable synergy list).
-- **New flow tree:** add `flow: { columns, colors, compat }` to the tree. No positions needed; layout is automatic.
-- Keep synergy-linked disciplines adjacent in `columns` (a discipline with no synergies goes on the edge) so links stay short.
+## Flow trees: layout and authoring guide
+`src/ui/flowTree.js` draws every tree that has a `flow` property. The book routes `tree.flow` trees there; others still use the old row layout. **Layout is fully automatic: never write coordinates.**
+
+### Migrate an existing tree (one line)
+1. Add `flow: {}` to the tree in `WRITTEN` (src/data/skillTrees.js), or to a `TEMPLATES` entry to switch every generic tree of that group at once.
+2. Open `tree-lab.html?tree=<skillId>` through the local server. The "Problems" box must say **No problems found**. Drag the skill slider, buy nodes and check that it reads well.
+3. Optional polish: `flow.columns`, `flow.colors`, `flow.compat`, `flow.coreName` (below).
+
+### Build a new tree
+```js
+myskill: {
+  name: 'My Skill', intro: 'One paragraph shown above the tree.',
+  branches: { left: { name: 'Left Path', text: '...' }, right: { name: 'Right Path', text: '...' } },
+  nodes: [
+    // core (no branch): the middle column
+    { id: 'basics', name: 'Basics', kind: 'passive', gate: 0, ranks: 1, innate: true, text: '...' },   // optional root
+    { id: 'step', name: 'Step', kind: 'active', gate: 200, ranks: 3, text: '...' },
+    // a branch chain: `needs` in the same branch hangs a node under its parent
+    { id: 'l1', name: 'L1', kind: 'passive', gate: 200, ranks: 3, branch: 'left', text: '...' },
+    { id: 'l2', name: 'L2', kind: 'passive', gate: 500, ranks: 3, branch: 'left', needs: ['l1'], text: '...' },
+  ],
+  flow: { compat: [['l2', 'step', 'Why these two work together.']] },
+}
+```
+Rules the layout follows (use them to shape the tree):
+- **Root:** the innate gate-0 node with no `branch`. If there isn't one, a virtual root named after the tree is drawn.
+- **Rows** = rank tier from `gate`: 0 Unskilled, 200 Apprentice, 500 Journeyman, 1000 Expert, 5000 Master, 10000 Guru.
+- **Columns** = `branch` (no branch = core). Default order: the first half of the branches, then core in the middle, then the rest. Override with `flow.columns: ['a', 'core', 'b']`.
+- **Chains:** `needs: [parent]` in the same column draws the node under its parent. A parent with 2+ children splits into side-by-side lanes. Nodes with no parent there are packed side by side automatically. `needsAny` draws dotted.
+- **One-or-the-other:** `oneOf: 'otherId'` (and the automatic side opposites) shows a ⊘ badge. Selecting the node draws a red lock link to its partner.
+- **Synergies:** `flow.compat` entries are dashed lines coloured from one branch to the other. Keep synergy-linked branches in adjacent columns.
+- **Colours:** set automatically per column; override with `flow.colors: { left: '#hex' }`. Core is gold.
+
+### Checks (run before committing)
+- `tree-lab.html`: the dropdown lists every tree (unmigrated ones are previewed as flow and marked "not migrated").
+- Browser console on tree-lab: `checkAllTrees()` lists every tree with problems. It must print an empty table.
+- What it catches: unknown ids in `needs` / `needsAny` / `oneOf` / `compat`, needing a node with a higher gate, unknown branches or columns, duplicate ids, missing `gate` / `ranks`, overlapping nodes.
+
+### View and interaction
+Opens fitted to the whole tree. Drag to pan, mouse wheel to zoom at the cursor; corner buttons for + / − / fit. Hover = short tooltip; click = side panel (text, rank pips, requirements, lock partner, Learn button, synergies).
 
 ### Chain Casting Expert / Master nodes (text only until spellcast reads them)
 - **Universal:** Chain Reserve (2000, +1 slot ×3) → Endless Chain (5000, chains past capacity at compounding mana). Backfire Ward (3000, backfires don't end chains) → Living Incantation (7000, resume interrupted chains).

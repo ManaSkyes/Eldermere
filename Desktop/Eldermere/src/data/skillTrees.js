@@ -437,6 +437,7 @@ function genericTree(id) {
     ],
     // Flow layout (src/ui/flowTree.js): discipline order, colours, and cross-discipline synergies.
     flow: {
+      coreName: 'Universal',
       columns: ['same', 'dual', 'rotation', 'core', 'rapid'],   // Universal centred under the root; chain disciplines left (synergy-linked ones adjacent), Rapid Fire right
       colors: { same: '#b5562a', rotation: '#2f7590', core: '#8a6a2e', rapid: '#8b3d78', dual: '#3f7f45' },
       compat: [
@@ -469,7 +470,7 @@ function genericTree(id) {
   const g = SKILLS[id]?.group, T = TEMPLATES[g === 'general' && CASTING.includes(id) ? 'magic' : g]; if (!T) return null;
   const S = titleOf(id), sub = t => t.replaceAll('{S}', S).replaceAll('{s}', S.toLowerCase());
   return {
-    name: S, generic: true, intro: sub(T.intro), branches: T.branches,
+    name: S, generic: true, intro: sub(T.intro), branches: T.branches, ...(T.flow ? { flow: T.flow } : {}),   // a template's `flow` switches all its trees to the flow layout
     nodes: T.nodes.map(([nid, name, kind, gate, text, ranks, extra]) => ({ id: nid, name: sub(name), kind, gate, text: sub(text), ranks, ...(extra || {}) })),
   };
 }

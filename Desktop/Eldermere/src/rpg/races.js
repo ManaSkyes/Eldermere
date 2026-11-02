@@ -48,7 +48,7 @@ export const RACES = [
     ],
   },
   {
-    id: 'therian', name: 'Therian', parts: ['tail'], hornColor: '#e8dcc0',
+    id: 'therian', name: 'Therian', staged: true, parts: ['tail'], hornColor: '#e8dcc0',
     skins: ['#e0c0a0', '#b08868', '#7a5a44'],
     subraces: [
       { name: 'Feline', custom: { 'species-feline': 1 }, details: { 'eye-corner2': 0.5, 'eye-scale': 0.4, 'nose-scale-depth': -0.5, 'mouth-upperlip-volume': -0.5, 'ear-scale': -1 }, macro: { weight: -0.1, long: 0.35, defined: 0.15 }, attach: { catEars: { size: 1 }, tailCat: { size: 1 } }, cover: { type: 'fur', face: 1, body: 1, pattern: 1, length: 0.09 }, eyes: { pupil: 'slit', color: '#9ac040' } },
@@ -70,6 +70,27 @@ export const RACES = [
 ];
 
 // Combined offsets for a race + subrace: { macro, details, custom, parts, skins }.
+// ---- Animal stages (beast races: Therian) ----
+// One slider from 1 to 4; between stages the parts blend. Each stage says how much of the race each body part takes:
+//   1 human        nothing shows (a Therian who looks fully human)
+//   2 mostly human ears, tail and eyes; a hint in the face; fur only on the ears and tail
+//   3 halfway      a clear muzzle and face, fur over most of the body, human proportions and hands
+//   4 full beast   everything
+const P0 = 0;   // (readability)
+export const ANIMAL_STAGES = [
+  {},
+  { ears: 1, tail: 1, eyes: 1, horns: 1, muzzle: 0.12, face: 0.12, head: 0.1 },
+  { ears: 1, tail: 1, eyes: 1, horns: 1, wings: 1, muzzle: 0.6, face: 0.6, head: 0.55, skinFace: 0.75, skinBody: 0.85, neck: 0.6, chest: 0.5, torso: 0.5, waist: 0.5,
+    hips: 0.5, arms: 0.6, legs: 0.6, hands: 0.35, feet: 0.5, hair: 0.5, voice: 0.6, nether: 0.5 },
+  null,   // 4: every part fully
+];
+export function stageWeights(stage) {
+  const s = Math.min(4, Math.max(1, stage)), i = Math.min(2, Math.floor(s - 1)), f = s - 1 - i;
+  const at = (k, id) => { const T = ANIMAL_STAGES[k]; return T === null ? 1 : (T[id] ?? P0); };
+  const ids = ['head', 'face', 'muzzle', 'ears', 'eyes', 'horns', 'hair', 'skinFace', 'skinBody', 'neck', 'chest', 'torso', 'waist', 'hips', 'arms', 'hands', 'legs', 'feet', 'tail', 'wings', 'voice', 'nether'];
+  const out = {}; for (const id of ids) out[id] = at(i, id) * (1 - f) + at(i + 1, id) * f; return out;
+}
+
 export function raceLayer(raceIndex, subIndex) {
   const r = RACES[raceIndex], s = r.subraces[subIndex] || {};
   const merge = (a = {}, b = {}) => { const o = { ...a }; for (const [k, v] of Object.entries(b)) o[k] = (o[k] || 0) + v; return o; };

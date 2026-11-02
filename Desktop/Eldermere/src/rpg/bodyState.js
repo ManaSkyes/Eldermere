@@ -72,8 +72,9 @@ export function createBodyState(init = {}) {
     setTrait(id, k, v) { const b = parts[id].traits[k]; parts[id].traits[k] = v; emit(id, 'trait:' + k, b, v); },
     // apply to many parts at once (a race preset, a full transformation)
     setAll(fn) { for (const id of Object.keys(parts)) fn(id, parts[id]); emit('*', 'all', null, null); },
-    preset(key, strength) {
-      body.setAll((id, p) => { p.species = key === HUMAN || key.startsWith('human:') ? { [key]: 1 } : norm({ [key]: strength }); if (key.startsWith('human:') && key !== HUMAN) p.species = norm({ [key]: strength }); });
+    // perPart (optional): { partId: 0..1 } how much of the race each part takes (a race's animal stage, races.js stageWeights)
+    preset(key, strength, perPart = null) {
+      body.setAll((id, p) => { p.species = key === HUMAN || key.startsWith('human:') ? { [key]: 1 } : norm({ [key]: strength * (perPart ? perPart[id] ?? 1 : 1) }); if (key.startsWith('human:') && key !== HUMAN) p.species = norm({ [key]: strength }); });
     },
     setSexAll(v) { body.setAll((id, p) => { p.sex = clamp(v, -1, 1); }); },
     // overall body sex (for the whole-body shape), and the totals stats read

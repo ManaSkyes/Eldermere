@@ -8,7 +8,7 @@ import { GARMENTS, makeGarment, fitGarment, fitHang, layerOver, makeShoes, fitSh
 import { makeSpringSkirt } from './springBones.js';
 import { makeSkinDetail, SCAR_TYPES, DETAIL_DEFAULTS } from './skinDetail.js';
 import { addCustomMorphs, addSpeciesTargets } from './customMorphs.js';
-import { RACES, raceLayer } from './races.js';
+import { RACES, raceLayer, stageWeights } from './races.js';
 import { createBodyState, resolveBody, BODY_PARTS, HUMAN } from './bodyState.js';
 import { makeTail, makeCape } from './tailCape.js';
 import { WEAPONS, weaponMaterials } from './weapons.js';
@@ -1759,8 +1759,13 @@ export function startViewer(THREE, human, ui) {
   });
   raceSec.append(raceRow, subWrap);
   // a race is a preset: it sets every part's species to that race at this strength
-  function applyRacePreset() { bodyState.preset(speciesKey(race.index, race.sub), race.strength); update(); }
-  makeRow(raceSec, 'Race strength', 0, 1, () => race.strength, v => { race.strength = v; bodyState.preset(speciesKey(race.index, race.sub), v); });
+  const animalRow = { row: null };
+  const stageOf = () => RACES[race.index].staged ? stageWeights(race.stage ?? 4) : null;
+  function applyRacePreset() { bodyState.preset(speciesKey(race.index, race.sub), race.strength, stageOf()); update(); if (animalRow.row) animalRow.row.hidden = !RACES[race.index].staged; }
+  makeRow(raceSec, 'Race strength', 0, 1, () => race.strength, v => { race.strength = v; bodyState.preset(speciesKey(race.index, race.sub), v, stageOf()); });
+  // beast races: how animal, in four stages (1 human, 2 mostly human, 3 halfway, 4 full beast)
+  makeRow(raceSec, 'Animal (1 human … 4 beast)', 1, 4, () => race.stage ?? 4, v => { race.stage = v; bodyState.preset(speciesKey(race.index, race.sub), race.strength, stageOf()); });
+  animalRow.row = rows[rows.length - 1].row; animalRow.row.hidden = !RACES[race.index].staged;
   makeRow(raceSec, 'Part size', -1, 1, () => race.partSize, v => { race.partSize = v; });
   makeRow(raceSec, 'Feather spread', 0, 1, () => partOptions.spread, v => { partOptions.spread = v; });
   makeRow(raceSec, 'Covering: face', 0, 1, () => race.coverFace, v => { race.coverFace = v; });
@@ -1995,6 +2000,8 @@ export function startViewer(THREE, human, ui) {
       race.index = ri; race.sub = Math.min(subIndex, RACES[ri].subraces.length - 1); race.strength = 1;
       try { buildSubs(); applyRacePreset(); } catch (err) { report(err.message || String(err)); }
     },
+    // beast races: 1 human .. 4 full beast (races.js ANIMAL_STAGES)
+    setAnimalStage(v) { race.stage = Math.min(4, Math.max(1, v)); applyRacePreset(); },
     // 0 masculine .. 1 feminine, eased over a moment
     setBodySex(target) {
       const from = params.fem, t0 = performance.now(), id = ++sexAnim;
@@ -2018,7 +2025,7 @@ export function startViewer(THREE, human, ui) {
     save() {
       return {
         version: 1, params: { ...params }, details: { ...details }, body: bodyState.toJSON(),
-        race: { index: race.index, sub: race.sub, id: RACES[race.index].id, styles: { ...race.styles }, partSize: race.partSize, coverFace: race.coverFace, coverBody: race.coverBody,
+        race: { index: race.index, sub: race.sub, id: RACES[race.index].id, stage: race.stage ?? 4, styles: { ...race.styles }, partSize: race.partSize, coverFace: race.coverFace, coverBody: race.coverBody,
           coverSize: race.coverSize, coverA: race.coverA, coverB: race.coverB, pupil: race.pupil, eyeColor: race.eyeColor, furPattern: race.furPattern, furDark: race.furDark,
           noseColor: race.noseColor, luster: race.luster, furLength: race.furLength },
         skin: '#' + skinMat.color.clone().convertLinearToSRGB().getHexString(), skinGlow,
@@ -2094,7 +2101,7 @@ export function startViewer(THREE, human, ui) {
       if (!a) return;
       try {
         if (a.race) {
-          race.index = a.race.index ?? race.index; race.sub = a.race.sub ?? 0; race.strength = 1;
+          race.index = a.race.index ?? race.index; race.sub = a.race.sub ?? 0; race.strength = 1; race.stage = a.race.stage ?? 4;
           buildSubs();
           for (const k of ['partSize', 'coverFace', 'coverBody', 'coverSize', 'coverA', 'coverB', 'pupil', 'eyeColor', 'furPattern', 'furDark', 'noseColor', 'luster', 'furLength'])
             if (a.race[k] !== undefined) race[k] = a.race[k];

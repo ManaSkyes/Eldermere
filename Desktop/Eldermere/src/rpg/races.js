@@ -17,7 +17,7 @@ export const RACES = [
     ],
   },
   {
-    id: 'elf', name: 'Elf', base: { macro: { height: 0.08, weight: -0.12, long: 0.55, defined: 0.15 }, custom: { 'race-ears-long': 1 }, details: { 'ear-shape-pointed': 1, 'cheek-bones': 0.4, 'chin-triangle': 0.3, 'eye-corner2': 0.3 } },
+    id: 'elf', name: 'Elf', base: { macro: { height: -0.085, weight: -0.12, long: 0.55, defined: 0.15 }, custom: { 'race-ears-long': 1 }, details: { 'ear-shape-pointed': 1, 'cheek-bones': 0.4, 'chin-triangle': 0.3, 'eye-corner2': 0.3 } },
     skins: ['#f4e4d8', '#e6cdb6', '#c9a98c'],
     subraces: [
       { name: 'Nature', skins: ['#e9d6bc', '#d4b896', '#b89a74'] },

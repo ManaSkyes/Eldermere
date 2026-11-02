@@ -141,7 +141,7 @@ export const MONSTERS = {
           ...ribs,
         ],
         parts: [
-          ...voidEyes('head:1', [0.066 * s, Y(1.198) * s, 0.805 * s], 0.022 * s),   // seated in the scan skull's orbits
+          ...voidEyes('head:1', [0.054 * s, Y(1.143) * s, 0.815 * s], 0.016 * s),   // seated in the scan skull's orbits
           { bone: 'spine:2', kind: 'sphere', at: [0, Y(0.72) * s, 0.06 * s], r: 0.075 * s, emissive: '#9a60ff' },
           { bone: 'spine:2', kind: 'glow', at: [0, Y(0.72) * s, 0.06 * s], r: 0.4 * s * p.core, color: '#8040ff', opacity: 0.6 * Math.min(1, p.core) },
         ],

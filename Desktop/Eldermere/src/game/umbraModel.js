@@ -52,7 +52,7 @@ async function load(THREE) {
     return g;
   });
   // the normal attribute is 4 x int8 (padded); three wants itemSize 3 for normals
-  for (const g of lods) { const a = g.getAttribute('normal'), n = a.count, v = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v[i * 3] = a.getX(i); v[i * 3 + 1] = a.getY(i); v[i * 3 + 2] = a.getZ(i); } g.setAttribute('normal', new THREE.BufferAttribute(v, 3)); }
+  for (const g of lods) { const a = g.getAttribute('normal').array, n = a.length / 4, v = new Float32Array(n * 3); for (let i = 0; i < n; i++) { v[i * 3] = a[i * 4] / 127; v[i * 3 + 1] = a[i * 4 + 1] / 127; v[i * 3 + 2] = a[i * 4 + 2] / 127; } g.setAttribute('normal', new THREE.BufferAttribute(v, 3)); }   // (r128's getX doesn't de-normalize int8)
   let hull = null;
   if (head.hull) {   // the shadow body: a hyena-shaped shell, smoothly skinned (up to 4 bones per vertex)
     const H = head.hull, n = H.verts; hull = new THREE.BufferGeometry();
@@ -119,7 +119,7 @@ float uEdge = vUmbraW.y - uGround + (uNoise(vUmbraW.xz * 18.0 + vec2(uTime * 0.7
 if (uEdge < 0.0) discard;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
 { vec3 dc = vUmbraW - uCore; float k = exp(-dot(dc, dc) / (uCoreR * uCoreR));
-  totalEmissiveRadiance += vec3(0.5, 0.26, 1.0) * k * uCoreK * 1.4;
+  totalEmissiveRadiance += vec3(0.5, 0.26, 1.0) * k * uCoreK * 0.6;
   totalEmissiveRadiance += vec3(0.6, 0.3, 1.0) * uCrack * 2.5 * k * uCoreK;   // the cracks smoulder near the core
   totalEmissiveRadiance += vec3(0.55, 0.25, 1.0) * smoothstep(0.05, 0.0, uEdge) * 2.0 * uMelt; }`);
   };
@@ -127,7 +127,7 @@ if (uEdge < 0.0) discard;`)
   return m;
 }
 
-// The shadow body: a hyena-shaped shell of living shadow round the bones. Dark violet smoke, dense at the silhouette and
+// (Unused while SHADOW_SHELL is off.) The shadow body: a hyena-shaped shell of living shadow round the bones. Dark violet smoke, dense at the silhouette and
 // thin where you look straight through it (so the bones and the core show), drifting noise, a slow ripple of the surface,
 // a violet rim, thinning out down the legs; lit from inside near the core; cut by the floor while it sinks / rises.
 const NOISE3 = `float uHash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -166,6 +166,43 @@ void main() {
   });
 }
 
+// The aura: living shadow-light flowing out of the core over the bones. A thin additive coat just off the bone surface,
+// strongest round the core and fading with distance along the skeleton; slow pulses travel outward from the core, drifting
+// noise breaks it into flickering wisps, and it clings to the bones' edges (fresnel) so it reads as a coating, not a body.
+function auraMaterial(THREE, U) {
+  return new THREE.ShaderMaterial({
+    uniforms: U, skinning: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: `#include <common>
+#include <skinning_pars_vertex>
+uniform float uTime; varying vec3 vRest, vN, vV, vW;
+void main() {
+  #include <skinbase_vertex>
+  #include <beginnormal_vertex>
+  #include <skinnormal_vertex>
+  #include <begin_vertex>
+  transformed += normal * (0.011 + 0.004 * sin(dot(position, vec3(23.0, 31.0, 17.0)) + uTime * 2.3));
+  #include <skinning_vertex>
+  #include <project_vertex>
+  vRest = position; vN = normalize(normalMatrix * objectNormal); vV = -mvPosition.xyz; vW = (modelMatrix * vec4(transformed, 1.0)).xyz;
+}`,
+    fragmentShader: `uniform vec3 uCore; uniform float uCoreK, uGround, uTime, uMelt, uOpacity, uScale;
+varying vec3 vRest, vN, vV, vW;
+${NOISE3}
+void main() {
+  if (uMelt > 0.5 && vW.y < uGround) discard;
+  float d = distance(vW, uCore) / uScale;                       // how far along the body from the core (m at size 1)
+  float reach = exp(-d * 3.4);                                  // it pours out of the core and thins with distance
+  float wave = pow(0.5 + 0.5 * sin(d * 16.0 - uTime * 2.6), 3.0);   // pulses flowing outward
+  float n = uNoise3(vRest * 10.0 + vec3(0.0, -uTime * 0.9, uTime * 0.3));
+  float wisp = smoothstep(0.45, 0.95, n * 0.85 + wave * 0.5);
+  float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
+  float I = reach * (0.08 + 1.5 * wisp) * (0.15 + 0.85 * fres) * uCoreK * (uOpacity / 0.88);
+  gl_FragColor = vec4(vec3(0.5, 0.24, 1.0) * I * 1.6, 1.0);
+}`,
+  });
+}
+const SHADOW_SHELL = false;   // the old hyena-shaped smoke shell (data.hull); off: the aura comes from the core instead
+
 // a soft additive glow (eyes and core)
 let glowTex = null;
 function glowTexture(THREE) {
@@ -184,29 +221,36 @@ export function attachUmbraModel(THREE, C, data, size = 1) {
     return new THREE.Matrix4().makeTranslation(-p.x * s, -p.y * s, -p.z * s);
   });
   const skeleton = new THREE.Skeleton(C.skeleton.bones, inv);
-  const U = { uCore: { value: new THREE.Vector3(0, -1e4, 0) }, uCoreK: { value: 1 }, uCoreR: { value: 0.16 * s }, uGround: { value: -1e4 }, uTime: { value: 0 }, uMelt: { value: 0 } };
+  const U = { uCore: { value: new THREE.Vector3(0, -1e4, 0) }, uCoreK: { value: 1 }, uCoreR: { value: 0.16 * s }, uGround: { value: -1e4 }, uTime: { value: 0 }, uMelt: { value: 0 }, uScale: { value: s } };
   const mesh = new THREE.SkinnedMesh(data.lods[0], boneMaterial(THREE, data.material, U));
   mesh.castShadow = true; mesh.receiveShadow = false; mesh.frustumCulled = false;
   C.root.add(mesh); mesh.bind(skeleton, new THREE.Matrix4().makeScale(s, s, s));
   U.uOpacity = { value: 0.88 };
   let shade = null;
-  if (data.hull) {
+  if (SHADOW_SHELL && data.hull) {
     shade = new THREE.SkinnedMesh(data.hull, hullMaterial(THREE, U)); shade.frustumCulled = false; shade.renderOrder = 2;
     shade.userData.noReflect = true; shade.userData.noCover = true;
     C.root.add(shade); shade.bind(skeleton, new THREE.Matrix4().makeScale(s, s, s));
   }
+  // the aura: a thin glowing coat over the bones that comes from the core (auraMaterial)
+  const aura = new THREE.SkinnedMesh(data.lods[1], auraMaterial(THREE, U)); aura.frustumCulled = false; aura.renderOrder = 3;
+  aura.userData.noReflect = true; aura.userData.noCover = true; aura.castShadow = false;
+  C.root.add(aura); aura.bind(skeleton, new THREE.Matrix4().makeScale(s, s, s));
   C.uniforms.uSmoke.value = 0.7;   // (monsterActors fades this to 0 while it dies; the shadow body thins with it)
 
   // eyes: a hot violet-white point in each socket with a halo; the core: a burning heart inside the ribs
   const gt = glowTexture(THREE), extra = [], glows = [];
   const at = (boneName, p) => { const b = C.bones[boneName], r = data.restOf(boneName) || new THREE.Vector3(); return { b, local: new THREE.Vector3((p[0] - r.x) * s, (p[1] - r.y) * s, (p[2] - r.z) * s) }; };
-  const eyeMat = new THREE.MeshBasicMaterial({ color: '#f2e6ff' });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: '#050208' }), pupilMat = new THREE.MeshBasicMaterial({ color: '#e9d8ff' });
   const coreMat = new THREE.MeshBasicMaterial({ color: '#c79bff' });
   const halo = (color, opacity) => new THREE.SpriteMaterial({ map: gt, color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
   for (const sx of [1, -1]) {
-    const { b, local } = at('head:1', [0.066 * sx, 1.198, 0.805]); if (!b) continue;
-    const e = new THREE.Mesh(new THREE.SphereGeometry(0.011 * s, 10, 8), eyeMat); e.position.copy(local); b.add(e); extra.push(e);
-    const h = new THREE.Sprite(halo('#9a5cff', 0.85)); h.scale.setScalar(0.09 * s); h.position.copy(local); b.add(h); extra.push(h); glows.push(h);
+    // seated in the orbit (found by ray-casting the scan skull; art/blender/umbrafiend.blend), looking forward and out
+    const { b, local } = at('head:1', [0.054 * sx, 1.143, 0.815]); if (!b) continue;
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.016 * s, 12, 10), eyeMat); e.position.copy(local); b.add(e); extra.push(e);
+    const look = new THREE.Vector3(0.55 * sx, 0.05, 0.83).normalize().multiplyScalar(0.012 * s);
+    const pu = new THREE.Mesh(new THREE.SphereGeometry(0.0055 * s, 8, 6), pupilMat); pu.position.copy(local).add(look); b.add(pu); extra.push(pu);
+    const h = new THREE.Sprite(halo('#a06cff', 1)); h.scale.setScalar(0.075 * s); h.position.copy(local).add(look); b.add(h); extra.push(h); glows.push(h);
   }
   {
     const { b, local } = at('spine:2', [0, 0.72, 0.06]);
@@ -229,15 +273,15 @@ export function attachUmbraModel(THREE, C, data, size = 1) {
   };
   C.glows = glows;   // the spec's idle() pulses C.glows
 
-  C.mesh = mesh; C.meshes = shade ? [mesh, shade] : [mesh];
-  C.setLodTier = tier => { const g = data.lods[Math.min(data.lods.length - 1, tier > 0 ? 1 : 0)]; if (mesh.geometry !== g) mesh.geometry = g; };
+  C.mesh = mesh; C.meshes = shade ? [mesh, aura, shade] : [mesh, aura];
+  C.setLodTier = tier => { const g = data.lods[Math.min(data.lods.length - 1, tier > 0 ? 1 : 0)]; if (mesh.geometry !== g) mesh.geometry = g; aura.visible = tier < 2; };
   C.setBodyVisible = on => { mesh.visible = !!on; };
   C.setGlowsVisible = on => { for (const o of extra) o.visible = !!on; };
-  C.setSmokeAuraVisible = on => { if (shade) shade.visible = !!on; };
+  C.setSmokeAuraVisible = on => { aura.visible = !!on; if (shade) shade.visible = !!on; };
   C.dispose = () => {
-    mesh.removeFromParent(); skeleton.dispose?.(); if (shade) { shade.removeFromParent(); shade.material.dispose(); }
+    mesh.removeFromParent(); aura.removeFromParent(); aura.material.dispose(); skeleton.dispose?.(); if (shade) { shade.removeFromParent(); shade.material.dispose(); }
     for (const o of extra) { o.removeFromParent(); if (o.isSprite) o.material.dispose(); else o.geometry.dispose(); }
-    eyeMat.dispose(); coreMat.dispose(); mesh.material.dispose();
+    eyeMat.dispose(); pupilMat.dispose(); coreMat.dispose(); mesh.material.dispose();
   };
   C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
   C.umbraModel = true;

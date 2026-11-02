@@ -129,7 +129,7 @@ export const MONSTERS = {
           { name: 'spine', pts: sc(s, [[0, Y(0.8), -0.45], [0, Y(0.88), -0.18], [0, Y(0.97), 0.1], [0, Y(1.02), 0.35]]), r: scr(s, [[0.05, 0.06], [0.055, 0.065], [0.06, 0.07], [0.065, 0.075]]), color: c, sides: 12, seg: 6, aura: scr(s, [[0.2, 0.22], [0.25, 0.3], [0.29, 0.36], [0.28, 0.34]]) },
           { name: 'neck', parent: 'spine:3', pts: sc(s, [[0, Y(1.03), 0.37], [0, Y(1.1), 0.52], [0, Y(1.15), 0.62]]), r: scr(s, [[0.07, 0.08], [0.065, 0.07], [0.06, 0.065]]), color: c, sides: 12, seg: 5, aura: scr(s, [[0.24, 0.26], [0.2, 0.22], [0.16, 0.17]]) },
           { name: 'head', parent: 'neck:2', pts: sc(s, [[0, Y(1.15), 0.62], [0, Y(1.17), 0.8], [0, Y(1.05), 1.04]]), r: scr(s, [[0.11, 0.11], [0.09, 0.08], [0.04, 0.04]]), color: c, sides: 14, seg: 5, aura: scr(s, [[0.16, 0.16], [0.13, 0.12], [0.06, 0.06]]) },
-          { name: 'jaw', parent: 'head:0', pts: sc(s, [[0, Y(1.03), 0.66], [0, Y(0.97), 0.99]]), r: scr(s, [[0.05, 0.025], [0.024, 0.014]]), color: c, sides: 8 },
+          { name: 'jaw', parent: 'head:0', pts: sc(s, [[0, Y(1.032), 0.712], [0, Y(0.97), 0.99]]), r: scr(s, [[0.05, 0.025], [0.024, 0.014]]), color: c, sides: 8 },
           { name: 'scapula', parent: 'spine:3', mirror: true, pts: sc(s, [[0.05, Y(1.03), 0.33], [0.16, Y(0.84), 0.37]]), r: scr(s, [[0.035, 0.04], [0.045, 0.05]]), color: c, sides: 8 },
           { name: 'pelvis', parent: 'spine:0', mirror: true, pts: sc(s, [[0.04, Y(0.8), -0.43], [0.14, Y(0.73), -0.44]]), r: scr(s, [[0.04, 0.045], [0.05, 0.055]]), color: c, sides: 8 },
           // forelegs long and straight; elbow, wrist, paw, toes
@@ -141,7 +141,7 @@ export const MONSTERS = {
           ...ribs,
         ],
         parts: [
-          ...voidEyes('head:1', [0.058 * s, Y(1.2) * s, 0.83 * s], 0.024 * s),
+          ...voidEyes('head:1', [0.066 * s, Y(1.198) * s, 0.805 * s], 0.022 * s),   // seated in the scan skull's orbits
           { bone: 'spine:2', kind: 'sphere', at: [0, Y(0.72) * s, 0.06 * s], r: 0.075 * s, emissive: '#9a60ff' },
           { bone: 'spine:2', kind: 'glow', at: [0, Y(0.72) * s, 0.06 * s], r: 0.4 * s * p.core, color: '#8040ff', opacity: 0.6 * Math.min(1, p.core) },
         ],

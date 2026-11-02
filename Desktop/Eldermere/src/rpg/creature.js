@@ -229,7 +229,7 @@ export function buildCreature(THREE, spec, { particles = null, instances = null,
   // the aura: the body's would-be flesh as a rolling purple cloud — a dark inner cloud and a faint glow round it
   if (auraGeo && !P) {
     for (const [inflate, glow] of [[0.02, false]]) {   // (one layer: the haze carries the glow at its heart itself)
-      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true;   // (the puddles show its bones, not its haze) root.add(am); am.bind(skeleton); meshes.push(am); smokeAuraMeshes.push(am);
+      const am = new THREE.SkinnedMesh(auraGeo, auraMaterial(THREE, uniforms, look, inflate, glow)); am.frustumCulled = false; am.renderOrder = glow ? 3 : 1; am.userData.noReflect = true; am.userData.noCover = true; root.add(am); am.bind(skeleton); meshes.push(am); smokeAuraMeshes.push(am);   // (the puddles show its bones, not its haze)
     }
   }
   // wisps: dark smoke rising off a shade's body (points that start at random bones and drift up and away)

@@ -43,6 +43,7 @@ export const PLANTS = [
   m('pepper', 'Ember pepper', 'plant', 'food', 2, 'herbalism', { nourish: 5, flavor: 80, potency: 30, element: 'fire' }, { proposed: true, note: 'a chili whose heat became real warmth' }),
   // alchemy
   m('yarrow', 'Yarrow', 'plant', 'herb', 0, 'herbalism', { potency: 25, use: 'stops bleeding, closes small wounds' }),
+  m('sunCupTulip', 'Sun Cup tulip', 'plant', 'herb', 0, 'herbalism', { potency: 20, use: 'a bright, mild flower used in simple herbal preparations' }),
   m('chamomile', 'Chamomile', 'plant', 'herb', 0, 'herbalism', { potency: 20, use: 'calms, eases sleep and pain' }),
   m('mint', 'Mint', 'plant', 'herb', 0, 'herbalism', { potency: 15, use: 'clears the head; a base for tonics' }),
   m('valerian', 'Valerian', 'plant', 'herb', 1, 'herbalism', { potency: 35, use: 'deep sleep; sedatives' }),

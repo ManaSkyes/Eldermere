@@ -23,6 +23,11 @@ import { buildCreature } from '../rpg/creature.js';
 import { createSwingTrail } from '../gfx/swingTrail.js';
 import { createHarvest } from './harvest.js';
 import { learnKill, learnHit, known as knownBeast } from '../rpg/bestiary.js';
+import { discoverPlant } from '../rpg/herbarum.js';
+import { gatherQuality } from '../rpg/quality.js';
+import { MATERIALS } from '../data/materials.js';
+import { buildHerbariumSpecimen } from '../gfx/herbariumModel.js';
+import { createGatherables } from './gatherables.js';
 import { capacity, loadOf, encumbrance } from '../rpg/carry.js';
 import { ITEMS } from '../rpg/equipment.js';
 import { noiseOf, visibilityOf, stepAwareness, awarenessLabel, STEALTH } from '../rpg/stealth.js';
@@ -38,6 +43,7 @@ import { createMonsterActors } from './monsterActors.js';
 import { createSpellcast } from './spellcast.js';
 import { buildDungeonShapes, lightDungeon } from './dungeonBuild.js';
 import { createDungeonObjects } from './dungeonObjects.js';
+import { createGroundLoot } from './groundLoot.js';
 import { createEnemies } from './enemies.js';
 import { OBJECTS, ENEMY_TYPES, variantOf, statsOf, migrateEnemies } from '../data/objects.js';
 import { globalsOf, sunDirection } from '../data/globals.js';
@@ -164,9 +170,11 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   const dummies = createDummies(THREE, scene, TG ? [{ x: 5.5, z: 8.5, yaw: 2.6 }, { x: 7.5, z: 6.5, yaw: 2.2 }, { x: 4.0, z: 11.0, yaw: 2.9 }] : []);
   shapes.push(...dummies.shapes);
   buildTestGrounds(THREE, scene, shapes, dungeon?.decor || [], dungeon?.pathSurfaces || [], dungeon?.groundSplat || null, { field: TG });
+  const gatherables=dungeon?createGatherables(THREE,scene,playtest,DUNGEON_ORIGIN,shapes):null;
   // the map's global settings from the creator's Global tab (src/data/globals.js)
   const G = globalsOf(playtest);
   const dungeonObjs = dungeon ? createDungeonObjects(THREE, scene, playtest, DUNGEON_ORIGIN, shapes) : null;   // its traps and triggers
+  const groundLoot = dungeon ? createGroundLoot(THREE, scene, playtest, DUNGEON_ORIGIN) : null;
   const enemies = dungeon ? createEnemies(THREE, scene, playtest, DUNGEON_ORIGIN, shapes, { floatText: (...a) => dummies.floatText(...a) }) : null;   // and its enemies
   // the new monsters (docs/MONSTERS.md; the F8 panel spawns them in front of you for now)
   const particles = createParticles(THREE, scene);
@@ -846,6 +854,64 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     }
     return null;
   }
+  // Gatherable plants are map objects, placed from the creator's Objects → Gatherables palette.
+  function nearGatherable() {
+    if (!playtest?.objects) return null;
+    const st = player.state;
+    let best = null, bestD = 2.4;
+    for (const o of playtest.objects) {
+      if (OBJECTS[o.type]?.cat !== 'gatherable') continue;
+      if(o.harvestedUntil&&o.harvestedUntil>Date.now())continue;
+      if(o.harvestedUntil&&o.harvestedUntil<=Date.now())delete o.harvestedUntil;
+      const dx = DUNGEON_ORIGIN.x + o.x - st.pos.x, dz = DUNGEON_ORIGIN.z + o.z - st.pos.z, dist = Math.hypot(dx, dz);
+      if (dist < bestD && dist > 0.001 && (-Math.sin(st.yaw) * dx - Math.cos(st.yaw) * dz) / dist > 0.15) { best = o; bestD = dist; }
+    }
+    return best;
+  }
+  function nearGroundLoot() { return groundLoot?.nearest(player.state.pos, player.state.yaw) || null; }
+  function pickGroundLoot(drop) {
+    if (!drop || !body) return false;
+    const started = body.act('pickup', { onEvent: event => {
+      if (event !== 'take' || drop.picked) return;
+      const id = drop.itemId;
+      if (!ITEMS[id]) { toast('This ground item has no usable item definition.'); return; }
+      addItem(inv, { id }); groundLoot.take(drop); updateLoad(); book.render();
+      toast(ITEMS[id].name + ' added to your pack. Equip it from Character → Main hand.');
+    } });
+    if (started) toast('Picking up ' + drop.name + '…');
+    return started;
+  }
+  function gatherPlant(plant) {
+    if(!plant||!body||(plant.harvestedUntil&&plant.harvestedUntil>Date.now()))return false;
+    const material=MATERIALS[plant.type];
+    if(!material||material.category!=='plant'){toast('This plant has no gathering record yet.');return false;}
+    const assignedTool=character.toolSlots?.herbalism,legacyEquipped=body.gear.equipped().mainHand==='herbalTool';
+    if(assignedTool?.id!=='herbalTool'&&!legacyEquipped){toast('Assign the Crude Scythe and Trowel to the Herbalism tool slot in your book (Tab → Tools).');return false;}
+    const previousMain=body.gear.equipped().mainHand||null,wasDrawn=body.combat.drawn;
+    if(previousMain!=='herbalTool'){const equipped=body.gear.equip('herbalTool');if(!equipped.ok){toast(equipped.reason);return false;}}
+    const restoreTool=()=>{
+      const restoreGear=()=>{
+        if(previousMain&&previousMain!=='herbalTool')body.gear.equip(previousMain);
+        else if(previousMain!=='herbalTool')body.gear.unequip('mainHand');
+        if(previousMain&&wasDrawn)body.combat.draw();
+      };
+      if(body.combat.drawn)body.combat.sheathe({onEnd:restoreGear});else restoreGear();
+    };
+    const dx=DUNGEON_ORIGIN.x+plant.x-player.state.pos.x,dz=DUNGEON_ORIGIN.z+plant.z-player.state.pos.z;
+    if(Math.hypot(dx,dz)>0.001)player.state.yaw=Math.atan2(-dx,-dz);
+    bodyYaw=player.state.yaw;turnInPlace=false;
+    const started=body.actHerbalism({onEnd:()=>{
+      const quality=gatherQuality(character,material.id,{tool:0.6,region:0.5});
+      const added=addMaterial(inv,material.id,quality,1,false);
+      discoverPlant(character,material.id);
+      plant.harvestedUntil=Date.now()+5*60*1000;
+      book.render();updateLoad();
+      toast(added?'Gathered '+material.name+' ×1. Its quality is unappraised.':material.name+' was too damaged to keep.');
+      restoreTool();
+    }});
+    if(!started){restoreTool();return false;}
+    toast('Gathering '+material.name+'…');return true;
+  }
   const nearRack = () => !!nearStation();
   function openRack(kind = 'weapons') {
     invOpen = true; input.unlock(); showPause(false);
@@ -1081,6 +1147,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (sneakXp >= 1) { train(character, 'sneak', sneakXp * 0.6, { stats: ['dexterity'], approach: true }); sneakXp = 0; }
     }
     dungeonObjs?.update(dt, performance.now() / 1000, { pos: st.pos, height: player.height, invulnerable: st.invulnerable }, (pts, why) => hurt(Math.min(1, pts / Math.max(1, d.maxHp)), why), enemies?.units || []);
+    gatherables?.update();
     if (probe.on) {
       const otherMs = Math.max(0, performance.now() - courseT0 - monsterMs);
       probeLaps['World update overhead (excluding monsters)'] = (probeLaps['World update overhead (excluding monsters)'] || 0) * 0.9 + otherMs * 0.1;
@@ -1984,6 +2051,25 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h); renderer.render(beast.scene, beast.cam); renderer.setScissorTest(false);
     renderer.setViewport(0, 0, cr.width, cr.height);
   }
+  const herbModel={id:null,root:null,scene:new THREE.Scene(),cam:new THREE.PerspectiveCamera(30,1,0.01,100),spin:0,size:1,mid:new THREE.Vector3()};
+  herbModel.scene.background=new THREE.Color('#2b2433');herbModel.scene.add(new THREE.HemisphereLight('#fff4e0','#3a3040',1));
+  {const d=new THREE.DirectionalLight('#ffffff',1.15);d.position.set(3,5,4);herbModel.scene.add(d);}
+  function renderHerbarium(dt){
+    const id=book.herbId,r=book.herbRect();if(!id||!r||r.width<4||r.height<4)return;
+    if(herbModel.id!==id){
+      if(herbModel.root){herbModel.scene.remove(herbModel.root);herbModel.root.traverse(o=>{if(o.isMesh){o.geometry?.dispose?.();if(Array.isArray(o.material))o.material.forEach(m=>m.dispose?.());else o.material?.dispose?.();}});}
+      herbModel.id=id;herbModel.root=buildHerbariumSpecimen(THREE,id);if(!herbModel.root)return;herbModel.scene.add(herbModel.root);
+      const box=new THREE.Box3().setFromObject(herbModel.root);box.getCenter(herbModel.mid);herbModel.size=Math.max(0.25,box.getBoundingSphere(new THREE.Sphere()).radius*2);
+    }
+    herbModel.spin+=dt*0.18;herbModel.root.rotation.y=herbModel.spin+book.turn;
+    const cr=canvas.getBoundingClientRect(),x=r.left-cr.left+6,y=cr.bottom-r.bottom+6,w=r.width-12,h=r.height-12;
+    if(w<=0||h<=0)return;
+    herbModel.cam.aspect=w/h;herbModel.cam.updateProjectionMatrix();
+    const fov=herbModel.cam.fov*Math.PI/180,dist=(herbModel.size*0.62)/Math.tan(fov/2)/Math.max(0.5,Math.min(1,herbModel.cam.aspect));
+    herbModel.cam.position.set(herbModel.mid.x+dist*0.55,herbModel.mid.y+dist*0.25,herbModel.mid.z+dist);herbModel.cam.lookAt(herbModel.mid);
+    herbModel.cam.near=Math.max(0.01,dist/100);herbModel.cam.far=Math.max(100,dist*8);herbModel.cam.updateProjectionMatrix();
+    renderer.setScissorTest(true);renderer.setScissor(x,y,w,h);renderer.setViewport(x,y,w,h);renderer.render(herbModel.scene,herbModel.cam);renderer.setScissorTest(false);renderer.setViewport(0,0,cr.width,cr.height);
+  }
   // the performance panel's breakdown of the game's own time (each part since the one before; smoothed)
   const probeLaps = {}; let lapT = 0;
   const lap = k => { if (!probe.on) return; const n = performance.now(); probeLaps[k] = (probeLaps[k] || 0) * 0.9 + (n - lapT) * 0.1; lapT = n; };
@@ -2180,12 +2266,14 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       if (input.pressed('inventory')) openInventory();
       if (input.pressed('checkpoint') && activeCp) respawn(activeCp, `Back to ${activeCp.name}.`);
       if (input.pressed('view')) { thirdPerson = !thirdPerson; tpWant = thirdPerson ? tpLast : 0; if (thirdPerson) tpCur = Math.max(tpCur, 0.8); toast(thirdPerson ? 'Third-person view' : 'First-person view'); }
-      if (input.pressed('interact') && nearStation()) nearStation().open();
+      if (input.pressed('interact')) { const drop = nearGroundLoot(), plant = !drop && nearGatherable(); if (drop) pickGroundLoot(drop); else if (plant) gatherPlant(plant); else nearStation()?.open(); }
       wheelUpdate();
       combat.update(dt, input, allTargets(), true);
-      comboHud.update(combat.timing);
-      crossEl?.classList.toggle('recover', combat.recovering);
       castHud(spells.update(dt, input, allTargets(), true));
+      // Spell update can create a chain prompt this frame; render its timing immediately.
+      comboHud.update(spells.timing || combat.timing);
+      if (spells.perfectFlash > 0) comboHud.flash();
+      crossEl?.classList.toggle('recover', combat.recovering);
       // fixed small steps keep collisions solid at low frame rates
       const steps = Math.ceil(dt / 0.0084);
       refreshNear(player.state.pos.x, player.state.pos.z);
@@ -2203,7 +2291,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
         box.querySelector('.rune').className = `rune s-${sp.school}`; box.querySelector('.rune').textContent = SCHOOL_GLYPH[sp.school] || '✦';
         box.querySelector('b').textContent = sp.name; box.querySelector('small').textContent = lay ? `${Math.ceil(pr.mana)} MP · Q to change` : 'no focus in hand';
         box.classList.toggle('nofocus', !lay); } }
-    { const ns = input.locked && !wheel.open && nearStation(); promptEl.textContent = ns ? `${keyName(input.bindings.interact[0])}: ${ns.name}` : ''; }
+    { const drop = input.locked && !wheel.open && nearGroundLoot(), plant = !drop && input.locked && !wheel.open && nearGatherable(), ns = !drop && !plant && input.locked && !wheel.open && nearStation(); promptEl.textContent = drop ? keyName(input.bindings.interact[0]) + ': pick up ' + drop.name : plant ? keyName(input.bindings.interact[0]) + ': gather ' + (OBJECTS[plant.type]?.name || 'plant') : ns ? keyName(input.bindings.interact[0]) + ': ' + ns.name : ''; }
     regen(dt);
     if (input.locked) stealth(dt);
     lap('Stealth');
@@ -2429,6 +2517,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if (bench.on) benchStep(cpu1 - cpu0, cpu2 - cpu1);
     if (book.isOpen && body) renderFigure();
     if (book.isOpen) renderBeast(dt);
+    if(book.isOpen)renderHerbarium(dt);
     const st = player.state, S = player.stats();
     bar.style.setProperty('--f', Math.max(0, Math.min(1, st.stamina / S.maxStamina)).toFixed(3));
     bar.classList.toggle('exhausted', st.exhausted);

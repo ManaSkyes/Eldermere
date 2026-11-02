@@ -14,24 +14,31 @@ export function createInventory() { return { stacks: {}, items: [] }; }
 
 function stackOf(inv, id) { return inv.stacks[id] || (inv.stacks[id] = { unknown: [], grades: {} }); }
 
-// Add units of a material. known: true if the quality is already known (crafted by you, bought
-// from a trusted merchant); otherwise it goes in unappraised.
+// Add units of a material. Quality rounds to the nearest 10; a result of 0 (raw quality 0..4)
+// is a failure and creates no item. known: true if quality is already known; otherwise it is
+// stored unappraised. Returns the number of units actually added.
 export function addMaterial(inv, id, quality, count = 1, known = false) {
+  const g = grade(quality);
+  if (g === 0 || count <= 0) return 0;
   const st = stackOf(inv, id);
-  if (known) st.grades[grade(quality)] = (st.grades[grade(quality)] || 0) + count;
+  if (known) st.grades[g] = (st.grades[g] || 0) + count;
   else for (let i = 0; i < count; i++) st.unknown.push(quality);
+  return count;
 }
 
-// Try to appraise every unknown unit of a stack. Returns { appraised, failed }.
+// Try to appraise every unknown unit of a stack. Returns { appraised, failed, ruined }.
+// `failed` remains unappraised for another attempt; `ruined` rounded to quality 0 and is discarded.
 export function appraiseStack(inv, c, id, rand = Math.random) {
-  const st = inv.stacks[id]; if (!st) return { appraised: 0, failed: 0 };
-  const still = []; let appraised = 0;
+  const st = inv.stacks[id]; if (!st) return { appraised: 0, failed: 0, ruined: 0 };
+  const still = []; let appraised = 0, ruined = 0;
   for (const q of st.unknown) {
     const g = appraise(c, id, q, rand);
-    if (g === null) still.push(q); else { st.grades[g] = (st.grades[g] || 0) + 1; appraised++; }
+    if (g === null) still.push(q);
+    else if (g === 0) ruined++;
+    else { st.grades[g] = (st.grades[g] || 0) + 1; appraised++; }
   }
   const failed = still.length; st.unknown = still;
-  return { appraised, failed };
+  return { appraised, failed, ruined };
 }
 
 export const countOf = (inv, id, minGrade = 0) => Object.entries(inv.stacks[id]?.grades || {}).reduce((t, [g, n]) => t + (+g >= minGrade ? n : 0), 0);

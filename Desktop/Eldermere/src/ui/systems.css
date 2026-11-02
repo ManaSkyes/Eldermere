@@ -275,7 +275,6 @@ tr[data-spell] { cursor: grab; }
 .spellbook-item .acts { margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .spellbook-item.known { background: rgba(255,240,210,0.75); }
 
-
 /* ---- vitals, bottom left: a health potion, a mana potion just behind it, a yellow stamina vial to
    the left, a breath vial when you're short of air, and the readied spell in a box to the right ----
    Each .bar has --f (0..1): how full it is. */
@@ -347,7 +346,6 @@ tr[data-spell] { cursor: grab; }
 .beast-fig { position: relative; flex: 1; min-height: 260px; border: 6px solid #6e4a2e; box-shadow: inset 0 0 0 2px #2c1a10, 0 0 0 1px var(--rule); cursor: grab; touch-action: none; }
 .beast-fig:active { cursor: grabbing; }
 .bst-regions { align-self: center; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 4px; background: rgba(255,250,240,.4); opacity: .6; }
-
 
 /* ---------- Character book: leather cover and proper parchment leaves ---------- */
 .book {
@@ -450,7 +448,6 @@ tr[data-spell] { cursor: grab; }
   .pages { inset: 0.2rem 0.2rem 0.2rem 0.48rem; }
 }
 
-
 /* Character and Bestiary share the game canvas. Keep the book and page
    surfaces transparent on these two tabs; frame only the four narrow edges
    of each live render window. The center must remain completely clear. */
@@ -467,3 +464,437 @@ tr[data-spell] { cursor: grab; }
   overflow: hidden;
   box-shadow: none;
 }
+
+/* Bestiary collection: blank field-guide slots become sigils as creatures are discovered. */
+.bestiary .beast-collection { display:flex; flex-direction:column; min-height:0; }
+.beast-collection-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0 1rem .65rem; border-bottom:1px solid var(--rule); }
+.beast-collection-head h2 { margin:.2rem 0; font-family:var(--caps); font-weight:500; font-size:1.6rem; }
+.beast-collection-head .hint { margin:.1rem 0; }
+.beast-collection-head strong { font-size:1.25rem; white-space:nowrap; color:var(--accent); }
+.beast-collection-head strong small { font-size:.72rem; color:var(--ink-soft); font-weight:400; }
+.beast-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:.65rem; padding:1rem; overflow-y:auto; align-content:start; }
+.beast-slot { min-width:0; min-height:116px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; padding:.55rem .35rem; border:1px solid rgba(91,65,39,.3); border-radius:5px; background:rgba(255,250,240,.34); color:var(--ink-b); font:inherit; }
+.beast-slot.discovered { cursor:pointer; background:linear-gradient(145deg,rgba(255,255,255,.48),rgba(192,164,116,.18)); border-color:rgba(121,53,43,.45); }
+.beast-slot.discovered:hover { transform:translateY(-2px); box-shadow:0 3px 10px rgba(55,35,17,.18); }
+.beast-slot.undiscovered { opacity:.62; border-style:dashed; background:rgba(90,70,48,.055); }
+.beast-slot-icon { width:48px; height:48px; display:grid; place-items:center; border:1px solid currentColor; border-radius:50%; font-family:var(--caps); font-size:1.65rem; color:var(--accent); background:radial-gradient(circle,rgba(121,53,43,.12),transparent 70%); }
+.beast-slot.undiscovered .beast-slot-icon { color:var(--ink-soft); border-color:rgba(91,65,39,.35); background:transparent; }
+.beast-slot-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.82rem; }
+.beast-slot-state { font-size:.65rem; color:var(--ink-soft); }
+.bestiary .bst-nav button { width:auto; padding:0 .65rem; font-size:.8rem; }
+
+/* Bestiary collection: blank field-guide slots become sigils as creatures are discovered. */
+.bestiary .beast-collection { display:flex; flex-direction:column; min-height:0; }
+.beast-collection-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0 1rem .65rem; border-bottom:1px solid var(--rule); }
+.beast-collection-head h2 { margin:.2rem 0; font-family:var(--caps); font-weight:500; font-size:1.6rem; }
+.beast-collection-head .hint { margin:.1rem 0; }
+.beast-collection-head strong { font-size:1.25rem; white-space:nowrap; color:var(--accent); }
+.beast-collection-head strong small { font-size:.72rem; color:var(--ink-soft); font-weight:400; }
+.beast-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:.65rem; padding:1rem; overflow-y:auto; align-content:start; }
+.beast-slot { min-width:0; min-height:116px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; padding:.55rem .35rem; border:1px solid rgba(91,65,39,.3); border-radius:5px; background:rgba(255,250,240,.34); color:var(--ink-b); font:inherit; }
+.beast-slot.discovered { cursor:pointer; background:linear-gradient(145deg,rgba(255,255,255,.48),rgba(192,164,116,.18)); border-color:rgba(121,53,43,.45); }
+.beast-slot.discovered:hover { transform:translateY(-2px); box-shadow:0 3px 10px rgba(55,35,17,.18); }
+.beast-slot.undiscovered { opacity:.62; border-style:dashed; background:rgba(90,70,48,.055); }
+.beast-slot-icon { width:48px; height:48px; display:grid; place-items:center; border:1px solid currentColor; border-radius:50%; font-family:var(--caps); font-size:1.65rem; color:var(--accent); background:radial-gradient(circle,rgba(121,53,43,.12),transparent 70%); }
+.beast-slot.undiscovered .beast-slot-icon { color:var(--ink-soft); border-color:rgba(91,65,39,.35); background:transparent; }
+.beast-slot-name { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; font-size:.82rem; }
+.beast-slot-state { font-size:.65rem; color:var(--ink-soft); }
+.bestiary .bst-nav button { width:auto; padding:0 .65rem; font-size:.8rem; }
+
+/* Bestiary taxonomy: discovered entries are grouped by family and order. */
+.beast-family { padding: .7rem 1rem .3rem; border-bottom: 1px solid rgba(91,65,39,.2); }
+.beast-family-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.2rem 0 .5rem; }
+.beast-family-head h3 { margin:0; font-family:var(--caps); font-size:1.25rem; font-weight:500; }
+.beast-family-head p, .beast-order header p { margin:.15rem 0 0; color:var(--ink-soft); font-size:.76rem; }
+.beast-family-head small { color:var(--ink-soft); white-space:nowrap; }
+.beast-order { padding:.45rem 0 .2rem .65rem; }
+.beast-order header { display:flex; align-items:baseline; flex-wrap:wrap; gap:.25rem .7rem; }
+.beast-order h3 { margin:0; color:var(--accent); font-size:.9rem; font-weight:650; }
+.beast-order .beast-grid { padding:.5rem 0 .25rem; }
+.beast-unidentified { background:rgba(90,70,48,.035); }
+.beast-classification { display:flex; flex-direction:column; gap:.2rem; margin:.55rem 0 .8rem; padding:.65rem .8rem; border-left:3px solid var(--accent); background:rgba(121,53,43,.07); }
+.beast-classification small { color:var(--ink-soft); font-size:.62rem; letter-spacing:.12em; }
+.beast-classification b { font-family:var(--caps); font-size:.9rem; font-weight:500; }
+.beast-classification strong { color:var(--accent); font-size:1.12rem; }
+.beast-classification p { margin:.15rem 0 0; font-size:.8rem; color:var(--ink-soft); }
+.beast-hazard-line { margin:.25rem 0 .6rem; }
+
+/* The Bestiary's collection leaf is parchment; creature entries must stay
+   transparent so their live 3D preview continues to show through the book. */
+.pages.pages-bestiary:has(.beast-collection) {
+  background:
+    radial-gradient(ellipse at 48% 42%, rgba(255,250,235,.96), rgba(242,231,205,.97) 68%, rgba(220,201,166,.98)),
+    repeating-linear-gradient(3deg, rgba(105,76,43,.025) 0 1px, transparent 1px 5px);
+  box-shadow: inset 0 0 28px rgba(91,65,39,.16);
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection {
+  flex: 1;
+  overflow-y: auto;
+  background: transparent;
+}
+
+/* Bestiary pagination: one leaf per creature order, with compact jump tabs. */
+.beast-collection { height:100%; min-height:0; }
+.beast-page-nav { display:flex; align-items:center; gap:.35rem; padding:.55rem .65rem; border-bottom:1px solid rgba(91,65,39,.22); }
+.beast-page-arrow { flex:0 0 2rem; height:2rem; border:1px solid var(--rule); border-radius:4px; background:rgba(255,250,240,.72); color:var(--ink-b); font:1.35rem/1 Georgia,serif; cursor:pointer; }
+.beast-page-arrow:disabled { opacity:.3; cursor:default; }
+.beast-page-tabs { display:flex; flex:1; min-width:0; gap:.25rem; overflow-x:auto; scrollbar-width:thin; padding:.12rem .1rem .25rem; }
+.beast-page-tab { flex:0 0 auto; max-width:10rem; padding:.35rem .55rem; border:1px solid rgba(91,65,39,.25); border-radius:4px; background:rgba(255,250,240,.4); color:var(--ink-soft); font:inherit; font-size:.72rem; white-space:nowrap; cursor:pointer; }
+.beast-page-tab:hover { background:rgba(255,250,240,.85); color:var(--ink-b); }
+.beast-page-tab.on { border-color:var(--accent); background:rgba(121,53,43,.12); color:var(--accent); box-shadow:inset 0 -2px 0 var(--accent); font-weight:650; }
+.beast-type-page { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
+.beast-type-page > .beast-family-head { padding:.8rem 1rem .35rem; }
+.beast-type-page > .beast-family-head h3 { margin:.1rem 0; font-family:var(--caps); font-size:1.35rem; font-weight:500; }
+.beast-type-page > .beast-family-head > div > small { color:var(--accent); font-size:.65rem; letter-spacing:.12em; text-transform:uppercase; }
+.beast-type-page > .beast-grid { flex:1; width:100%; box-sizing:border-box; overflow-y:auto; }
+.beast-empty { grid-column:1/-1; padding:1rem; color:var(--ink-soft); font-style:italic; text-align:center; }
+.beast-page-count { flex:0 0 auto; padding:.3rem .8rem .45rem; border-top:1px solid rgba(91,65,39,.16); color:var(--ink-soft); font-size:.68rem; text-align:center; }
+@media (max-width:760px) {
+  .beast-page-tab { max-width:8rem; padding:.32rem .42rem; font-size:.67rem; }
+  .beast-type-page > .beast-family-head { padding:.6rem .7rem .25rem; }
+  .beast-type-page > .beast-grid { padding:.7rem; grid-template-columns:repeat(auto-fill,minmax(92px,1fr)); gap:.45rem; }
+}
+
+/* Compact Bestiary masthead and show every order tab in two fixed rows. */
+.beast-collection-head { padding:.02rem .8rem .08rem; gap:.5rem; }
+.beast-collection-head h2 { margin:0; font-size:1.12rem; line-height:1.05; }
+.beast-collection-head .hint { margin:0; font-size:.72rem; line-height:1.15; }
+.beast-collection-head strong { font-size:1rem; }
+.beast-page-nav { align-items:stretch; gap:.25rem; padding:.25rem .4rem; }
+.beast-page-arrow { align-self:center; }
+.beast-page-tabs {
+  display:grid;
+  grid-template-columns:repeat(10,minmax(0,1fr));
+  grid-template-rows:repeat(2,minmax(2rem,auto));
+  flex:1 1 auto;
+  min-width:0;
+  overflow:visible;
+  gap:.2rem;
+  padding:.05rem;
+}
+.beast-page-tab {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-width:0;
+  max-width:none;
+  min-height:2rem;
+  padding:.2rem .12rem;
+  font-size:clamp(.48rem,.62vw,.66rem);
+  line-height:1.05;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-align:center;
+}
+@media (max-width:760px) {
+  .beast-page-tabs { grid-template-columns:repeat(10,minmax(0,1fr)); gap:.12rem; }
+  .beast-page-tab { min-height:1.85rem; padding:.15rem .06rem; font-size:.48rem; }
+  .beast-page-nav { padding:.2rem .25rem; }
+  .beast-page-arrow { flex-basis:1.55rem; height:1.7rem; }
+}
+
+/* Bestiary header: override inherited book/header spacing and prevent flex/grid stretching. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  display:flex;
+  flex:0 0 auto;
+  align-items:flex-start;
+  min-height:0;
+  height:auto;
+  margin:0;
+  padding:0 .8rem .12rem;
+  line-height:1;
+  gap:.5rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > div {
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-start;
+  gap:0;
+  min-height:0;
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head h2 {
+  display:block;
+  margin:0;
+  padding:0;
+  font-size:1rem;
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint {
+  display:block;
+  margin:0;
+  padding:0;
+  font-size:.68rem;
+  line-height:1.1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  align-self:flex-start;
+  margin:0;
+  padding:0;
+  font-size:.9rem;
+  line-height:1;
+}
+
+/* Tighten the full Bestiary masthead and taxonomy selector vertically. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  flex:0 0 auto;
+  align-items:flex-start;
+  gap:.25rem;
+  margin:0;
+  padding:0 .55rem 0;
+  border:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > div {
+  gap:0;
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head h2,
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint,
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  margin:0;
+  padding:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head .hint {
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head > strong {
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  flex:0 0 auto;
+  align-items:center;
+  gap:.15rem;
+  margin:0;
+  padding:.08rem .2rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+  grid-template-rows:repeat(2,auto);
+  align-content:start;
+  align-items:stretch;
+  gap:.08rem .12rem;
+  padding:0;
+  margin:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+  min-height:0;
+  height:auto;
+  margin:0;
+  padding:.08rem .04rem;
+  font-size:clamp(.46rem,.58vw,.6rem);
+  line-height:1;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-arrow {
+  flex-basis:1.45rem;
+  width:1.45rem;
+  height:1.35rem;
+  padding:0;
+  line-height:1;
+}
+@media (max-width:760px) {
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tabs { gap:.06rem .08rem; }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tab { min-height:0; padding:.06rem .02rem; font-size:.44rem; }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-nav { padding:.06rem .12rem; }
+}
+
+/* Bestiary collection layout correction: keep the page controls directly
+   beneath the journal subtitle, and restore readable, usable tab dimensions. */
+.pages.pages-bestiary:has(.beast-collection) > .beast-collection {
+  display:grid;
+  grid-template-rows:max-content max-content minmax(0,1fr);
+  align-content:start;
+  row-gap:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  align-self:start;
+  flex:0 0 auto;
+  margin:0;
+  padding:0 .55rem;
+  border:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  align-self:start;
+  margin:0;
+  padding:.12rem .2rem;
+  gap:.15rem;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+  grid-template-rows:repeat(2,minmax(1.45rem,auto));
+  align-content:start;
+  gap:.12rem .14rem;
+  padding:0;
+  margin:0;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+  min-height:1.45rem;
+  padding:.16rem .08rem;
+  font-size:clamp(.58rem,.72vw,.76rem);
+  line-height:1.05;
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-arrow {
+  flex-basis:1.7rem;
+  width:1.7rem;
+  height:1.65rem;
+}
+@media (max-width:760px) {
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tabs {
+    grid-template-rows:repeat(2,minmax(1.35rem,auto));
+    gap:.1rem .1rem;
+  }
+  .pages.pages-bestiary:has(.beast-collection) .beast-page-tab {
+    min-height:1.35rem;
+    padding:.12rem .04rem;
+    font-size:.56rem;
+  }
+}
+
+/* Subtle separator beneath the Bestiary journal subtitle. */
+.pages.pages-bestiary:has(.beast-collection) .beast-collection-head {
+  padding-bottom:3px;
+  border-bottom:1px solid rgba(91,65,39,.24);
+}
+.pages.pages-bestiary:has(.beast-collection) .beast-page-nav {
+  padding-top:3px;
+}
+
+/* Herbarum: botanical journal leaf, styled to sit beside the Bestiary. */
+.pages-herbarum {
+  background:
+    radial-gradient(ellipse at 48% 42%, rgba(255,250,235,.96), rgba(242,231,205,.97) 68%, rgba(220,201,166,.98)),
+    repeating-linear-gradient(3deg, rgba(105,76,43,.025) 0 1px, transparent 1px 5px);
+  box-shadow: inset 0 0 28px rgba(91,65,39,.16);
+}
+.herbarum-journal { display:flex; flex-direction:column; min-height:100%; }
+.herbarum-head { padding:0 .8rem 3px; border-bottom:1px solid rgba(91,65,39,.24); }
+.herbarum-head h2 { margin:0; font-family:var(--caps); font-size:1.12rem; line-height:1.1; }
+.herbarum-head .hint { margin:0; font-size:.72rem; }
+.herbarum-empty { display:flex; flex:1; flex-direction:column; align-items:center; justify-content:center; padding:2rem; text-align:center; color:var(--ink-soft); }
+.herbarum-mark { color:var(--accent); font:3rem/1 Georgia,serif; }
+.herbarum-empty h3 { margin:.7rem 0 .25rem; color:var(--ink-b); font-family:var(--caps); font-size:1.2rem; font-weight:500; }
+.herbarum-empty p { max-width:28rem; margin:.2rem 0 .8rem; }
+.herbarum-empty small { font-style:italic; }
+
+/* Runes journal: foundational runic literacy and future codex sections. */
+.pages-runes { background: radial-gradient(ellipse at 48% 42%, rgba(255,250,235,.96), rgba(242,231,205,.97) 68%, rgba(220,201,166,.98)); box-shadow: inset 0 0 28px rgba(91,65,39,.16); }
+.runes-journal { display:flex; flex-direction:column; min-height:100%; }
+.runes-head { padding:0 .8rem 3px; border-bottom:1px solid rgba(91,65,39,.24); }
+.runes-head h2 { margin:0; font-family:var(--caps); font-size:1.12rem; line-height:1.1; }
+.runes-head .hint { margin:0; font-size:.72rem; }
+.runes-overview { display:flex; flex-direction:column; gap:.8rem; padding:1rem; overflow:auto; }
+.runes-skill { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem; border:1px solid rgba(91,65,39,.28); background:rgba(255,250,240,.48); }
+.runes-skill small { color:var(--accent); font-size:.62rem; letter-spacing:.12em; }
+.runes-skill h3,.rune-catalogue h3,.rune-inscriptions h3 { margin:.15rem 0; font-family:var(--caps); font-weight:500; }
+.runes-skill p,.rune-catalogue p,.rune-inscriptions p { margin:.2rem 0; color:var(--ink-soft); font-size:.82rem; }
+.runes-rank { display:flex; flex-direction:column; align-items:center; min-width:7rem; }
+.runes-rank strong { color:var(--accent); font:1.8rem/1 var(--caps); }
+.runes-rank span { color:var(--ink-soft); font-size:.72rem; }
+.runes-tree-link { margin-top:.45rem; padding:.3rem .55rem; border:1px solid var(--rule); border-radius:3px; background:rgba(255,250,240,.65); color:var(--ink-b); font:inherit; font-size:.72rem; cursor:pointer; }
+.rune-catalogue,.rune-inscriptions { display:flex; align-items:center; gap:1rem; min-height:6rem; padding:.8rem 1rem; border-bottom:1px solid rgba(91,65,39,.18); }
+.rune-catalogue-mark { display:grid; place-items:center; flex:0 0 3rem; height:3rem; border:1px solid rgba(121,53,43,.35); border-radius:50%; color:var(--accent); font:1.7rem/1 Georgia,serif; }
+.rune-catalogue small,.rune-inscriptions small { color:var(--ink-soft); font-size:.7rem; font-style:italic; }
+/* Skill trees now open as focused pages from their originating book section. */
+.wtree { display:flex; min-height:0; }
+.wtree > .tree-single { display:flex; flex:1; flex-direction:column; min-width:0; overflow:auto; }
+.tree-return { display:flex; align-items:center; gap:.8rem; margin:0 0 .55rem; padding:0 0 .45rem; border-bottom:1px solid var(--rule); color:var(--ink-soft); font-size:.75rem; }
+.tree-return button { padding:.25rem .65rem; border:1px solid var(--rule); border-radius:3px; background:rgba(255,250,240,.7); color:var(--ink-b); cursor:pointer; font:inherit; }
+@media (max-width:760px) { .runes-skill { align-items:flex-start; } .runes-rank { min-width:5.5rem; } .runes-overview { padding:.65rem; } }
+
+/* Tools page: skill-specific assignments without putting every tool in a hand slot. */
+.tools-page { min-height: 0; }
+.tool-slots { width: 100%; margin: 0 0 1.1rem; }
+.tool-slots th { width: 43%; }
+.tool-slot-row th { vertical-align: middle; }
+.tool-slot-row th small { display: block; color: var(--ink-soft); font: italic 0.78rem var(--serif); font-weight: 400; }
+.tool-slot-row td { min-width: 0; }
+.tool-slot-select {
+  width: 100%; max-width: 18rem; min-width: 0; padding: 0.35rem 1.8rem 0.35rem 0.55rem;
+  border: 1px solid rgba(90,62,36,0.35); border-radius: 3px;
+  background: rgba(255,255,255,0.38); color: var(--ink-b); font: 0.9rem var(--serif);
+}
+.tool-slot-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tool-slot-select option { color: #241b14; background: #efe3c6; }
+@media (max-width: 680px) {
+  .tools-page { grid-template-columns: 1fr !important; overflow: auto; }
+  .tools-page > .cell-p + .cell-p { border-left: 0; border-top: 1px solid var(--rule); }
+}
+
+/* Herbarum specimen entries use the same live-canvas window as the Bestiary.
+   Keep the catalogue parchment intact, but let the 3D canvas show through the
+   book, page, and specimen side while an individual plant is open. */
+.book.book-herbarum:has(.herbarum-entry),
+.pages.pages-herbarum:has(.herbarum-entry),
+.herbarum-entry .bst-right {
+  background: transparent !important;
+}
+.pages.pages-herbarum:has(.herbarum-entry) {
+  inset: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+.herb-fig { position:relative; z-index:1; flex:1; min-height:260px; border:6px solid #6e4a2e; background:transparent !important; box-shadow:inset 0 0 0 2px #2c1a10,0 0 0 1px var(--rule); cursor:grab; touch-action:none; }
+.herb-fig::before { content:none; }
+.herb-fig:active { cursor:grabbing; }
+
+
+/* ---- flow skill trees (src/ui/flowTree.js) ---- */
+.pg.flow-tree-page { display:flex; flex-direction:column; min-height:0; height:100%; }
+.flow-tree-page .tree-single { display:flex; flex-direction:column; flex:1 1 0; min-height:0; overflow:hidden; }
+.flow-tree-page .hint { margin:.3rem 0 .5rem; }
+.ft-wrap { display:grid; grid-template-columns:minmax(0,1fr) 270px; gap:.8rem; flex:1 1 0; min-height:0; }
+.ft-scroll { position:relative; overflow:hidden; cursor:grab; touch-action:none; user-select:none; min-height:320px; border:1px solid var(--rule); border-radius:10px; background:radial-gradient(ellipse at 50% 0%, rgba(198,166,105,.16), rgba(198,166,105,0) 70%); overscroll-behavior:contain; }
+.ft-scroll.dragging { cursor:grabbing; }
+.ft-stage { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
+.ft-zoom { position:absolute; right:8px; top:8px; z-index:6; display:flex; flex-direction:column; gap:4px; }
+.ft-zoom button { width:28px; height:28px; border:1px solid var(--rule); border-radius:6px; background:rgba(246,236,214,.95); color:var(--ink-b); font-size:1rem; line-height:1; cursor:pointer; box-shadow:0 1px 3px rgba(40,25,10,.2); }
+.ft-zoom button:hover { color:var(--accent); }
+.ft-svg { position:absolute; inset:0; pointer-events:none; overflow:visible; }
+.ft-band-sep { fill:none; stroke:rgba(105,82,54,.22); stroke-width:1; }
+.ft-band-fill { fill:rgba(130,103,66,.045); stroke:none; }
+.ft-bands { position:absolute; left:0; top:0; width:0; height:0; z-index:4; }
+.ft-band-label { position:absolute; left:6px; padding:2px 6px; border-radius:4px; background:rgba(239,227,198,.92); display:flex; flex-direction:column; line-height:1.1; pointer-events:none; }
+.ft-band-label b { font:600 .66rem var(--caps); letter-spacing:.08em; text-transform:uppercase; color:#765b3c; }
+.ft-band-label small { white-space:nowrap; font-size:.6rem; color:var(--ink-soft); }
+.ft-cols { position:absolute; left:0; right:0; top:0; height:30px; z-index:4; }
+.ft-col-label { position:absolute; top:8px; transform:translateX(-50%); font:600 .7rem var(--caps); letter-spacing:.05em; white-space:nowrap; }
+.ft-root { fill:none; stroke-width:1.6; stroke-dasharray:1 5; stroke-linecap:round; opacity:.55; }
+.ft-req { fill:none; stroke-width:2; opacity:.35; }
+.ft-req.on { opacity:.9; stroke-width:2.6; }
+.ft-syn { fill:none; stroke-width:1.8; stroke-dasharray:7 5; stroke-linecap:round; opacity:.5; }
+.ft-syn.hot { opacity:1; stroke-width:2.6; stroke-dasharray:none; }
+.ft-node { position:absolute; width:116px; margin-left:-58px; margin-top:-21px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:0; border:0; background:none; cursor:pointer; z-index:3; font:inherit; color:var(--ink-b); }
+.ft-orb { width:38px; height:38px; display:grid; place-items:center; border-radius:50%; border:2px solid var(--c); background:#f6ecd6; color:var(--c); font-size:.95rem; box-shadow:0 1px 3px rgba(40,25,10,.25); transition:transform .12s, box-shadow .12s; }
+.ft-name { max-width:116px; padding:1px 5px; border-radius:4px; background:rgba(246,236,214,.94); font-size:.66rem; line-height:1.15; text-align:center; }
+.ft-rank { font-size:.6rem; line-height:1; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
+.ft-node.locked .ft-orb { border-color:rgba(110,95,75,.45); color:rgba(110,95,75,.6); background:#ece2cc; }
+.ft-node.locked .ft-name { color:var(--ink-soft); }
+.ft-node.buy .ft-orb { box-shadow:0 0 0 3px rgba(255,255,255,.6), 0 0 10px 2px var(--c); }
+.ft-node.got .ft-orb { background:linear-gradient(0deg, var(--c) 45%, #f6ecd6 45%); color:#fff8e8; }
+.ft-node.full .ft-orb { background:var(--c); color:#fff8e8; }
+.ft-node:hover .ft-orb, .ft-node:focus-visible .ft-orb { transform:scale(1.1); }
+.ft-node.sel .ft-orb { outline:2px solid var(--accent); outline-offset:3px; }
+.ft-node.sel .ft-name { font-weight:700; color:var(--accent); }
+.ft-panel { overflow:auto; padding:.8rem .9rem; border:1px solid var(--rule); border-top:4px solid var(--c); border-radius:9px; background:rgba(255,250,235,.85); }
+.ft-panel h4 { margin:.15rem 0 .4rem; font:600 1.05rem var(--caps); color:var(--c); }
+.ft-panel p { font-size:.82rem; line-height:1.42; margin:.4rem 0; }
+.ft-disc { font-size:.66rem; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-soft); }
+.ft-pips { display:flex; align-items:center; gap:3px; flex-wrap:wrap; }
+.ft-pips i { width:10px; height:10px; border-radius:50%; border:1.5px solid var(--c); }
+.ft-pips i.on { background:var(--c); }
+.ft-pips span { margin-left:.4rem; font-size:.7rem; color:var(--ink-soft); }
+.ft-panel dl { margin:.5rem 0; font-size:.74rem; } .ft-panel dt { color:var(--ink-soft); font-size:.64rem; text-transform:uppercase; letter-spacing:.06em; } .ft-panel dd { margin:0; }
+.ft-learn { width:100%; margin:.4rem 0; padding:.5rem; border:1px solid var(--accent); border-radius:5px; background:var(--accent); color:#f7ecd7; font:600 .8rem inherit; cursor:pointer; }
+.ft-learn:disabled { background:transparent; color:var(--ink-soft); border-color:var(--rule); cursor:default; }
+.ft-known { font-style:italic; color:var(--ink-soft); }
+.ft-panel h5 { margin:.7rem 0 .3rem; font:600 .72rem var(--caps); letter-spacing:.05em; }
+.ft-syn-list { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:.35rem; font-size:.72rem; line-height:1.35; }
+.ft-syn-list button { padding:0; border:0; background:none; font:600 .74rem inherit; cursor:pointer; text-decoration:underline dotted; }
+.ft-pts { margin-top:.8rem!important; font-size:.72rem!important; color:var(--ink-soft); }
+.ft-legend { display:flex; flex-wrap:wrap; gap:.9rem; margin:.45rem .2rem 0; font-size:.68rem; color:var(--ink-soft); }
+.ft-legend span { display:flex; align-items:center; gap:.35rem; }
+.ft-legend .l-req { width:22px; border-top:2px solid #8a6a2e; } .ft-legend .l-syn { width:22px; border-top:2px dashed #2f7590; }
+.ft-legend .o { width:11px; height:11px; border-radius:50%; border:2px solid #8a6a2e; }
+.ft-legend .o.buy { box-shadow:0 0 5px 1px #8a6a2e; } .ft-legend .o.got { background:linear-gradient(0deg,#8a6a2e 45%,transparent 45%); } .ft-legend .o.full { background:#8a6a2e; } .ft-legend .o.locked { border-color:rgba(110,95,75,.45); }
+.ft-tip { position:fixed; z-index:2147483000; max-width:240px; padding:.45rem .6rem; border:1px solid rgba(90,62,36,.6); border-radius:6px; background:#f7eedb; color:#342719; box-shadow:0 6px 18px rgba(25,15,8,.3); pointer-events:none; font-size:.74rem; line-height:1.35; }
+.ft-tip b { display:block; margin-bottom:.15rem; } .ft-tip em { display:block; margin-top:.25rem; font-size:.64rem; color:#8a765d; }
+@media (max-width:900px) { .ft-wrap { grid-template-columns:1fr; grid-template-rows:minmax(320px,1fr) auto; } .ft-panel { max-height:40vh; } }

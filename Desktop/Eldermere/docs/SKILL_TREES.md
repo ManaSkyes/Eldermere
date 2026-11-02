@@ -116,3 +116,19 @@ Tightrope (201, also Athletics 201), Spire landing (300, needs Poles and pipes, 
 runner (401, needs Tightrope, also Athletics 401), Cloaked dodge (501), Ghost walker (1200). Shadow: Stillness (300, ×2), Wall shadow (600), Light feet (600), Unseen (1200), Vanish
 (5001). Acrobat: Wire slide (300, also Athletics 300), Pole swing (600), Spire hop (600), Cat's balance
 (1200), Shadow dancer (5001). Nodes may carry `also: { skill: level }` (hybrid), checked by canBuy.
+
+## Flow trees (Chain Casting first)
+`src/ui/flowTree.js` draws any tree that has a `flow` block (book.js routes `tree.flow` trees there).
+- **Shape:** the innate gate-0 node is the root, top-centre; disciplines flow down from it. Rank tiers (Unskilled → Guru) are horizontal bands that bow downward like rings around the root; empty tiers are skipped. Band labels stay pinned on the left while scrolling.
+- **Columns:** `flow.columns` sets discipline order (`core` = nodes with no `branch`). Inside a column, a node whose in-column children split gets one sub-lane per child (Rapid Fire's four families, Dual Weave / Balanced Pair). Several nodes of one chain in the same tier stack as sub-rows.
+- **Lines:** solid = prerequisite (brighter once the parent is learned); dotted = flow from the root or a column's previous technique; dashed colour-gradient = `flow.compat` synergy, curved and routed to avoid unrelated nodes. The selected node's synergies turn solid.
+- **View:** opens fitted to the whole tree. Drag to pan, mouse wheel zooms at the cursor, and the corner buttons do + / − / fit. The view is kept while you buy nodes and resets when you open a tree.
+- **Interaction:** hover = short tooltip; click = side panel (full text, rank pips, requirements, Learn button, clickable synergy list).
+- **New flow tree:** add `flow: { columns, colors, compat }` to the tree. No positions needed; layout is automatic.
+- Keep synergy-linked disciplines adjacent in `columns` (a discipline with no synergies goes on the edge) so links stay short.
+
+### Chain Casting Expert / Master nodes (text only until spellcast reads them)
+- **Universal:** Chain Reserve (2000, +1 slot ×3) → Endless Chain (5000, chains past capacity at compounding mana). Backfire Ward (3000, backfires don't end chains) → Living Incantation (7000, resume interrupted chains).
+- **Same Element:** Overflowing Resonance (1500, +1 repetition ×2) → Elemental Saturation (2500, lingering element fields) → Crescendo (5000) and Unbroken Current (7500, resonance carries into the next chain).
+- **Rotation:** Prismatic Momentum (2000, faster casts after 4 elements) → Elemental Reaction (3000, element-change reactions) → Full Spectrum (5000, closing spectral burst) and Endless Wheel (8000, elements may return).
+- **Two-Element:** Harmonic Pair (1800, A-B-A-B Harmony stacks) → Twin Star (5000, partner-element echoes). Fused Casting (2500, every 4th spell fuses) → Perfect Balance (7500).

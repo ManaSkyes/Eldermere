@@ -47,6 +47,24 @@ export const MOVES = {
       { t: 0.25, R: [[-0.2, -0.85, 0.5], [0, -0.8, 0.6]], L: [[0.3, -0.7, 0.3], [0.25, -0.2, 0.95]], lean: 0.4, squat: 1.15, head: -0.5 },
       { t: 0.75, R: [[-0.2, -0.85, 0.5], [0.05, -0.75, 0.66]], L: [[0.3, -0.7, 0.3], [0.25, -0.2, 0.95]], lean: 0.42, squat: 1.15, head: -0.55, yaw: 0.15 },
     ] },
+
+  // Two possible gathering motions for the same combined implement.
+  herbalismScythe: { name: 'Herbalism — scythe sweep', dur: 2.2,
+    keys: [
+      // Both hands reach forward from the shoulders; the sweep travels low across the flower instead of hanging at the sides.
+      { t: 0.12, R: [[-0.28, -0.34, 0.9], [0.18, -0.42, 0.89]], L: [[0.28, -0.38, 0.88], [-0.18, -0.42, 0.89]], lean: 0.42, squat: 0.92, head: -0.28, yaw: -0.08 },
+      { t: 0.34, R: [[-0.62, -0.12, 0.78], [0.12, -0.55, 0.82]], L: [[0.18, -0.34, 0.92], [-0.12, -0.5, 0.86]], lean: 0.48, squat: 1.02, head: -0.34, yaw: 0.18 },
+      { t: 0.58, R: [[0.38, -0.32, 0.86], [-0.12, -0.58, 0.8]], L: [[0.38, -0.38, 0.84], [0.12, -0.58, 0.8]], lean: 0.44, squat: 1.0, head: -0.38, yaw: -0.12 },
+      { t: 0.82, R: [[-0.28, -0.34, 0.9], [0.18, -0.42, 0.89]], L: [[0.28, -0.38, 0.88], [-0.18, -0.42, 0.89]], lean: 0.42, squat: 0.92, head: -0.28 }
+    ] },
+  herbalismTrowel: { name: 'Herbalism — trowel dig', dur: 2.4,
+    keys: [
+      // Reach down and forward with a bent working elbow; the free hand steadies the plant.
+      { t: 0.12, R: [[-0.24, -0.34, 0.91], [0.12, -0.78, 0.62]], L: [[0.28, -0.38, 0.89], [-0.12, -0.62, 0.78]], lean: 0.58, squat: 1.08, head: -0.48 },
+      { t: 0.34, R: [[-0.18, -0.28, 0.94], [0.16, -0.84, 0.54]], L: [[0.3, -0.34, 0.9], [-0.12, -0.68, 0.73]], lean: 0.66, squat: 1.14, head: -0.52 },
+      { t: 0.56, R: [[-0.34, -0.4, 0.85], [0.1, -0.78, 0.62]], L: [[0.26, -0.38, 0.89], [-0.1, -0.64, 0.77]], lean: 0.56, squat: 1.08, head: -0.46 },
+      { t: 0.78, R: [[-0.18, -0.28, 0.94], [0.16, -0.84, 0.54]], L: [[0.3, -0.34, 0.9], [-0.12, -0.68, 0.73]], lean: 0.66, squat: 1.14, head: -0.52 }
+    ] },
   eat: { name: 'Eat', dur: 2.4, prop: { kind: 'food', hand: 'R', from: 0.04, to: 0.94 }, events: [{ t: 0.5, name: 'eat' }],
     keys: [
       { t: 0.2, R: [[-0.3, -0.7, 0.65], [0.4, 0.55, 0.75]] },

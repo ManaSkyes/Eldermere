@@ -1,4 +1,5 @@
 import { BUILTIN } from './creatures.js';
+import { PLANTS } from './materials.js';
 // src/data/objects.js — things placed inside a map in the creator's Object mode: enemies, traps, loot,
 // furniture, lights, markers. The map stays the layout (src/data/dungeon.js); objects sit on top of it.
 //
@@ -43,6 +44,7 @@ export const OBJECT_CATS = {
   marker: { name: 'Markers', color: '#2a6fd0' },
   sound: { name: 'Sounds', color: '#16a085' },
   particle: { name: 'Particles', color: '#7f8c8d' },
+  gatherable: { name: 'Gatherables', color: '#d6a83f' },
 };
 const E = { cat: 'enemy', snap: 0.5, turn: 90, w: 0.9, d: 0.9, shape: 'round', mount: 'floor' };
 const T = { cat: 'trap', snap: 0.5, turn: 90, mount: 'floor' };
@@ -53,6 +55,7 @@ const G = { cat: 'light', snap: 0.5, turn: 90 };
 const ST = { cat: 'street', snap: 0.5, turn: 15, mount: 'floor' };
 const S = { cat: 'sound', snap: 0.5, turn: 90, mount: 'floor' };
 const P = { cat: 'particle', snap: 0.5, turn: 90, mount: 'floor' };
+const GA = { cat: 'gatherable', snap: 0.25, turn: 15, mount: 'floor' };
 const M = { cat: 'marker', snap: 0.5, turn: 90, w: 0.8, d: 0.8, shape: 'diamond', mount: 'floor' };
 
 export const OBJECTS = {
@@ -75,6 +78,8 @@ export const OBJECTS = {
   chest: { ...L, name: 'Chest', glyph: '▣', w: 1.2, d: 0.7 },
   urn: { ...L, name: 'Urn / pot', glyph: '◍', w: 0.6, d: 0.6, shape: 'round' },
   item: { ...L, name: 'Item on the floor', glyph: '✧', w: 0.5, d: 0.5, shape: 'round' },
+  // gatherables: individual plants that can be harvested in the world
+  sunCupTulip: { ...GA, name: 'Sun Cup tulip', glyph: '✿', w: 0.4, d: 0.4, shape: 'round' },
   // furniture (free placement; barrels and crates hold things)
   table: { ...F, name: 'Table', glyph: 'T', w: 2.0, d: 1.0 },
   chair: { ...F, name: 'Chair', glyph: 'h', w: 0.5, d: 0.5 },
@@ -118,6 +123,11 @@ export const OBJECTS = {
   start: { ...M, name: 'Player start', glyph: '★' },
   exit: { ...M, name: 'Exit / level change', glyph: '⇧' },
 };
+// Every non-timber plant material can be placed as an individual gatherable specimen.
+// Timber species are represented by the world tree models and use the logging profession.
+for (const plant of PLANTS) if (plant.kind !== 'wood' && !OBJECTS[plant.id]) {
+  OBJECTS[plant.id] = { ...GA, name: plant.name, glyph: '✿', w: 0.4, d: 0.4, shape: 'round' };
+}
 export const objectsIn = cat => Object.entries(OBJECTS).filter(([, o]) => o.cat === cat).map(([k]) => k);
 // the tabs of the creator's palette (a category with `tab` shows on another's tab)
 export const OBJECT_TABS = Object.keys(OBJECT_CATS).filter(c => !OBJECT_CATS[c].tab);

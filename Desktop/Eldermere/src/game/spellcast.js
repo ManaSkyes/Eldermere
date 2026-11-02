@@ -53,7 +53,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     if (main && !off && (wrist || innate)) return { L: null, R: 'dual', handR: 'L', drawn: true, name: 'weaponWrist' };
     return null;
   }
-  let readied = known()[0] || null, casting = null;
+  let readied = known()[0] || null, casting = null, chainQueue = [], chainPrompt = null, rapidBarrage = null;
+  // The released throw animation lasts 0.45 s; wait it out, then also require the rig to be idle.
+  let chainReleaseWait = 0, chainInput = null, chainHistory = [];
   const bolts = [], bursts = [], burning = new Map(), detonate = [];       // target → { dps, t }
 
   // ---- the look of fire: a glowing core, a soft halo, embers trailing ----
@@ -116,9 +118,9 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     for (const a of spreads) {
       const c = Math.cos(a), sn = Math.sin(a), dx = dir.x * c - dir.z * sn, dz = dir.x * sn + dir.z * c;
       const v = { x: dx * C.speed, y: dir.y * C.speed, z: dz * C.speed };
-      const core = glowSprite(C.size * 3), light = new THREE.PointLight(C.color, twin ? 1.4 : 2.2, C.kind === 'ball' ? 9 : 6);
-      core.position.set(from.x, from.y, from.z); light.position.copy(core.position); scene.add(light);
-      bolts.push({ spell, C, p: { ...from }, v, life: 3, core, light, dmg: damageOf(spell, prof) * (twin ? 0.75 : 1) * (casting?.power || 1), scale: prof.power / spell.power * (casting?.power || 1),
+      const core = glowSprite(C.size * 3);
+      core.position.set(from.x, from.y, from.z);
+      bolts.push({ spell, C, p: { ...from }, v, life: 3, core, light: null, dmg: damageOf(spell, prof) * (twin ? 0.75 : 1) * (casting?.power || 1), scale: prof.power / spell.power * (casting?.power || 1),
         pierce: pierce ? 3 : 0, hits: new Set(), spoken: casting?.mode === 'incantation' });
     }
     audio.fireLaunch?.(C.kind === 'ball');
@@ -130,8 +132,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // a fireball's burst: everything within the radius burns, less at the edge; walls shelter
     const C = { ...C0, radius: radiusOf(C0) };
     const flash = glowSprite(0.5, 1); flash.position.set(at.x, at.y, at.z);
-    const light = new THREE.PointLight('#ff7a20', 4, C.radius * 4); light.position.copy(flash.position); scene.add(light);
-    bursts.push({ flash, light, t: 0, r: C.radius });
+    bursts.push({ flash, light: null, t: 0, r: C.radius });
     for (let i = 0; i < 18; i++) ember(at, C.radius * 0.8, 0.9);
     if (spoken && fh('inferno')) {                                                  // Inferno: the ground stays ablaze
       const disc = new THREE.Mesh(new THREE.CircleGeometry(C.radius * 0.8, 24), new THREE.MeshBasicMaterial({ color: '#ff5a10', transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -165,19 +166,106 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     toast?.(`Backfire! ${spell.backfire?.text || ''}`);
   }
 
+  let lastPerfect = false, perfectFlash = 0;
+  function chainProfile(id, focus) {
+    const spell = SPELLS[id], prof = castProfile(character, spell, { mode: 'incantation', focus });
+    const r = key => nodeRank(character, 'chainCasting', key) || 0;
+    const previous = chainHistory[chainHistory.length - 1], previousSchool = SPELLS[previous]?.school;
+    const sameElement = !!previous && previousSchool === spell.school;
+    const repeatCount = chainHistory.filter(x => x === id).length;
+    const seenSchools = new Set([...chainHistory.map(x => SPELLS[x]?.school), spell.school].filter(Boolean));
+    if (sameElement) {
+      prof.power *= 1 + 0.05 * r('resonantFlow');
+      prof.mana *= 1 - 0.04 * r('focusedCurrent');
+    }
+    if (r('elementalRotation') && previous && previousSchool !== spell.school) {
+      prof.power *= 1 + 0.04 * r('rotatingForce') * chainHistory.length;
+    }
+    if (r('pairedElements') && seenSchools.has(spell.school) && seenSchools.size <= 2 && chainHistory.length > 0) {
+      prof.power *= 1 + 0.03 * r('twinAttunement');
+      if (previous && previousSchool !== spell.school) prof.mana *= 1 - 0.04 * r('dualWeave');
+    }
+    return prof;
+  }
+
   function finishCast() {
     const spell = SPELLS[casting.id], prof = casting.prof, b = body();
+    // Follow-ups inherit the exact button, hand, and quick/chant behavior of this cast.
+    const completedInput = { mode: casting.mode, auto: !!casting.auto, key: casting.key, failOnRelease: !!casting.failOnRelease, hand: casting.hand };
+
     // Overcast: held past ready, more power for more mana (as much as you can pay for)
     let over = casting.over ? Math.min(1, casting.over / 1) : 0;
     if (over > 0) over = Math.min(over, Math.max(0, (vitals.mp / prof.mana - 1) / 0.8));
     const mana = prof.mana * (1 + 0.8 * over);
-    casting.power = 1 + 0.6 * over;
+    const boost = nodeRank(character, 'chainCasting', 'elementalBoost') || 0;
+    const same = casting.chain && character.chainElement === spell.school ? Math.max(0, character.chainElementStreak || 0) : 0;
+    casting.power = (1 + 0.6 * over) * (1 + Math.min(5, same) * 0.04 * boost);
     if (vitals.mp < mana) { toast?.('Not enough mana.'); b?.combat.cancelCast(); casting = null; return; }
     vitals.mp -= mana;
-    const failed = Math.random() < prof.backfire;
+    const normalized = casting.t / Math.max(0.01, prof.castTime);
+    // Rapid Fire replaces perfect-timed voiceless casting once unlocked.
+    // Incantation casts retain perfect timing at every mastery level.
+    const rapidFireUnlocked = nodeRank(character, 'chainCasting', 'rapidFire') > 0;
+    // Auto/quick casts finish on the first frame at or after castTime, so frame
+    // delta can push their measured progress beyond 118% even though the player
+    // had no later release input. Treat reaching the completion threshold as perfect.
+    const autoCompletion = !!casting.auto && normalized >= 0.98;
+    const perfect = !(casting.mode === 'voiceless' && rapidFireUnlocked)
+      && (autoCompletion || (normalized >= 0.98 && normalized <= 1.18));
+    const successChance = Math.max(0, Math.min(1, 1 - prof.backfire + (perfect ? 0.10 : 0)));
+    const failed = Math.random() >= successChance;
+    lastPerfect = perfect && !failed; if (lastPerfect) perfectFlash = 1;
     b?.combat.throwCast();
     if (failed) backfire(spell, prof); else launch(spell, prof, casting.mode);
-    trainCast(character, spell, { mode: casting.mode, focus: casting.focus }, failed);
+    if (casting.chain) { if (!failed) chainHistory.push(spell.id); chainQueue.shift(); if (failed) { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; } }
+    else if (casting.rapidFire) {
+      if (failed) rapidBarrage = null;
+      else if (rapidBarrage) { rapidBarrage.shots++; rapidBarrage.cooldown = Math.max(0.025, 0.12 * Math.pow(0.94, rapidBarrage.focusedRanks)); }
+      chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[];
+    }
+    else if (!failed && perfect && (casting.mode === 'incantation' || (casting.mode === 'voiceless' && !rapidFireUnlocked))) {
+      const tree = character.skillTrees?.chainCasting?.nodes || character.skillTrees?.chainCasting || {};
+      chainHistory = [spell.id];
+      const usedIds = new Set([spell.id]), usedElements = new Set([spell.school]);
+      // Same-element chaining is the baseline discipline; the left branch improves it.
+      // Unlocking Elemental Rotation switches the chain to strict, non-repeating elements.
+      const rotationUnlocked = (tree.elementalRotation || 0) > 0;
+      const twoElementUnlocked = (tree.pairedElements || 0) > 0;
+      const sameElementUnlocked = !rotationUnlocked || (tree.elementalBoost || 0) > 0;
+      const baseSlots = nodeRank(character, 'chainCasting', 'unskilledCapacity') + nodeRank(character, 'chainCasting', 'steadySequence') + nodeRank(character, 'chainCasting', 'perfectCadence') + nodeRank(character, 'chainCasting', 'swiftHandoff');
+      // Rotation's half-slot weaving is deliberately incompatible with Rapid Fire multicast.
+      const discountedRotationSlots = nodeRank(character, 'chainCasting', 'diverseWeave') + nodeRank(character, 'chainCasting', 'wovenMastery');
+      const discountedSpellLimit = discountedRotationSlots * 2;
+      const seenElements = new Set(usedElements);
+      let budget = 0, discountedUsed = 0;
+      chainQueue = (character.spellChains?.[spell.id] || []).filter(id => {
+        const next = SPELLS[id]; if (!next || !SPELL_CAST[id] || !knowsSpell(character,id)) return false;
+        const element = next.school, repeatedSpell = usedIds.has(id), repeatedElement = seenElements.has(element);
+        if (repeatedSpell) return false;
+        if (repeatedElement && !sameElementUnlocked) return false;
+        if (rotationUnlocked && repeatedElement) return false;
+        if (twoElementUnlocked && !seenElements.has(element) && seenElements.size >= 2) return false;
+        const discounted = rotationUnlocked && discountedUsed < discountedSpellLimit && !repeatedSpell;
+        const cost = discounted ? 0.5 : 1;
+        if (budget + cost > baseSlots) return false;
+        budget += cost;
+        if (discounted) discountedUsed++;
+        usedIds.add(id); seenElements.add(element); usedElements.add(element); return true;
+      });
+    }
+    else { chainQueue=[]; chainPrompt=null; chainInput=null; chainHistory=[]; }
+    if (chainQueue.length && perfect && (casting.mode === 'incantation' || (casting.mode === 'voiceless' && !rapidFireUnlocked))) chainInput = completedInput;
+    else { chainInput = null; chainHistory=[]; }
+    if (!failed) { if (character.chainElement === spell.school) character.chainElementStreak=(character.chainElementStreak||0)+1; else {character.chainElement=spell.school;character.chainElementStreak=1;} }
+    else { character.chainElement=null; character.chainElementStreak=0; }
+    trainCast(character, spell, { mode: casting.mode, focus: casting.focus, chain: !!casting.chain || chainQueue.length > 0, chainGainMultiplier: 2 }, failed);
+    if (chainQueue.length) {
+      chainPrompt = null;
+      chainReleaseWait = 0.45;
+    } else {
+      chainReleaseWait = 0;
+      chainInput = null;
+    }
     casting = null;
   }
 
@@ -187,14 +275,60 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
     // cast a prepared spell straight away (from the hotbar), spoken, for as long as `key` is held
     request(id, key) { if (!casting) request = { id, key }; },
     get casting() { return casting; },
+    get timing() {
+      // Chain prompts take priority over the cast's own timing display.
+      if (chainPrompt) return { k: Math.min(1, chainPrompt.t / chainPrompt.duration), win: 0.18 };
+      if (!casting) return null;
+      // Rapid Fire replaces the old voiceless perfect-cast timing mechanic.
+      // Before it is unlocked, show the same timing circle for quick casts;
+      // spoken incantations keep their timing circle at every mastery level.
+      if (casting.mode === 'voiceless' && nodeRank(character, 'chainCasting', 'rapidFire') > 0) return null;
+      return { k: Math.min(1.35, casting.t / Math.max(0.01, casting.prof.castTime)), win: 0.18 };
+    },
+    get perfectFlash() { const v = perfectFlash; perfectFlash = Math.max(0, perfectFlash - 0.08); return v; },
     layout,
     known,
     burning,
-    get debug() { return { bolts: bolts.length, fields: fields.length, balls: bolts.filter(o => o.C.kind === 'ball').length }; },
+    get debug() { return { bolts: bolts.length, fields: fields.length, balls: bolts.filter(o => o.C.kind === 'ball').length, chainQueue: chainQueue.length, chainPrompt: !!chainPrompt, rapidShots: rapidBarrage?.shots || 0 }; },
     update(dt, input, targets, locked) {
       const b = body();
       if (!readied || !known().includes(readied)) readied = known()[0] || null;
       const free = !st.hang && !st.climb && !st.trav && !st.swimming && !st.move && !st.roll && st.sit < 0.05;
+      // Do not expose the timing window during the throw: wait for its full 0.45 s pose,
+      // and require the rig to have cleared the cast action before opening the prompt.
+      if (chainReleaseWait > 0) chainReleaseWait = Math.max(0, chainReleaseWait - dt);
+      // The release animation is the only timing gate. Combat busy/free flags can remain set
+      // for unrelated locomotion or rig recovery and must not suppress a queued chain prompt.
+      if (chainQueue.length && !casting && !chainPrompt && chainReleaseWait <= 0 && locked && b) {
+        chainPrompt = { t: 0, duration: 0.9 * (1 + 0.03 * (nodeRank(character, 'chainCasting', 'balancedPair') || 0)), hand: b.combat.castHand };
+      }
+      if (chainPrompt && !casting) {
+        if (!locked || !b) { chainPrompt=null; chainQueue=[]; chainReleaseWait=0; chainInput=null; chainHistory=[]; }
+        else {
+          chainPrompt.t += dt;
+          const L=layout(), chainBtn=chainInput?.key || (chainInput?.hand === L?.handL ? 'attack' : 'block');
+          const start=!!chainBtn && input.pressed(chainBtn);
+          const perfectStart=chainPrompt.t >= chainPrompt.duration * 0.98 && chainPrompt.t <= chainPrompt.duration * 1.18;
+          if (start) {
+            if (!perfectStart) { chainPrompt=null; chainQueue=[]; chainHistory=[]; chainInput=null; toast?.('Chain timing missed.'); }
+            else {
+              audio.perfect?.('combo');
+              const id=chainQueue[0], focus=!!b.gear.stats().focus;
+              if (!SPELL_CAST[id] || !knowsSpell(character,id)) { chainPrompt=null; chainQueue=[]; }
+              else if (!L) { chainPrompt=null; chainQueue=[]; toast?.('Spell chain stopped: no casting focus.'); }
+              else {
+                const prof=chainProfile(id,focus);
+                if(vitals.mp<prof.mana){chainPrompt=null;chainQueue=[];toast?.('Spell chain stopped: not enough mana.');}
+                else if(b.combat.cast({hand:chainInput?.hand || L['hand' + (chainBtn === 'attack' ? 'L' : 'R')]})){
+                  const mode=chainInput?.mode || 'incantation';
+                  casting={id,mode,focus,prof,t:0,key:chainInput?.auto ? null : chainBtn,auto:!!chainInput?.auto,failOnRelease:!!chainInput?.failOnRelease,hand:chainInput?.hand || L['hand' + (chainBtn === 'attack' ? 'L' : 'R')],chain:true};
+                  chainPrompt=null; audio.chant?.(mode === 'incantation',prof.castTime);
+                }
+              }
+            }
+          } else if (chainPrompt.t >= chainPrompt.duration * 1.18) { chainPrompt=null; chainQueue=[]; chainHistory=[]; chainInput=null; toast?.('Chain window missed.'); }
+        }
+      }
       if (locked && input.pressed('nextSpell')) {
         const k = known(); if (k.length) { readied = k[(k.indexOf(readied) + 1) % k.length]; toast?.(`Readied: ${SPELLS[readied].name}`); }
       }
@@ -204,14 +338,37 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       const btnOf = side => side === 'L' ? 'attack' : 'block';
       // the first click with a focus put away takes it in hand
       if (locked && free && L && L.drawn && !drawn && b && !b.combat.busy && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')))) b.combat.draw();
-      if (!locked || !free || casting) press = null;
+      if (!locked || !free || casting || chainPrompt) press = null;
       // Detonate: with a fireball of yours in flight, a cast button bursts it where it is (instead of casting)
       let detonated = false;
       if (locked && !casting && fh('detonate') && L && ((L.L && input.pressed('attack')) || (L.R && input.pressed('block')))) {
         const ball = bolts.find(o => o.C.kind === 'ball');
         if (ball) { detonate.push(ball); press = null; detonated = true; }
       }
-      if (locked && free && !casting && !detonated && b && !b.combat.busy && readied) {
+      if (rapidBarrage && (!locked || !free || !b || !input.held(rapidBarrage.key))) {
+        if (!casting?.rapidFire) rapidBarrage = null;
+        else rapidBarrage.released = true;
+      }
+      if (rapidBarrage && !casting && locked && free && b && !rapidBarrage.released) {
+        rapidBarrage.cooldown = Math.max(0, rapidBarrage.cooldown - dt);
+        if (rapidBarrage.cooldown <= 0 && !b.combat.busy) {
+          const rank = id => nodeRank(character, 'chainCasting', id) || 0;
+          const capacity = Math.max(1, rank('unskilledCapacity') + rank('steadySequence') + rank('perfectCadence') + rank('swiftHandoff') + 2 * (rank('diverseWeave') + rank('wovenMastery')));
+          const extra = Math.max(0, rapidBarrage.shots - capacity + 1);
+          const tiers = ['Apprentice','Journeyman','Expert','Master','Grandmaster'];
+          const exponent = Math.max(0.35, 1 - tiers.reduce((n,t,i)=>n+rank('sustainedBarrage'+t)*(0.05+i*0.02),0));
+          const prof = castProfile(character, SPELLS[rapidBarrage.id], {mode:'voiceless',focus:rapidBarrage.focus});
+          prof.castTime = Math.max(0.025, prof.castTime / 3);
+          prof.mana *= Math.pow(2, extra * exponent) * Math.max(0.2, 1 - tiers.reduce((n,t,i)=>n+rank('efficientBarrage'+t)*(0.02+i*0.01),0));
+          prof.power *= 1 + tiers.reduce((n,t,i)=>n+rank('rapidVolley'+t)*(0.02+i*0.01),0) * rapidBarrage.shots;
+          if (vitals.mp < prof.mana) { toast?.('Rapid Fire stopped: not enough mana.'); rapidBarrage=null; }
+          else if (b.combat.cast({hand:rapidBarrage.hand})) {
+            casting={id:rapidBarrage.id,mode:'voiceless',focus:rapidBarrage.focus,prof,t:0,key:null,auto:true,hand:rapidBarrage.hand,rapidFire:true};
+            audio.chant?.(false,prof.castTime);
+          }
+        }
+      }
+      if (locked && free && !casting && !rapidBarrage && !chainQueue.length && !chainPrompt && !detonated && b && !b.combat.busy && readied) {
         let id = null, mode = null, key = null, auto = false, failOnRelease = false, hand = null;
         if (req) {
           if (!L) toast?.('You need a focus to cast: a wand, staff, orb, spellbook or focus bracelet.');
@@ -219,7 +376,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         } else if (ready) {
           for (const side of ['L', 'R']) {
             const role = L[side], btn = btnOf(side); if (!role || id || press?.btn && press.btn !== btn) continue;
-            if (role === 'quick' && input.pressed(btn)) { id = readied; mode = 'voiceless'; auto = true; hand = L['hand' + side]; }
+            if (role === 'quick' && input.pressed(btn)) { id = readied; mode = 'voiceless'; auto = true; key = btn; hand = L['hand' + side]; }
             else if (role === 'long' && input.pressed(btn)) { id = readied; mode = 'incantation'; key = btn; hand = L['hand' + side]; }
             else if (role === 'dual') {
               if (input.pressed(btn) && !press) press = { btn, t: 0, hand: L['hand' + side] };
@@ -234,14 +391,20 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         if (id && !SPELL_CAST[id]) { toast?.(`${SPELLS[id]?.name ?? id} can't be cast in the field yet.`); id = null; }
         else if (id && !preparedOf(character).includes(id)) { toast?.(`${SPELLS[id].name} isn't prepared (Magic page).`); id = null; }
         if (id) {
-          const focus = !!b.gear.stats().focus, prof = castProfile(character, SPELLS[id], { mode, focus });
+          const focus = !!b.gear.stats().focus, rapid = mode === 'voiceless' && nodeRank(character, 'chainCasting', 'rapidFire') > 0;
+          const prof = castProfile(character, SPELLS[id], { mode, focus });
+          if (rapid) {
+            prof.castTime = Math.max(0.025, prof.castTime / 3);
+            const tiers = ['Apprentice','Journeyman','Expert','Master','Grandmaster'];
+            prof.mana *= Math.max(0.2, 1 - tiers.reduce((n,t,i)=>n+(nodeRank(character,'chainCasting','efficientBarrage'+t)||0)*(0.02+i*0.01),0));
+          }
           if (vitals.mp < prof.mana) toast?.(`Not enough mana for ${SPELLS[id].name} (${Math.ceil(prof.mana)}).`);
-          else if (b.combat.cast({ hand })) { casting = { id, mode, focus, prof, t: 0, key, auto, failOnRelease, hand: hand || b.combat.castHand }; audio.chant?.(mode === 'incantation', prof.castTime); }
+          else if (b.combat.cast({ hand })) { if (rapid) rapidBarrage = {id,key,hand:hand || b.combat.castHand,focus,shots:0,cooldown:0,released:false,focusedRanks:['Apprentice','Journeyman','Expert','Master','Grandmaster'].reduce((n,t)=>n+nodeRank(character,'chainCasting','focusedBurst'+t),0)}; casting = { id, mode, focus, prof, t: 0, key, auto, failOnRelease, hand: hand || b.combat.castHand, rapidFire:rapid }; audio.chant?.(mode === 'incantation', prof.castTime); }
         }
       }
       if (casting) {
         casting.t += dt;
-        if (!free || !locked) { b?.combat.cancelCast(); casting = null; }
+        if (!free || !locked) { b?.combat.cancelCast(); casting = null; rapidBarrage=null; }
         else if (!casting.auto && !input.held(casting.key)) {
           audio.chantStop?.();
           if (casting.ready) finishCast();                                      // Overcast: let go to throw it
@@ -283,7 +446,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       for (const ball of detonate.splice(0)) {                                     // Detonate: burst a fireball mid-flight
         const i = bolts.indexOf(ball); if (i < 0) continue;
         pending.push(burst(ball.p, ball.C, ball.dmg, ball.scale, null, ball.spoken));
-        scene.remove(ball.core); scene.remove(ball.light); ball.core.material.dispose(); bolts.splice(i, 1);
+        scene.remove(ball.core); ball.core.material.dispose(); bolts.splice(i, 1);
       }
       for (let i = bolts.length - 1; i >= 0; i--) {
         const o = bolts[i]; o.life -= dt;
@@ -298,15 +461,15 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
         if (!hit && (lineBlocked(shapes, o.p, n) || n.y < 0.02 || o.life <= 0)) stop = true;
         if (hit && o.pierce > 1) {                                                   // Piercing bolt: through it and on, weaker each time
           hitTarget(hit, o.dmg, { x: o.p.x, z: o.p.z }); setBurning(hit, o.C.burn, o.scale); for (let j = 0; j < 6; j++) ember(n, 0.2, 0.5); audio.fireHit?.();
-          o.hits.add(hit); o.pierce--; o.dmg *= 0.75; o.p = n; o.core.position.set(n.x, n.y, n.z); o.light.position.copy(o.core.position); continue;
+          o.hits.add(hit); o.pierce--; o.dmg *= 0.75; o.p = n; o.core.position.set(n.x, n.y, n.z); continue;
         }
         if (hit || stop) {
           if (o.C.kind === 'ball') pending.push(burst(n, o.C, o.dmg, o.scale, hit, o.spoken));
           else if (hit) { hitTarget(hit, o.dmg, { x: o.p.x, z: o.p.z }); setBurning(hit, o.C.burn, o.scale); for (let j = 0; j < 6; j++) ember(n, 0.2, 0.5); audio.fireHit?.(); }
           else for (let j = 0; j < 4; j++) ember(n, 0.15, 0.4);
-          scene.remove(o.core); scene.remove(o.light); o.core.material.dispose(); bolts.splice(i, 1); continue;
+          scene.remove(o.core); o.core.material.dispose(); bolts.splice(i, 1); continue;
         }
-        o.p = n; o.core.position.set(n.x, n.y, n.z); o.light.position.copy(o.core.position);
+        o.p = n; o.core.position.set(n.x, n.y, n.z);
         o.core.scale.setScalar(o.C.size * 3 * (0.9 + 0.2 * Math.random()));
         if (Math.random() < dt * (o.C.kind === 'ball' ? 40 : 25)) ember(n, o.C.size, 0.35);
       }
@@ -315,8 +478,7 @@ export function createSpellcast({ onNoise, THREE, scene, shapes, character, play
       for (let i = bursts.length - 1; i >= 0; i--) {
         const x = bursts[i]; x.t += dt; const u = x.t / 0.5;
         x.flash.scale.setScalar(0.5 + x.r * 2.2 * Math.min(1, u * 2)); x.flash.material.opacity = Math.max(0, 1 - u);
-        if (x.light) x.light.intensity = Math.max(0, 4 * (1 - u));
-        if (u >= 1) { scene.remove(x.flash); x.flash.material.dispose(); if (x.light) scene.remove(x.light); bursts.splice(i, 1); }
+        if (u >= 1) { scene.remove(x.flash); x.flash.material.dispose(); bursts.splice(i, 1); }
       }
       // burning: damage once a second, embers rising off whatever's alight
       for (const [t, bn] of burning) {

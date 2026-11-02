@@ -5,7 +5,7 @@
 //   3 Attributes  main stats, derived stats, general skills
 //   3 Life skills professions with rank, title and progress
 //   4 Combat      combat level, weapon and combat skills
-//   6 Skill trees  every skill's tree (src/data/skillTrees.js); skill names elsewhere link here
+//   6 Runes       runic-script proficiency and the future runic codex
 //   7 Magic       mana, casting skills, schools, known spells
 //
 // The figure box is see-through: play.js renders the character into that part of the game canvas
@@ -14,35 +14,87 @@ import { escapeHtml, label } from './util.js';
 import { MAIN_STATS, SKILLS, effectiveMain, derived, limitState, display, xpToNext, assignPoints } from '../rpg/stats.js';
 import { RANKS, rankOf, rankProgress, titleFor, PROFESSIONS } from '../data/professions.js';
 import { SLOTS, ITEMS } from '../rpg/equipment.js';
-import { MATERIALS } from '../data/materials.js';
-import { SPELLS } from '../data/spells.js';
-import { MASTERY, preparedMax, preparedOf, togglePrepared, castProfile } from '../rpg/magic.js';
+import { MATERIALS, PLANTS } from '../data/materials.js';
+import { HERBARUM_PAGES, classifyPlant, knownPlantIds } from '../rpg/herbarum.js';
+import { SPELLS, SPELL_CAST } from '../data/spells.js';
+import { MASTERY, preparedMax, preparedOf, togglePrepared, castProfile, masteryOf, schoolsOf, spellEvolutionOf } from '../rpg/magic.js';
 import { POTIONS } from '../data/potions.js';
 import { countOf, stackSummary } from '../rpg/inventory.js';
 import { MONSTERS } from '../data/monsters.js';
 import { knownIds } from '../rpg/bestiary.js';
 import { capacity, loadOf } from '../rpg/carry.js';
 import { PLACES, repTier, repProgress } from '../data/reputation.js';
+import { renderFlowTree, bindFlowTree, resetFlowScroll } from './flowTree.js';
 import { SKILL_TREES, treeState, pointsFree, skillPoints, canBuy, buyNode, resetTree } from '../data/skillTrees.js';
 import { comboLength, heavyLength } from '../rpg/combos.js';
 import { BODY_PARTS, HUMAN } from '../rpg/bodyState.js';
 import { RACES as BODY_RACES } from '../rpg/races.js';
 
-export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes']];
-export const LEFT_TABS = [['combat', 'Combat'], ['trees', 'Skill trees'], ['magic', 'Magic'], ['spells', 'Spells']];
-export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['lore', 'Lore']];
+export const TOP_TABS = [['character', 'Character'], ['body', 'Body'], ['attributes', 'Attributes'], ['tools', 'Tools']];
+export const LEFT_TABS = [['combat', 'Combat'], ['runes', 'Runes'], ['magic', 'Magic'], ['spells', 'Spells']];
+export const RIGHT_TABS = [['life', 'Life skills'], ['crafting', 'Crafting'], ['bestiary', 'Bestiary'], ['herbarum', 'Herbarum'], ['lore', 'Lore']];
 export const TABS = [...TOP_TABS, ...LEFT_TABS, ...RIGHT_TABS];
 // equipment slots as laid out down the left of the page, head to toe, then hands
 const SLOT_ORDER = ['head', 'back', 'chest', 'top', 'arms', 'hands', 'wrist', 'legs', 'bottom', 'feet', 'mainHand', 'offHand'];
-const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense'];
+const CASTING = ['attunement', 'incantation', 'voiceless', 'manaControl', 'manaSense', 'chainCasting'];
 const CATEGORY_NAMES = { gathering: 'Gathering', crafting: 'Crafting', trade: 'Trade', processing: 'Processing' };
+const MAGIC_GROUPS = { Spirit: ['holy', 'light', 'dark', 'lunar', 'life'], Mind: ['void', 'fire', 'water', 'earth', 'wind', 'lightning', 'enhancement', 'spatial'] };
+
+const BEAST_CLASSIFICATIONS = {
+  'Essence Tiers': {
+    description: 'What a creature is at its essence.',
+    orders: {
+      'Primeval Essence': 'Ancient, almost god-like, and integral to mythology.',
+      'Mystic Essence': 'Alters its environment through magic or sheer presence; the stuff of legends.',
+      'Spectral Essence': 'Ghostly and between planes, bound to places or artifacts.',
+      'Wild Essence': 'Common but formidable beasts of the wilds, of any size.'
+    }
+  },
+  'Celestial Hierarchy': {
+    description: 'Creatures whose nature is bound to the heavens.',
+    orders: {
+      'Stellar Dominions': 'Cosmic beings shaped by the energies of stars and the void.',
+      'Solar Regents': 'Radiant creatures whose strength comes from sunlight.',
+      'Lunar Sentinels': 'Stealthy night creatures empowered by the moon.',
+      'Terrestrial Guardians': 'Earth-bound protectors of sacred or cursed places.'
+    }
+  },
+  'Elemental Circles': {
+    description: 'Creatures defined by a primal element.',
+    orders: {
+      Corefire: 'Fire, lava and heat; volatile and aggressive.',
+      Deepsea: 'The depths: leviathans, sirens and other sea-born powers.',
+      Stormwind: 'Wind and storm; harbingers of tempests.',
+      Stoneheart: 'Earth and stone, from golems to subterranean horrors.'
+    }
+  },
+  'Arcane Orders': {
+    description: 'Creatures shaped by the practice or influence of magic.',
+    orders: {
+      'Archmagi Beasts': 'Intelligent masters of several magics.',
+      'Sorcerer Fiends': 'Specialists in magic used to deceive or overpower.',
+      'Witchkin Spirits': 'Tricksters wielding dark or forbidden magic.',
+      'Runebound Minions': 'Lesser beings made or controlled by runes and spells.'
+    }
+  },
+  'Mythic Classes': {
+    description: 'Rare legendary bloodlines and powers.',
+    orders: {
+      'Titanic Overlords': 'The rarest beings, pivotal in world events.',
+      'Draconic Majesties': 'Dragons and dragon-kin.',
+      'Beastly Sovereigns': 'Alphas that lead packs and hordes.'
+    }
+  }
+};
+const BEAST_CLASSIFICATION_ORDER = Object.keys(BEAST_CLASSIFICATIONS);
+
 
 // ctx: { character, inv, body: () => viewer|null, hotbar, onUse(id), onChange(), onClose() }
 export function createBook(root, ctx) {
   const el = document.createElement('div');
   el.className = 'book-wrap'; el.hidden = true;
   root.appendChild(el);
-  let tab = 'character', prepMode = false;
+  let tab = 'character', prepMode = false, treeView = false, treeReturnTab = 'combat';
   const c = ctx.character;
 
   const bar = (f, cls = '') => `<span class="meter ${cls}"><i style="width:${Math.round(Math.max(0, Math.min(1, f)) * 100)}%"></i></span>`;
@@ -174,25 +226,26 @@ export function createBook(root, ctx) {
       <section class="cell-p"><h3>Weapons</h3><table class="bsheet skills">${weapons}</table></section></div>`;
   }
 
+  let magicCategory = 'Spirit';
   function pageMagic() {
     const d = derived(c), body = ctx.body(), focus = body?.gear.stats().focus;
-    const known = Object.entries(c.spells || {}), prep = preparedOf(c), pmax = preparedMax(c);
-    // preparing: tick the spells to hold ready (the spell wheel, Q, and the hotbar draw from these)
-    const prepList = prepMode ? `<div class="prep-list"><p class="hint">Click a spell to prepare it or let it go. Hover one and press 1–9 (or drag it) to put it on the hotbar.</p>
-      <ul>${known.map(([id, lv]) => { const sp = SPELLS[id], on = prep.includes(id), pr = sp ? castProfile(c, sp, { focus: !!focus }) : null;
-        return `<li class="prep ${on ? 'on' : ''}" data-prepare="${id}" data-spell="${id}" draggable="true" title="${escapeHtml(sp?.description ?? '')}"><span class="tick">${on ? '✦' : ''}</span><b>${escapeHtml(sp?.name ?? id)}</b>
-          <small>${escapeHtml(label(sp?.school ?? ''))} · ${pr ? `${Math.ceil(pr.mana)} MP · ${pr.castTime.toFixed(1)} s` : ''} · mastery ${display(lv)}</small></li>`; }).join('')}</ul></div>` : '';
-    return `<div class="pg two">
-      <section class="cell-p"><h3 class="mana-head">Mana <button class="prep-btn ${prepMode ? 'on' : ''}" data-prepmode title="Prepare spells: choose which to hold ready">✦ Prepare <span>${prep.length}/${pmax}</span></button></h3>
-        <p class="big">${display(d.maxMp)} <span class="muted">MP</span></p>
-        <p class="muted">Focus: ${focus ? escapeHtml(label(focus)) : 'none'} · Prepared spells: ${prep.length} of ${pmax} (Intelligence and Mind raise this, up to 30)</p>${prepList}
-        <h3>Casting</h3><table class="bsheet skills">${CASTING.map(id => skillRow(id)).join('')}</table>
-        <h3>Spells</h3>${known.length ? `<table class="bsheet">${known.map(([id, lv]) => {
-          const sp = SPELLS[id];
-          return `<tr data-spell="${id}" draggable="true" title="Hover and press 1–9, or drag, to put it on the hotbar"><th>${prep.includes(id) ? '✦ ' : ''}${escapeHtml(sp?.name ?? id)}</th><td class="muted">${escapeHtml(label(sp?.school ?? ''))}</td><td class="num">${display(lv)}</td><td>${lv >= MASTERY.core ? 'Mastered' : bar(lv / MASTERY.core)}</td></tr>`;
-        }).join('')}</table>` : '<p class="muted">You know no spells yet. Spells are learned from teachers, scrolls and books.</p>'}</section>
-      <section class="cell-p"><h3>Schools</h3><table class="bsheet skills">${visible('magic').map(id => skillRow(id)).join('')}</table>
-        <p class="hint">A school grows whenever you cast one of its spells, and makes each of its spells quicker to master.</p></section></div>`;
+    const schools = Object.keys(SKILLS).filter(id => SKILLS[id].group === 'magic');
+    const selected = (MAGIC_GROUPS[magicCategory] || []).filter(id => schools.includes(id));
+    const knownCount = Object.keys(c.spells || {}).length, prep = preparedOf(c), pmax = preparedMax(c);
+    const categories = Object.keys(MAGIC_GROUPS).map(name => `<button class="beast-page-tab ${name === magicCategory ? 'on' : ''}" data-magic-category="${name}"><span>${name}</span></button>`).join('');
+    const rows = selected.map(id => {
+      const v = c.skills[id] ?? 100, r = rankOf(v);
+      return `<tr><th class="treelink" data-tree="${id}" title="Open the ${escapeHtml(label(id))} tree">${escapeHtml(label(id))}</th><td class="num">${display(v)}</td><td class="rank r-${r.id}">${r.name}</td><td>${skillMeter(v)}</td></tr>`;
+    }).join('');
+    return `<div class="pg magic-page">
+      <header class="beast-collection-head"><div><h2>Magic</h2><p class="hint">Your capacity for magic, the disciplines you study, and the techniques that shape your casting.</p></div><strong>${knownCount} <small>spells known</small></strong></header>
+      <section class="spell-journal-summary"><b>Mana</b><span>${display(d.maxMp)} MP</span><small>Focus: ${focus ? escapeHtml(label(focus)) : 'none'} · Prepared spells: ${prep.length} / ${pmax}</small></section>
+      <section class="cell-p"><h3>Casting skills</h3><table class="bsheet skills">${CASTING.map(id => skillRow(id)).join('')}</table></section>
+      <nav class="beast-page-nav" aria-label="Magic school categories"><span class="beast-page-tabs">${categories}</span></nav>
+      <section class="beast-type-page"><header class="beast-family-head"><div><small>School disciplines</small><h3>${magicCategory}</h3><p>${magicCategory === 'Spirit' ? 'Magic shaped by the soul, life, radiance and shadow.' : 'Magic shaped by thought, elements, force and the physical world.'}</p></div><small>${selected.length} schools</small></header>
+      <table class="bsheet skills">${rows}</table>
+      <p class="hint">Casting grows the schools that belong to each spell. Hybrid spells train every school they draw upon.</p></section>
+    </div>`;
   }
 
   // ---- body ----
@@ -230,14 +283,19 @@ export function createBook(root, ctx) {
   }
 
   // ---- skill trees ----
-  let selSkill = null, resetArmed = false;
-  const TIERS = [['Unskilled', 0], ['Apprentice', 201], ['Journeyman', 501], ['Expert', 1001], ['Master', 5001]];
+  let selSkill = null, resetArmed = false, flowSelected = null;
+  const TIERS = [['Unskilled', 0], ['Apprentice', 200], ['Journeyman', 500], ['Expert', 1000], ['Master', 5000]];
   const TREE_GROUPS = [['Weapons', id => SKILLS[id].group === 'weapon'], ['Combat', id => SKILLS[id].group === 'combat'],
     ['Magic', id => SKILLS[id].group === 'magic' || CASTING.includes(id)], ['Life skills', id => SKILLS[id].group === 'profession'],
     ['General', id => SKILLS[id].group === 'general' && !CASTING.includes(id)]];
+  function pageFlowTree(tree, v, st, free, spent) {
+    const rank = n => n.innate ? n.ranks : st.nodes[n.id] || 0;
+    const header = `<header class="tree-head"><h3>${escapeHtml(tree.name)} <span class="muted">${display(v)}</span></h3><span class="pts-line">${free} point${free === 1 ? '' : 's'} to spend · ${skillPoints(v)} earned</span><span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="${selSkill}">${resetArmed ? `Refund ${spent} points?` : 'Reset tree'}</button>` : ''}<button class="test-train" data-train="${selSkill}" title="Test grounds only">+100 (test)</button></span></header>`;
+    const body = renderFlowTree(tree, { rank, check: n => canBuy(c, selSkill, n.id), selected: flowSelected, points: free,
+      branchName: n => n.branch ? tree.branches[n.branch].name : 'Universal' });
+    return `<div class="pg wtree flow-tree-page"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${header}<p class="hint">${escapeHtml(tree.intro)}</p>${body}</section></div>`;
+  }
   function pageTrees() {
-    const held = ctx.body()?.gear.stats().weapon?.skill;
-    selSkill ||= held && SKILL_TREES[held] ? held : 'mace';
     const list = TREE_GROUPS.map(([g, test]) => {
       const ids = Object.keys(SKILL_TREES).filter(test); if (!ids.length) return '';
       return `<h4 class="tl-g">${g}</h4>` + ids.map(id => {
@@ -247,6 +305,7 @@ export function createBook(root, ctx) {
     }).join('');
     const tree = SKILL_TREES[selSkill], v = c.skills[selSkill] ?? 0;
     const st = treeState(c, selSkill), free = pointsFree(c, selSkill), spent = Object.values(st.nodes).reduce((t, n) => t + n, 0);
+    if (tree.flow) return pageFlowTree(tree, v, st, free, spent);
     const bkeys = Object.keys(tree.branches), [bA, bB] = bkeys;
     const card = n => {
       const have = n.innate ? n.ranks : st.nodes[n.id] ?? 0, r = canBuy(c, selSkill, n.id), br = n.branch ? tree.branches[n.branch] : null;
@@ -267,52 +326,200 @@ export function createBook(root, ctx) {
         ${(() => { const wid = Object.values(ITEMS).find(it => it.skill === selSkill && it.damage && it.weapon)?.weapon; if (!wid) return ''; const L = comboLength(wid, v); return `<span class="pts-line">Max combo: ${L} light · ${heavyLength(L)} heavy</span>`; })()}
         <span class="tree-btns">${spent ? `<button class="tree-reset ${resetArmed ? 'armed' : ''}" data-reset="${selSkill}">${resetArmed ? `Refund ${spent} point${spent === 1 ? '' : 's'}?` : 'Reset tree'}</button>` : ''}
         <button class="test-train" data-train="${selSkill}" title="Test grounds only">+100 (test)</button></span></header>
-      <p class="hint">${tree.generic ? '<b>Placeholder tree</b>, to be designed. ' : escapeHtml(tree.intro) + ' '} Points: one per 50 skill up to 1000, then one per 500. Paths: <b class="br-a-t">${tree.branches[bA].name}</b> (${escapeHtml(tree.branches[bA].text)}) or <b class="br-b-t">${tree.branches[bB].name}</b> (${escapeHtml(tree.branches[bB].text)}). Each node on one side locks only its opposite on the other side (same row); reset to choose again.</p>
+      <p class="hint">${tree.generic ? '<b>Placeholder tree</b>, to be designed. ' : escapeHtml(tree.intro) + ' '} Points: one per 50 skill up to 5000, then one per 500. Paths: <b class="br-a-t">${tree.branches[bA].name}</b> (${escapeHtml(tree.branches[bA].text)}) or <b class="br-b-t">${tree.branches[bB].name}</b> (${escapeHtml(tree.branches[bB].text)}). Each node on one side locks only its opposite on the other side (same row); reset to choose again.</p>
       <div class="tree">${rows}</div>`;
-    return `<div class="pg wtree"><section class="cell-p"><ul class="wlist">${list}</ul>
-      <p class="hint">A number beside a skill is points waiting to be spent.</p></section><section class="cell-p">${right}</section></div>`;
+    return `<div class="pg wtree"><section class="cell-p tree-single"><header class="tree-return"><button data-tree-back>‹ Back</button><span>Skill progression</span></header>${right}</section></div>`;
   }
 
-  // ---- the Bestiary: a page per creature you've slain (or caught), filled in as you learn about it ----
-  let beastSel = null;
+  // ---- Bestiary: a complete creature catalogue, with pages unlocked by discovery ----
+  let beastSel = null, beastView = 'collection';
   const DMG = ['slash', 'pierce', 'blunt', 'crush', 'fire', 'frost', 'storm', 'earth', 'light', 'lunar', 'dark', 'arcane', 'poison'];
   const resWord = v => v === 0 ? 'Immune' : v < 0.5 ? `Resists (×${v})` : v < 1 ? `Hardy (×${v})` : v > 1 ? `Weak (×${v})` : 'Normal';
   const range = (a, b) => a == null ? '—' : a === b ? `${a}` : `${a} – ${b}`;
+  const beastIds = () => Object.keys(MONSTERS).filter(id => MONSTERS[id]).sort((a, b) => MONSTERS[a].name.localeCompare(MONSTERS[b].name));
+  const BEAST_PAGES = BEAST_CLASSIFICATION_ORDER.flatMap(family =>
+    Object.entries(BEAST_CLASSIFICATIONS[family].orders).map(([order, description]) => ({
+      family, order, description, familyDescription: BEAST_CLASSIFICATIONS[family].description
+    }))
+  );
+  const BEAST_UNSORTED_PAGE = { family: 'Unclassified', order: 'Unidentified', description: 'Creatures not yet assigned to a recognized order.' };
+  let beastPage = 0;
   function pageBestiary() {
-    const ids = knownIds(c).filter(id => MONSTERS[id]).sort((a, b) => MONSTERS[a].name.localeCompare(MONSTERS[b].name));
-    if (!ids.length) { beastSel = null; return `<div class="pg two"><section class="cell-p"><h3>Bestiary</h3><p class="hint">Empty. Slay a creature (or catch a fish) and its page begins here; everything you learn about it afterwards fills it in.</p></section><section class="cell-p"></section></div>`; }
-    if (!ids.includes(beastSel)) beastSel = ids[0];
-    const id = beastSel, M = MONSTERS[id], E = c.bestiary[id], i = ids.indexOf(id);
+    const all = beastIds(), found = new Set(knownIds(c).filter(id => MONSTERS[id]));
+    if (beastView === 'collection') {
+      const pages = [...BEAST_PAGES, BEAST_UNSORTED_PAGE];
+      beastPage = Math.max(0, Math.min(beastPage, pages.length - 1));
+      const current = pages[beastPage];
+      const ids = all.filter(id => {
+        const classification = MONSTERS[id].classification || [];
+        if (current === BEAST_UNSORTED_PAGE) return !BEAST_PAGES.some(p => classification[0] === p.family && classification[1] === p.order);
+        return classification[0] === current.family && classification[1] === current.order;
+      });
+      const slot = id => {
+        const M = MONSTERS[id], unlocked = found.has(id);
+        const mark = unlocked ? (M.group === 'swarm' ? '✧' : M.group === 'boss' ? '♜' : M.group === 'solo' ? '◆' : '✦') : '？';
+        return `<button class="beast-slot ${unlocked ? 'discovered' : 'undiscovered'}" ${unlocked ? `data-beast-open="${id}" title="Read about ${escapeHtml(M.name)}"` : 'disabled aria-label="Undiscovered creature" title="Undiscovered creature"'}>
+          <span class="beast-slot-icon">${mark}</span><span class="beast-slot-name">${unlocked ? escapeHtml(M.name) : 'Unknown'}</span>
+          <span class="beast-slot-state">${unlocked ? 'Discovered' : 'Not yet recorded'}</span></button>`;
+      };
+      const discovered = ids.filter(id => found.has(id)).length;
+      const tabs = pages.map((page, index) => `<button class="beast-page-tab ${index === beastPage ? 'on' : ''}" data-beast-page="${index}" ${index === beastPage ? 'aria-current="page"' : ''} title="${escapeHtml(page.order)}"><span>${escapeHtml(page.order)}</span></button>`).join('');
+      return `<div class="pg beast-collection">
+        <header class="beast-collection-head"><div><h2>Bestiary</h2><p class="hint">A field journal of the creatures known to the guild.</p></div><strong>${found.size} <small>/ ${all.length} discovered</small></strong></header>
+        <nav class="beast-page-nav" aria-label="Bestiary pages">
+          <button class="beast-page-arrow" data-beast-prev ${beastPage === 0 ? 'disabled' : ''} aria-label="Previous page" title="Previous page">‹</button>
+          <div class="beast-page-tabs">${tabs}</div>
+          <button class="beast-page-arrow" data-beast-next ${beastPage === pages.length - 1 ? 'disabled' : ''} aria-label="Next page" title="Next page">›</button>
+        </nav>
+        <section class="beast-type-page">
+          <header class="beast-family-head"><div><small>${escapeHtml(current.family)}</small><h3>${escapeHtml(current.order)}</h3><p>${escapeHtml(current.description)}</p></div><small>${discovered} / ${ids.length} recorded</small></header>
+          <div class="beast-grid">${ids.length ? ids.map(slot).join('') : '<p class="beast-empty">No creatures are recorded in this order yet.</p>'}</div>
+          <footer class="beast-page-count">Page ${beastPage + 1} of ${pages.length}</footer>
+        </section>
+      </div>`;
+    }
+    if (!beastSel || !found.has(beastSel)) { beastView = 'collection'; return pageBestiary(); }
+    const id = beastSel, M = MONSTERS[id], E = c.bestiary[id];
     const res = DMG.map(t => `<tr><th>${label(t)}</th><td class="${E.res[t] ? '' : 'muted'}">${E.res[t] ? resWord(M.resist?.[t] ?? 1) : '???'}</td></tr>`).join('');
     const stages = M.harvest ? (M.harvest.stages || [{ id: 'skin', verb: 'skin', yields: M.harvest.yields }]) : [];
     const drops = stages.map(S => `<tr><th>${label(S.verb)}</th><td>${E.stages[S.id] ? Object.entries(S.yields).map(([p, [, hi]]) => `up to ${hi} ${escapeHtml(MATERIALS[`${M.harvest.creature}.${p}`]?.name || p)}`).join(', ') : '<span class="muted">??? — not yet tried</span>'}</td></tr>`).join('');
-    const nav = `<div class="bst-nav"><button data-beast="${ids[(i - 1 + ids.length) % ids.length]}" ${ids.length < 2 ? 'disabled' : ''}>‹</button><select data-beastsel>${ids.map(x => `<option value="${x}" ${x === id ? 'selected' : ''}>${escapeHtml(MONSTERS[x].name)}</option>`).join('')}</select><button data-beast="${ids[(i + 1) % ids.length]}" ${ids.length < 2 ? 'disabled' : ''}>›</button></div>`;
-    return `<div class="pg two bestiary"><section class="cell-p">${nav}
-      <h2 class="bst-name">${escapeHtml(M.name)}</h2>
-      <p class="muted">${escapeHtml([...(M.classification || [])].filter(x => x && x !== '—').join(' · '))}${M.hazard ? ` · ${escapeHtml(M.hazard)}` : ''}</p>
+    return `<div class="pg two bestiary"><section class="cell-p"><div class="bst-nav"><button data-beast-back title="Back to creature collection">‹ Collection</button></div>
+      <h2 class="bst-name">${escapeHtml(M.name)}</h2><p class="muted">${escapeHtml([...(M.classification || [])].filter(x => x && x !== '—').join(' · '))}${M.hazard ? ` · ${escapeHtml(M.hazard)}` : ''}</p>
       ${M.lore ? `<p class="bst-lore">${escapeHtml(M.lore)}</p>` : ''}
-      <h3>Encounters</h3><table class="bsheet">
-        <tr><th>Slain</th><td class="num">${E.kills}</td></tr>
-        <tr><th>Levels met</th><td class="num">${range(E.minLv, E.maxLv)}</td></tr>
-        <tr><th>Health met</th><td class="num">${range(E.minHp, E.maxHp)}</td></tr></table>
-      <h3>Nature</h3><table class="bsheet">
-        <tr><th>Rank</th><td>${escapeHtml(range(M.rank?.[0], M.rank?.[1]))}</td></tr>
-        <tr><th>Active</th><td>${escapeHtml(M.activity || '—')}</td></tr>
+      <h3>Encounters</h3><table class="bsheet"><tr><th>Slain</th><td class="num">${E.kills}</td></tr><tr><th>Levels met</th><td class="num">${range(E.minLv, E.maxLv)}</td></tr><tr><th>Health met</th><td class="num">${range(E.minHp, E.maxHp)}</td></tr></table>
+      <h3>Nature</h3><table class="bsheet"><tr><th>Rank</th><td>${escapeHtml(range(M.rank?.[0], M.rank?.[1]))}</td></tr><tr><th>Active</th><td>${escapeHtml(M.activity || '—')}</td></tr>
         <tr><th>Found in</th><td>${escapeHtml(label(M.group || '—'))}${M.temper === 'passive' ? ' · flees when struck' : ''}</td></tr>
-        <tr><th>Speed</th><td class="num">${M.stats?.speed ? `${M.stats.speed} m/s` : '—'}</td></tr>
-        <tr><th>Notices you at</th><td class="num">${M.stats?.aggro ? `${M.stats.aggro} m` : '—'}</td></tr></table>
+        <tr><th>Speed</th><td class="num">${M.stats?.speed ? `${M.stats.speed} m/s` : '—'}</td></tr><tr><th>Notices you at</th><td class="num">${M.stats?.aggro ? `${M.stats.aggro} m` : '—'}</td></tr></table>
       <h3>Resistances <span class="hint">(learned by striking it with each)</span></h3><table class="bsheet">${res}</table>
       ${drops ? `<h3>Harvest <span class="hint">(the most each can give)</span></h3><table class="bsheet">${drops}</table>` : ''}
       </section><section class="bst-right"><section class="beast-fig" aria-label="${escapeHtml(M.name)}"><span class="figure-hint">Drag to turn</span></section>
       <div class="bst-foot"><button class="bst-regions" disabled title="Comes with the world map">Regions encountered</button></div></section></div>`;
   }
 
+  function pageRunes() {
+    const value = c.skills.runicScript ?? 0, rank = rankOf(value);
+    return `<div class="pg runes-journal">
+      <header class="runes-head"><div><h2>Runes</h2><p class="hint">A study of written magic, ancient symbols and their meanings.</p></div></header>
+      <section class="runes-overview">
+        <article class="runes-skill"><div><small>FOUNDATIONAL SKILL</small><h3>Runic Script</h3><p>Knowledge of runic forms, their written structure and the principles behind their use.</p></div>
+          <div class="runes-rank"><strong>${display(value)}</strong><span>${escapeHtml(rank.name)}</span><button class="runes-tree-link" data-tree="runicScript">Study skill tree ↗</button></div>
+        </article>
+        <section class="rune-catalogue"><div class="rune-catalogue-mark" aria-hidden="true">ᚱ</div><div><h3>Runic Catalogue</h3><p>Discovered runes, translations and known properties will be recorded here.</p><small>No runes have been catalogued yet.</small></div></section>
+        <section class="rune-inscriptions"><div class="rune-catalogue-mark" aria-hidden="true">✧</div><div><h3>Inscriptions</h3><p>Known combinations and written arrangements will be collected here when the inscription system is established.</p><small>No inscriptions recorded.</small></div></section>
+      </section>
+    </div>`;
+  }
+
+  let herbSel=null,herbView='collection',herbPage=0;
+  function pageHerbarum(){
+    const all=PLANTS.slice().sort((a,b)=>a.name.localeCompare(b.name)),found=new Set(knownPlantIds(c));
+    if(herbView==='collection'){
+      const pages=HERBARUM_PAGES;herbPage=Math.max(0,Math.min(herbPage,pages.length-1));
+      const current=pages[herbPage],ids=all.filter(p=>{const q=classifyPlant(p);return q.family===current.family&&q.order===current.order;});
+      const discovered=ids.filter(p=>found.has(p.id)).length;
+      const tabs=pages.map((page,index)=>'<button class="beast-page-tab '+(index===herbPage?'on':'')+'" data-herb-page="'+index+'" title="'+escapeHtml(page.order)+'"><span>'+escapeHtml(page.order)+'</span></button>').join('');
+      const slots=ids.map(p=>{const unlocked=found.has(p.id);return '<button class="beast-slot '+(unlocked?'discovered':'undiscovered')+'" '+(unlocked?'data-herb-open="'+p.id+'" title="Read about '+escapeHtml(p.name)+'"':'disabled title="Undiscovered plant"')+'><span class="beast-slot-icon">'+(unlocked?'❧':'？')+'</span><span class="beast-slot-name">'+(unlocked?escapeHtml(p.name):'Unknown specimen')+'</span><span class="beast-slot-state">'+(unlocked?'Discovered':'Not yet recorded')+'</span></button>';}).join('');
+      return '<div class="pg beast-collection herbarum-journal"><header class="beast-collection-head"><div><h2>Herbarum</h2><p class="hint">A field journal of the flora known to the guild.</p></div><strong>'+found.size+' <small>/ '+all.length+' discovered</small></strong></header><nav class="beast-page-nav" aria-label="Herbarum categories"><button class="beast-page-arrow" data-herb-prev '+(herbPage===0?'disabled':'')+' aria-label="Previous category">‹</button><div class="beast-page-tabs">'+tabs+'</div><button class="beast-page-arrow" data-herb-next '+(herbPage===pages.length-1?'disabled':'')+' aria-label="Next category">›</button></nav><section class="beast-type-page"><header class="beast-family-head"><div><small>'+escapeHtml(current.family)+'</small><h3>'+escapeHtml(current.order)+'</h3><p>'+escapeHtml(current.description)+'</p></div><small>'+discovered+' / '+ids.length+' recorded</small></header><div class="beast-grid">'+(slots||'<p class="beast-empty">No plants are assigned to this order yet.</p>')+'</div><footer class="beast-page-count">Category '+(herbPage+1)+' of '+pages.length+'</footer></section></div>';
+    }
+    const P=all.find(p=>p.id===herbSel),E=c.herbarum?.[herbSel];
+    if(!P||!found.has(herbSel)){herbView='collection';return pageHerbarum();}
+    const cl=classifyPlant(P),props=Object.entries(P.props||{}).filter(([k,v])=>v!=null&&typeof v!=='object').map(([k,v])=>'<tr><th>'+escapeHtml(label(k))+'</th><td>'+escapeHtml(String(v))+'</td></tr>').join('');
+    return '<div class="pg two bestiary herbarum-entry"><section class="cell-p"><div class="bst-nav"><button data-herb-back title="Back to botanical collection">‹ Catalogue</button></div><h2 class="bst-name">'+escapeHtml(P.name)+'</h2><p class="muted">'+escapeHtml(cl.family)+' · '+escapeHtml(cl.order)+' · '+escapeHtml(label(P.kind))+'</p><p class="bst-lore">'+escapeHtml(P.props?.use||P.note||('A '+P.kind+' plant known to the guild. Its properties are recorded as specimens are gathered and studied.'))+'</p><h3>Botanical record</h3><table class="bsheet"><tr><th>Gathering skill</th><td>'+escapeHtml(label(P.source))+'</td></tr><tr><th>Material tier</th><td>'+P.tier+'</td></tr>'+props+'</table><h3>Field notes</h3><table class="bsheet"><tr><th>Gathered</th><td class="num">'+E.gathers+'</td></tr><tr><th>First recorded</th><td>'+(E.first?new Date(E.first).toLocaleDateString():'—')+'</td></tr><tr><th>Last gathered</th><td>'+(E.last?new Date(E.last).toLocaleDateString():'—')+'</td></tr></table></section><section class="bst-right"><section class="herb-fig" aria-label="'+escapeHtml(P.name)+'"><span class="figure-hint">Drag to turn</span></section><div class="bst-foot"><small class="hint">Specimen study · '+escapeHtml(cl.order)+'</small></div></section></div>';
+  }
+
+  function pageTools(){
+    if(c.toolLoadout){
+      c.toolSlots ||= {};
+      for(const [skill,uid] of Object.entries(c.toolLoadout))if(!c.toolSlots[skill]){
+        const index=ctx.inv.items.findIndex(item=>item.uid===uid);
+        if(index>=0)c.toolSlots[skill]=ctx.inv.items.splice(index,1)[0];
+      }
+      delete c.toolLoadout;ctx.onChange?.();
+    }
+    const groups={gathering:[],crafting:[],other:[]},body=ctx.body(),worn=body?.gear.equipped()||{};
+    const slotted=new Set(Object.values(c.toolSlots||{}).map(x=>x?.uid).filter(Boolean));
+    const toolSkills=[...new Set(Object.values(ITEMS).map(item=>item.tool?.skill).filter(Boolean))].filter(id=>SKILLS[id]).sort((a,b)=>label(a).localeCompare(label(b)));
+    for(const skill of toolSkills){
+      const category=PROFESSIONS[skill]?.category,group=category==='gathering'?'gathering':category==='crafting'?'crafting':'other';
+      const choices=ctx.inv.items.map((item,index)=>({item,id:item.id||item.item,key:item.uid||('legacy:'+String(item.id||item.item)+':'+index)})).filter(x=>x.id&&ITEMS[x.id]?.tool?.skill===skill&&!slotted.has(x.key));
+      const assigned=c.toolSlots?.[skill]||null,wornId=!assigned&&worn.mainHand&&ITEMS[worn.mainHand]?.tool?.skill===skill?worn.mainHand:null;
+      groups[group].push({skill,choices,assigned,wornId});
+    }
+    const names={gathering:'Gathering tools',crafting:'Crafting tools',other:'Other skill tools'};
+    const slotRows=group=>groups[group].map(({skill,choices,assigned,wornId})=>{
+      const active=assigned?itemName(assigned.id||assigned.item):wornId?itemName(wornId)+' (equipped)':'Empty';
+      return '<tr class="tool-slot-row"><th><span>'+escapeHtml(label(skill))+'</span><small>'+escapeHtml(active)+' · '+choices.length+' available</small></th><td><select class="tool-slot-select" data-tool-slot="'+skill+'" aria-label="'+escapeHtml(label(skill))+' tool"><option value="">Empty</option>'+
+        (assigned?'<option value="'+escapeHtml(assigned.uid)+'" selected>'+escapeHtml(itemName(assigned.id||assigned.item))+' · assigned</option>':wornId?'<option value="equipped:'+escapeHtml(wornId)+'" selected>'+escapeHtml(itemName(wornId))+' · equipped</option>':'')+
+        choices.map(x=>'<option value="'+escapeHtml(x.key)+'">'+escapeHtml(itemName(x.id))+'</option>').join('')+'</select></td></tr>';
+    }).join('');
+    return '<div class="pg two tools-page"><section class="cell-p"><h2>Tools</h2><p class="hint">Assign tools to dedicated skill slots. Assigned tools leave your pack and are kept ready for their profession.</p><h3>'+names.gathering+'</h3><table class="bsheet skills tool-slots">'+slotRows('gathering')+'</table><h3>'+names.crafting+'</h3><table class="bsheet skills tool-slots">'+slotRows('crafting')+'</table></section><section class="cell-p"><h3>'+names.other+'</h3><table class="bsheet skills tool-slots">'+slotRows('other')+'</table><p class="hint">Tools in these slots do not occupy pack space or count toward pack weight. A tool is moved back to your pack when its slot is cleared or replaced.</p></section></div>';
+  }
+
   function pageNewSection(title, description) {
     return `<div class="pg two"><section class="cell-p"><h2>${title}</h2><p class="muted">${description}</p><p class="hint">This section is reserved for its own dedicated journal content.</p></section><section class="cell-p"></section></div>`;
   }
-  const PAGES = { bestiary: pageBestiary, trees: pageTrees, body: pageBody, character: pageCharacter, attributes: pageAttributes, life: pageLife, combat: pageCombat, magic: pageMagic,
+  let spellView = 'list', spellTreeId = null, chainStartId = null;
+  const chainCapacity = () => { const n = treeState(c, 'chainCasting').nodes, base = Math.max(1, n.unskilledCapacity || 0) + (n.steadySequence || 0) + (n.perfectCadence || 0) + (n.swiftHandoff || 0); return base + 2 * ((n.diverseWeave || 0) + (n.wovenMastery || 0)); };
+  const spellChains = () => (c.spellChains ||= {});
+  const spellChain = () => chainStartId ? (spellChains()[chainStartId] ||= []) : [];
+  const spellGlyph = id => ({ fire:'✹', earth:'◆', water:'◈', wind:'〰', lightning:'ϟ', light:'✦', holy:'✧', dark:'◉', lunar:'☾', life:'❀', void:'◌', spatial:'⌖', enhancement:'✧' }[schoolsOf(SPELLS[id] || {})[0]] || '✧');
+  const canChainStart = id => !!SPELL_CAST[id];
+  function pageSpells() {
+    const known = Object.entries(c.spells || {}).filter(([id]) => SPELLS[id]).sort((a,b) => SPELLS[a[0]].name.localeCompare(SPELLS[b[0]].name));
+    const prep = preparedOf(c), pmax = preparedMax(c), chain = spellChain(), maxChain = chainCapacity();
+    if (spellView === 'combo') {
+      const starts = prep.filter(id => SPELLS[id] && canChainStart(id));
+      if (!starts.includes(chainStartId)) chainStartId = starts[0] || null;
+      const chain = spellChain(), maxChain = chainCapacity();
+      const icon = id => `<span class="spell-icon school-${escapeHtml(schoolsOf(SPELLS[id] || {})[0] || 'arcane')}">${spellGlyph(id)}</span>`;
+      const tiles = (items, group) => items.map(([id]) => `<button class="spell-library-tile" draggable="true" data-drag-spell="${id}" data-group="${group}">${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span></button>`).join('');
+      const starters = starts.map(id => `<button class="spell-start-tile ${id===chainStartId?'on':''}" data-chain-start="${id}">${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span></button>`).join('');
+      const slots = chain.map((id,i) => `<li class="spell-sequence-slot" draggable="true" data-sequence-spell="${id}" data-sequence-index="${i}"><b>${i+1}</b>${icon(id)}<span>${escapeHtml(SPELLS[id].name)}</span><button data-sequence-remove="${i}">×</button></li>`).join('');
+      const preparedKnown = known.filter(([id]) => prep.includes(id)), otherKnown = known.filter(([id]) => !prep.includes(id));
+      return `<div class="pg spell-journal spell-sequencer"><header class="beast-collection-head"><div><button class="journal-back" data-spell-list>‹ Spells</button><h2>Spell sequencer</h2><p class="hint">Choose a prepared opener, then drag any learned spell into the sequence. Follow-ups do not need to be prepared.</p></div><strong>${chain.length} <small>/ ${maxChain} follow-ups</small></strong></header>
+      <section class="spell-journal-summary"><b>Chain Casting</b><span>${display(c.skills.chainCasting ?? 100)}</span><small>Prepared opener plus up to ${maxChain} follow-ups. ${(treeState(c,'chainCasting').nodes.rapidFire||0)>0?'Rapid Fire is a separate voiceless barrage and does not affect incantation chains.':(treeState(c,'chainCasting').nodes.elementalRotation||0)>0?'Rotation requires changing elements; learned weave ranks can discount distinct-element spells.':'Spells and elements follow your chain rules.'} ${(treeState(c,'chainCasting').nodes.pairedElements||0)>0?'Two-Element Specialization limits the chain to two distinct elements.':''}</small></section>
+      <section class="spell-chain-panel"><h3>Prepared openers</h3><div class="spell-start-list">${starters || '<p class="muted">Prepare a castable spell to use it as a chain opener.</p>'}</div></section>
+      <section class="spell-chain-panel"><h3>Sequence ${chainStartId ? '· '+escapeHtml(SPELLS[chainStartId].name) : ''}</h3><div class="spell-sequence-drop" data-sequence-drop><ol class="spell-sequence-list">${slots || '<li class="spell-sequence-empty">Drop spells here to add follow-ups.</li>'}</ol><span class="spell-drop-hint">＋ Drop a spell here</span></div></section>
+      <section class="spell-chain-panel"><h3>Spell library</h3><h4>Prepared spells</h4><div class="spell-library-grid">${tiles(preparedKnown,'prepared')}</div><h4>Other learned spells</h4><div class="spell-library-grid">${tiles(otherKnown,'learned')}</div></section></div>`;
+    }
+    const rows = known.map(([id, level]) => {
+      const sp = SPELLS[id], evolution = spellEvolutionOf(c,id), progress = Math.min(1, level / MASTERY.core);
+      return `<article class="spell-list-row">
+        <button class="spell-name-link" data-spell-tree="${id}" title="Open this spell evolution tree">${escapeHtml(sp.name)}</button>
+        <span class="spell-row-progress">${bar(progress,'xp')}</span><span class="spell-row-percent">${Math.round(progress*100)}%</span>
+        <strong class="spell-row-mastery">${display(level)}</strong>
+        <button class="prep-btn spell-row-prepare ${prep.includes(id)?'on':''}" data-prepare="${id}">${prep.includes(id)?'✦ Prepared':'Prepare'}</button>
+        <button class="prep-btn spell-row-combo" data-spell-combo>Combo</button>
+      </article>`;
+    }).join('');
+    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><h2>Spells</h2><p class="hint">Your learned spells and their individual mastery. Select a spell to open its evolution tree.</p></div><strong>${known.length} <small>known</small></strong></header>
+      <section class="spell-journal-summary"><b>Prepared</b><span>${prep.length} / ${pmax}</span><small>Prepared spells are available to the spell wheel and hotbar.</small><button class="prep-btn" data-spell-combo>Combo</button></section>
+      <div class="spell-list-head"><span>Spell</span><span>Progress</span><span></span><span>Mastery</span><span>Prepare</span><span>Combo</span></div>
+      ${rows ? `<div class="spell-entry-list">${rows}</div>` : '<p class="muted">You have not learned any spells yet. Teachers, scrolls and books can teach you new spells.</p>'}
+    </div>`;
+  }
+
+  const SPELL_EVOLUTION_NODES = [
+    { id: 'force', name: 'Potent Form', max: 3, text: 'Increase this spell effect strength by 5% per rank.' },
+    { id: 'economy', name: 'Efficient Weave', max: 3, text: 'Reduce this spell mana cost by 4% per rank.' },
+    { id: 'tempo', name: 'Swift Invocation', max: 3, text: 'Reduce this spell casting time by 4% per rank.' }
+  ];
+  function pageSpellEvolution() {
+    const sp = SPELLS[spellTreeId];
+    if (!sp || !(spellTreeId in (c.spells || {}))) { spellTreeId = null; return pageSpells(); }
+    const evo = spellEvolutionOf(c, spellTreeId), spent = SPELL_EVOLUTION_NODES.reduce((n,node)=>n+(evo.nodes[node.id]||0),0);
+    const free = Math.max(0, Math.floor(evo.points) - spent);
+    const nodes = SPELL_EVOLUTION_NODES.map(node => {
+      const rank = evo.nodes[node.id] || 0, full = rank >= node.max, can = free > 0 && !full;
+      return `<article class="spell-evolution-node"><header><b>${node.name}</b><strong>${rank} / ${node.max}</strong></header><p>${node.text}</p><button class="prep-btn" data-spell-evolve="${node.id}" ${can?'':'disabled'}>${full?'Mastered':can?'Unlock rank':'Need 1 evolution point'}</button></article>`;
+    }).join('');
+    return `<div class="pg spell-journal"><header class="beast-collection-head"><div><button class="journal-back" data-spell-tree-back>‹ Spells</button><h2>${escapeHtml(sp.name)} · Evolution</h2><p class="hint">${escapeHtml(sp.description || 'A personal path shaped by repeated casting.')}</p><small>${escapeHtml(schoolsOf(sp).map(label).join(' + '))}</small></div><strong>${free} <small>points free</small></strong></header><section class="spell-journal-summary"><b>Spell mastery</b><span>${display(masteryOf(c,spellTreeId))}</span><small>${evo.points.toFixed(1)} evolution points earned · ${spent} spent</small></section><div class="spell-evolution-tree">${nodes}</div></div>`;
+  }
+  const spellTierLabel = level => level >= 100 ? 'Mastered' : level > 0 ? 'Learning' : 'Unmastered';
+  const PAGES = { bestiary: pageBestiary, runes: pageRunes, body: pageBody, character: pageCharacter, attributes: pageAttributes, tools: pageTools, life: pageLife, combat: pageCombat, magic: pageMagic,
     crafting: () => pageNewSection('Crafting', 'Your crafting professions, recipes, workbenches and production progress will live here.'),
-    spells: () => pageNewSection('Spells', 'Your known spells, spell details, preparation and hotbar assignment will live here.'),
+    spells: pageSpells,
+    herbarum: pageHerbarum,
     lore: () => pageNewSection('Lore', 'Discoveries, people, factions, places and story entries will be collected here.')
   };
 
@@ -325,19 +532,48 @@ export function createBook(root, ctx) {
     const nav = (items, side) => `<nav class="ribbons ribbons-${side}" aria-label="${side} book tabs">${items.map(([id, name]) => `<button class="ribbon ${id === tab ? 'on' : ''}" data-tab="${id}" title="${name}" aria-current="${id === tab ? 'page' : 'false'}"><span>${name}</span></button>`).join('')}</nav>`;
     el.innerHTML = `<div class="book book-${tab}" role="dialog" aria-label="Character book">
       ${nav(TOP_TABS, 'top')}${nav(LEFT_TABS, 'left')}${nav(RIGHT_TABS, 'right')}
-      <div class="pages pages-${tab}">${PAGES[tab]()}</div>
+      <div class="pages pages-${treeView ? 'skill-tree' : tab}">${spellTreeId ? pageSpellEvolution() : treeView ? pageTrees() : PAGES[tab]()}</div>
       <button class="book-close" title="Close (Tab, I or Esc)">×</button></div>`;
-    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
+    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { treeView = false; tab = b.dataset.tab; render(); });
+    el.querySelectorAll('[data-magic-category]').forEach(b => b.onclick = () => { magicCategory = b.dataset.magicCategory; render(); });
+    el.querySelectorAll('[data-spell-combo]').forEach(b => b.onclick = () => { spellView = 'combo'; render(); });
+    el.querySelectorAll('[data-spell-tree]').forEach(b => b.onclick = () => { spellTreeId = b.dataset.spellTree; render(); });
+    el.querySelector('[data-spell-tree-back]')?.addEventListener('click', () => { spellTreeId = null; spellView = 'list'; render(); });
+    el.querySelectorAll('[data-spell-evolve]').forEach(b => b.onclick = () => { const evo = spellEvolutionOf(c, spellTreeId), node = SPELL_EVOLUTION_NODES.find(n=>n.id===b.dataset.spellEvolve); if (node && (evo.nodes[node.id]||0)<node.max && Math.floor(evo.points)-Object.values(evo.nodes).reduce((a,v)=>a+v,0)>0) { evo.nodes[node.id]=(evo.nodes[node.id]||0)+1; ctx.onChange?.(); } render(); });
+    el.querySelector('[data-spell-list]')?.addEventListener('click', () => { spellView = 'list'; render(); });
+    el.querySelectorAll('[data-chain-start]').forEach(btn => btn.onclick = () => { chainStartId=btn.dataset.chainStart; render(); });
+    const addChainSpell = id => { if(!chainStartId || !Object.prototype.hasOwnProperty.call(c.spells || {},id) || !SPELLS[id] || !SPELL_CAST[id]) return; const q=spellChain(), n=treeState(c,'chainCasting').nodes, rotation=(n.elementalRotation||0)>0, same=!(n.elementalRotation||0)||(n.elementalBoost||0)>0, paired=(n.pairedElements||0)>0, repeatedSpell=id===chainStartId||q.includes(id), schools=new Set([chainStartId,...q].map(x=>SPELLS[x]?.school).filter(Boolean)), element=SPELLS[id].school, repeatedElement=schools.has(element); if(repeatedSpell) return; if(repeatedElement&&!same) return; if(rotation&&repeatedElement) return; if(paired&&!repeatedElement&&schools.size>=2) return; if(q.length<chainCapacity()){q.push(id);ctx.onChange?.();render();} };
+    el.querySelectorAll('[data-drag-spell]').forEach(tile => { tile.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('text/plain',tile.dataset.dragSpell);ev.dataTransfer.effectAllowed='copy';}); tile.onclick=()=>addChainSpell(tile.dataset.dragSpell); });
+    el.querySelectorAll('[data-sequence-drop]').forEach(zone=>{zone.addEventListener('dragover',ev=>{ev.preventDefault();zone.classList.add('drag-over');});zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));zone.addEventListener('drop',ev=>{ev.preventDefault();zone.classList.remove('drag-over');addChainSpell(ev.dataTransfer.getData('text/plain'));});});
+    el.querySelectorAll('[data-sequence-remove]').forEach(btn=>btn.onclick=()=>{spellChain().splice(Number(btn.dataset.sequenceRemove),1);ctx.onChange?.();render();});
+    el.querySelectorAll('[data-sequence-spell]').forEach(slot=>{slot.addEventListener('dragstart',ev=>{ev.dataTransfer.setData('application/x-eld-index',slot.dataset.sequenceIndex);ev.dataTransfer.setData('text/plain',slot.dataset.sequenceSpell);ev.dataTransfer.effectAllowed='move';});slot.addEventListener('dragover',ev=>{ev.preventDefault();slot.classList.add('drag-over');});slot.addEventListener('dragleave',()=>slot.classList.remove('drag-over'));slot.addEventListener('drop',ev=>{ev.preventDefault();slot.classList.remove('drag-over');const raw=ev.dataTransfer.getData('application/x-eld-index'),from=Number(raw),to=Number(slot.dataset.sequenceIndex),q=spellChain();if(raw!==''&&Number.isInteger(from)&&from>=0&&from<q.length){const [v]=q.splice(from,1);q.splice(Math.min(to,q.length),0,v);ctx.onChange?.();render();}else{const id=ev.dataTransfer.getData('text/plain');if(id&&q.length<chainCapacity()){q.splice(Math.min(to,q.length),0,id);ctx.onChange?.();render();}}});});
     el.querySelector('.book-close').onclick = () => ctx.onClose();
     el.querySelectorAll('[data-skill]').forEach(li => li.onclick = () => { selSkill = li.dataset.skill; resetArmed = false; render(); });
+    el.querySelector('[data-tree-back]')?.addEventListener('click', () => { treeView = false; tab = treeReturnTab; render(); });
     el.querySelectorAll('.node.buy').forEach(nd => nd.onclick = () => { buyNode(c, selSkill, nd.dataset.node); resetArmed = false; ctx.onChange?.(); render(); });
+    if (treeView && SKILL_TREES[selSkill]?.flow) bindFlowTree(el, SKILL_TREES[selSkill], {
+      onSelect: id => { flowSelected = id; render(); },
+      onBuy: id => { if (buyNode(c, selSkill, id).ok) { resetArmed = false; ctx.onChange?.(); } render(); } });
     el.querySelectorAll('[data-reset]').forEach(b => b.onclick = () => { if (!resetArmed) { resetArmed = true; return render(); } resetTree(c, b.dataset.reset); resetArmed = false; ctx.onChange?.(); render(); });
     el.querySelectorAll('[data-train]').forEach(b => b.onclick = () => { c.skills[b.dataset.train] = (c.skills[b.dataset.train] ?? 100) + 100; render(); });
     el.querySelectorAll('.cell-p').forEach((x, i) => { if (keep[i] !== undefined) x.scrollTop = keep[i]; });
     if (!keep.length) el.querySelector('.wl.on')?.scrollIntoView({ block: 'nearest' });
     // a skill's name anywhere else in the book opens its tree
-    el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { selSkill = t.dataset.tree; resetArmed = false; tab = 'trees'; render(); });
+    el.querySelectorAll('[data-tree]').forEach(t => t.onclick = () => { treeReturnTab = tab; selSkill = t.dataset.tree; resetArmed = false; flowSelected = null; resetFlowScroll(); treeView = true; render(); });
     el.querySelectorAll('[data-assign]').forEach(b => b.onclick = () => { assignPoints(c, b.dataset.assign, 1); ctx.onChange?.(); render(); });
+    el.querySelectorAll('[data-tool-slot]').forEach(select=>select.onchange=()=>{
+      const skill=select.dataset.toolSlot,value=select.value;c.toolSlots ||= {};
+      const old=c.toolSlots[skill];if(old&&old.uid===value)return;
+      if(old){ctx.inv.items.push(old);delete c.toolSlots[skill];}
+      if(value.startsWith('equipped:')){
+        const id=value.slice(9),body=ctx.body();
+        if(body?.gear.unequip('mainHand')===id)c.toolSlots[skill]={uid:'tool-'+Date.now().toString(36),id,enchantments:[]};
+      }else if(value){
+        const index=ctx.inv.items.findIndex(x=>x.uid===value);
+        if(index>=0)c.toolSlots[skill]=ctx.inv.items.splice(index,1)[0];
+      }
+      ctx.onChange?.();render();
+    });
     el.querySelectorAll('.eq.full').forEach(li => li.onclick = () => {
       const body = ctx.body(); if (!body) return;
       const id = body.gear.unequip(li.dataset.slot); if (id) { ctx.inv.items.push({ uid: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, id, enchantments: [] }); ctx.onChange?.(); }
@@ -354,16 +590,24 @@ export function createBook(root, ctx) {
       ctx.onChange?.(); render();
     });
     el.querySelector('[data-prepmode]')?.addEventListener('click', () => { prepMode = !prepMode; render(); });
-    el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); ctx.onChange?.(); render(); }));
+    el.querySelectorAll('[data-prepare]').forEach(li => li.addEventListener('click', () => { const r = togglePrepared(c, li.dataset.prepare); if (!r.ok) ctx.toast?.(r.reason); if (r.ok && !r.prepared) { c.spellChain = (c.spellChain || []).filter(id => id !== li.dataset.prepare); } ctx.onChange?.(); render(); }));
     el.querySelectorAll('[data-spell]').forEach(li => { li.ondragstart = e => e.dataTransfer.setData('text/plain', 'spell:' + li.dataset.spell); });
     el.querySelectorAll('[data-potion]').forEach(li => {
       li.ondragstart = e => e.dataTransfer.setData('text/plain', li.dataset.potion);
       li.onclick = () => { ctx.onUse(li.dataset.potion); render(); };
     });
-    el.querySelectorAll('[data-beast]').forEach(b => b.onclick = () => { beastSel = b.dataset.beast; api.turn = 0; render(); });
-    el.querySelector('[data-beastsel]')?.addEventListener('change', e => { beastSel = e.target.value; api.turn = 0; render(); });
+    el.querySelectorAll('[data-beast-open]').forEach(b => b.onclick = () => { beastSel = b.dataset.beastOpen; beastView = 'entry'; api.turn = 0; render(); });
+    el.querySelectorAll('[data-herb-open]').forEach(b=>b.onclick=()=>{herbSel=b.dataset.herbOpen;herbView='entry';api.turn=0;render();});
+    el.querySelectorAll('[data-herb-page]').forEach(b=>b.onclick=()=>{herbPage=Number(b.dataset.herbPage);render();});
+    el.querySelector('[data-herb-prev]')?.addEventListener('click',()=>{herbPage=Math.max(0,herbPage-1);render();});
+    el.querySelector('[data-herb-next]')?.addEventListener('click',()=>{herbPage=Math.min(HERBARUM_PAGES.length-1,herbPage+1);render();});
+    el.querySelector('[data-herb-back]')?.addEventListener('click',()=>{herbView='collection';api.turn=0;render();});
+    el.querySelectorAll('[data-beast-page]').forEach(b => b.onclick = () => { beastPage = Number(b.dataset.beastPage); render(); });
+    el.querySelector('[data-beast-prev]')?.addEventListener('click', () => { beastPage = Math.max(0, beastPage - 1); render(); });
+    el.querySelector('[data-beast-next]')?.addEventListener('click', () => { beastPage = Math.min(BEAST_PAGES.length, beastPage + 1); render(); });
+    el.querySelector('[data-beast-back]')?.addEventListener('click', () => { beastView = 'collection'; api.turn = 0; render(); });
     // drag on the figure (or the creature) to turn it
-    const fig = el.querySelector('.figure, .beast-fig');
+    const fig = el.querySelector('.figure, .beast-fig, .herb-fig');
     if (fig) fig.onpointerdown = e => {
       fig.setPointerCapture(e.pointerId); let x = e.clientX;
       fig.onpointermove = ev => { api.turn += (ev.clientX - x) * 0.01; x = ev.clientX; };
@@ -375,14 +619,16 @@ export function createBook(root, ctx) {
     turn: 0,                                          // figure rotation, from dragging
     get isOpen() { return !el.hidden; },
     get tab() { return tab; },
-    open(t) { if (t) tab = t; el.hidden = false; api.turn = 0; render(); },
+    open(t) { if (t) tab = t; treeView = false; el.hidden = false; api.turn = 0; render(); },
     close() { el.hidden = true; el.innerHTML = ''; },
     render,
     // where the figure box is on screen (for play.js to render the character into), or null
     portraitRect() { const f = !el.hidden && el.querySelector('.figure'); return f ? f.getBoundingClientRect() : null; },
     // the Bestiary's creature box and whose page it is (play.js draws the creature there)
-    beastRect() { const f = !el.hidden && el.querySelector('.beast-fig'); return f ? f.getBoundingClientRect() : null; },
-    get beastId() { return tab === 'bestiary' ? beastSel : null; },
+    beastRect() { const f = !el.hidden && tab === 'bestiary' && beastView === 'entry' && el.querySelector('.beast-fig'); return f ? f.getBoundingClientRect() : null; },
+    get beastId() { return tab === 'bestiary' && beastView === 'entry' ? beastSel : null; },
+    herbRect(){const f=!el.hidden&&tab==='herbarum'&&herbView==='entry'&&el.querySelector('.herb-fig');return f?f.getBoundingClientRect():null;},
+    get herbId(){return tab==='herbarum'&&herbView==='entry'?herbSel:null;},
   };
   return api;
 }

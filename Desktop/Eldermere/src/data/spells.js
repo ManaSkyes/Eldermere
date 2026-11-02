@@ -8,8 +8,8 @@
 //
 // Mana guide: difficulty 0 costs 0-50; difficulty 10 costs 10,000 or more. Mages are meant to cast
 // mastered spells as constantly as a warrior swings a sword, so MP is meant to grow huge.
-const spell = (id, name, school, difficulty, power, mana, castTime, description, backfire) =>
-  ({ id, name, school, difficulty, power, mana, castTime, description, backfire });
+const spell = (id, name, school, difficulty, power, mana, castTime, description, backfire, types = [school]) =>
+  ({ id, name, school, schools: [...new Set(types?.length ? types : [school])], types: [...new Set(types?.length ? types : [school])], difficulty, power, mana, castTime, description, backfire });
 
 export const SPELLS = {
   exampleLight: spell('exampleLight', 'Light (example)', 'light', 0, 0, 2, 1.5,
@@ -28,6 +28,11 @@ export const SPELLS = {
   exampleStoneWall: spell('exampleStoneWall', 'Stone wall (example)', 'earth', 4, 4, 30, 4,
     'Raises a wall of earth and stone.',
     { kind: 'misshape', text: 'The ground heaves under your own feet instead.' }),
+  // Hybrid example: its primary school remains Fire for legacy casting code, while both schools
+  // contribute training and school-tree techniques. This is a catalogue definition, not castable yet.
+  exampleLava: spell('exampleLava', 'Lava (example)', 'fire', 5, 5, 38, 3.8,
+    'Molten earth shaped by heat: a hybrid of fire and earth.',
+    { kind: 'misshape', text: 'The ground cracks beneath the caster.' }, ['fire', 'earth']),
 };
 
 // how each combat spell behaves when thrown (see src/game/spellcast.js)

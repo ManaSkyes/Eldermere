@@ -104,7 +104,7 @@ export const ITEMS = {
   woodaxe: { name: "Woodcutter's axe", slot: 'mainHand', slots: ['mainHand', 'offHand'], weapon: 'woodaxe', tool: { skill: 'logging' }, skill: 'greataxe', damage: 10, speed: 0.7, reach: 10, weight: 4 },
   butcherKnife: { name: 'Butcher knife', slot: 'mainHand', weapon: 'skinknife', tool: { skill: 'butchering' }, skill: 'dagger', damage: 4, speed: 1.5, reach: 4, weight: 0.8 },
   skinningKnife: { name: 'Skinning knife', slot: 'mainHand', weapon: 'skinknife', tool: { skill: 'skinning' }, skill: 'dagger', damage: 3, speed: 1.8, reach: 4, weight: 0.5 },
-  sickle: { name: 'Sickle', slot: 'mainHand', weapon: 'sickle', tool: { skill: 'herbalism' }, skill: 'dagger', damage: 4, speed: 1.5, reach: 5, weight: 0.8 },
+  herbalTool: { name: 'Crude Scythe and Trowel', slot: 'mainHand', weapon: 'herbalTool', tool: { skill: 'herbalism' }, skill: 'dagger', damage: 4, speed: 1.5, reach: 5, weight: 1.2 },
   fishingRod: { name: 'Fishing rod', slot: 'mainHand', slots: ['mainHand', 'offHand'], weapon: 'fishingRod', tool: { skill: 'fishing' }, weight: 1.5 },
   crystalChisel: { name: 'Crystal chisel and mallet', slot: 'mainHand', weapon: 'chisel', tool: { skill: 'crystalHarvesting' }, skill: 'club', damage: 3, speed: 1.2, reach: 4, weight: 1.5 },
 

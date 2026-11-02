@@ -180,7 +180,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
   }
   function spawn(id, { x = 0, y = 0, z = 0, yaw = 0, rank = null, params = {}, scale = null, group = null, level = null } = {}) {
     const M = MONSTERS[id]; if (!M) throw new Error(`no monster ${id}`);
-    const { spec, params: P0 } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend', bonesOnly: id === 'nocturianBat' && batInstancing })   // (bats: drawn by batVat.js; only the bone frame is kept), mo = createMotion(C, M);
+    const { spec, params: P0 } = monsterSpec(id, params), C = buildCreature(THREE, spec, { particles, instances: id === 'umbrafiend' ? creaturePartInstances : null, twoInfluenceVariant: id === 'umbrafiend', bonesOnly: id === 'nocturianBat' && batInstancing }), mo = createMotion(C, M);   // (bats: drawn by batVat.js; only the bone frame is kept)
     if (id === 'umbrafiend') { C.setSkinnedVariant(umbrafiendTwoInfluence); C.setBodyVisible(umbrafiendBodiesVisible); C.setSmokeAuraVisible(umbrafiendSmokeAuraVisible); C.setMembranesVisible(umbrafiendMembranesVisible); C.setGlowsVisible(umbrafiendGlowsVisible); C.setWispsVisible(umbrafiendWispsVisible); C.setPartsVisible(umbrafiendPartsVisible); }
     // a placed group's stats (src/data/objects.js: the editor's numbers, as multipliers of the group's defaults)
     // a level chart (the workshop's): its numbers at this level replace the rank's scaling
@@ -190,7 +190,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       dmgK: (K.damage ?? 1) * (LV?.damage ?? 1), rank: rank || M.rank[0], k: rk, pos: { x, y, z }, home: { x, y, z }, yaw, hp: S.hp * rk, maxHp: S.hp * rk, poise: S.poise * Math.sqrt(rk), maxPoise: S.poise * Math.sqrt(rk),
       sizeK: P0.size ?? 1, alive: true, state: 'idle', cool: {}, hitDone: true, stunT: 0, slowT: 0, slowK: 1, bleed: null, lost: 0, dead: 0, moveSpeed: 0, behaviorLodDt: 0, bar: bar() };
     scene.add(C.root); A.attached = true; C.setAttached?.(true); C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
-    A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0;   // (a swarm starts up high) A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;
+    A.bar.draw(1); A.alt = A.altGoal = M.roost ?? 0; A.flapT = Math.random() * 0.2; A.growlT = 3 + Math.random() * 5; A.stepT = 0;   // (a swarm starts up high)
     mo.onCommit = (dx, dz) => { const c = Math.cos(A.yaw), s = Math.sin(A.yaw); A.pos.x += dx * c + dz * s; A.pos.z += -dx * s + dz * c; if (A.landDy) { A.pos.y += A.landDy; A.landDy = 0; } A.gx = 1e9; if (!M.flight && shapes.length) { const r = settle(A, A.pos.x, A.pos.z); A.pos.x = r.x; A.pos.z = r.z; } };
     mo.onEvent = (name, d) => {
       if (name === 'fire') {   // a shadow bullet: the game flies it now

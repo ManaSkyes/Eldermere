@@ -243,9 +243,38 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     workerState.workerCount = workerCount;
     return workerPool;
   };
-  // Each set's positions are sent to a worker once (by key) and reused by every later cull job.
-  const cullTask = (si, start, end, extra) => { const S = sets[si]; return { si, offset: start, type: 'tree-cull', low: true,
-    cache: { key: treeCacheKey + si, data: { X: S.X, Y: S.Y, Z: S.Z, Sc: S.Sc } }, payload: { start, end, mid: S.mid, ...extra } }; };
+  // A cull "task" is just a range of one set's trees. runCull packs all ranges into at most one job per worker
+  // (positions of every set are cached in each worker under one key), so an LOD update costs one round trip.
+  const cullTask = (si, start, end, extra) => ({ si, offset: start, end, lod: extra.targetLod ?? -1, edges: extra.edges });
+  const runCull = (pool, tasks, { cx, cy, cz, hidden, baked }) => {
+    const jobs = Math.max(1, Math.min(workerCount, tasks.length)), groups = Array.from({ length: jobs }, () => ({ tasks: [], size: 0 }));
+    for (const t of [...tasks].sort((a, b) => (b.end - b.offset) - (a.end - a.offset))) {   // balance by tree count
+      const g = groups.reduce((m, x) => x.size < m.size ? x : m); g.tasks.push(t); g.size += t.end - t.offset;
+    }
+    const setParams = sets.map((S, si) => ({ mid: S.mid, edges: tasks.find(t => t.si === si)?.edges || S.edges }));
+    const cache = { key: treeCacheKey + 'all', data: { sets: sets.map(S => ({ X: S.X, Y: S.Y, Z: S.Z, Sc: S.Sc })) } };
+    return Promise.all(groups.filter(g => g.tasks.length).map(g => {
+      const ranges = new Int32Array(g.tasks.length * 4);
+      g.tasks.forEach((t, k) => { ranges[k * 4] = t.si; ranges[k * 4 + 1] = t.offset; ranges[k * 4 + 2] = t.end; ranges[k * 4 + 3] = t.lod; });
+      return pool.run('tree-cull-multi', { ranges, sets: setParams, cx, cy, cz, hidden, baked }, { cache, low: true }).then(r => Object.assign(r, { tasks: g.tasks }));
+    }));
+  };
+  // Write one culled tree into its LOD mesh buffers.
+  const writeTree = (S, mesh, j, i, lo, hi) => {
+    const a = mesh.instanceMatrix.array, o = j * 16, c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
+    a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
+    mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
+    const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
+  };
+  const applyCull = (results, countsBySet) => {
+    for (const result of results) {
+      const R = result.records, T = result.tasks;
+      for (let k = 0; k < R.length; k += 5) {
+        const t = T[R[k]], S = sets[t.si], L = R[k + 2], counts = countsBySet[t.si];
+        writeTree(S, S.meshes[L], counts[L]++, t.offset + R[k + 1], R[k + 3], R[k + 4]);
+      }
+    }
+  };
   const sets = [];
   if (!plants.some(p => SPECIES[p.k])) return { hidden: false, sets, bake() {}, cull() {} };
   const A = atlas(THREE);
@@ -486,7 +515,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
                 const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
                 instancesTested += end - offset;
-                tasks.push({ ...cullTask(si, offset, end, { cx, cy, cz, edges, hidden: false, baked, targetLod: L }), lod: L });
+                tasks.push(cullTask(si, offset, end, { edges, targetLod: L }));
               }
             }
           }
@@ -510,10 +539,8 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             workerState.workerCount = workerCount;
             workerState.status = 'running · zone workers';
             const batchStarted = performance.now();
-            // Leave four workers of headroom for latency-sensitive creature AI and presentation.
-            // runBatch is a sliding window, so limiting tree concurrency prevents a steady tree
-            // stream from occupying every worker before creature jobs can be dispatched.
-            return pool.runBatch(tasks, workerCount).then(results => {
+            // One packed job per worker (see runCull); 'low' priority keeps latency-sensitive jobs ahead.
+            return runCull(pool, tasks, { cx, cy, cz, hidden: false, baked }).then(results => {
               // Apply completed work as an interim frame even if the player moved during the batch.
               // Discarding every result after only 0.5 m of movement starves LOD updates while running.
               // Fade bands are distance-dependent, so refresh all LOD buffers together after modest
@@ -529,18 +556,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
               if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
               const applyStarted = performance.now();
               const countsBySet = sets.map(() => [0, 0, 0]);
-              for (let ri = 0; ri < results.length; ri++) {
-                const result = results[ri], task = tasks[ri], S = sets[task.si], L = task.lod, mesh = S.meshes[L], counts = countsBySet[task.si];
-                const R = result.records;
-                for (let k = 0; k < R.length; k += 4) {
-                  const localIndex = R[k], lo = R[k + 2], hi = R[k + 3];
-                  const i = task.offset + localIndex, j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
-                  const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
-                  a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
-                  mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
-                  const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
-                }
-              }
+              applyCull(results, countsBySet);
               for (let si = 0; si < sets.length; si++) for (let L = 0; L < 3; L++) {
                 if (!due[L]) continue;
                 const mesh = sets[si].meshes[L], count = countsBySet[si][L]; mesh.count = count; visibleInstances += count;
@@ -625,14 +641,14 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
           for (const cell of candidates) for (let offset = cell.start; offset < cell.end; offset += TREE_WORKER_CHUNK_SIZE) {
             const end = Math.min(cell.end, offset + TREE_WORKER_CHUNK_SIZE);
             instancesTested += end - offset;
-            tasks.push(cullTask(si, offset, end, { cx, cy, cz, edges: S.edges, hidden: !!this.hidden, baked }));
+            tasks.push(cullTask(si, offset, end, { edges: S.edges }));
           }
         }
         if (timed) { diag.cellsTested += cellsTested; diag.cellsVisited += cellsVisited; diag.instancesTested += instancesTested; }
         ensureWorker().then(pool => {
           workerState.status = 'running';
           const batchStarted = performance.now();
-          return pool.runBatch(tasks, workerCount).then(results => {
+          return runCull(pool, tasks, { cx, cy, cz, hidden: !!this.hidden, baked }).then(results => {
             // A newer camera/visibility request supersedes this batch. Never upload stale buffers.
             if (requestGeneration !== workerGeneration) { last.x = 1e9; return; }
             workerState.lastMs = performance.now() - batchStarted;
@@ -643,19 +659,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
             if (timed) { diag.workerMs += workerState.workerMs; diag.workerQueueMs += workerState.queueMs; diag.workerJobs++; }
             const applyStarted = performance.now();
             const countsBySet = sets.map(() => [0, 0, 0]);
-            for (let ri = 0; ri < results.length; ri++) {
-              const result = results[ri], task = tasks[ri], S = sets[task.si], counts = countsBySet[task.si], M = S.meshes;
-              const R = result.records;
-              for (let k = 0; k < R.length; k += 4) {
-                const localIndex = R[k], L = R[k + 1], lo = R[k + 2], hi = R[k + 3];
-                const i = task.offset + localIndex;
-                const mesh = M[L], j = counts[L]++, a = mesh.instanceMatrix.array, o = j * 16;
-                const c = Math.cos(S.Ro[i]) * S.Sc[i], sn = Math.sin(S.Ro[i]) * S.Sc[i];
-                a[o] = c; a[o+1] = 0; a[o+2] = -sn; a[o+3] = 0; a[o+4] = 0; a[o+5] = S.Sc[i]; a[o+6] = 0; a[o+7] = 0; a[o+8] = sn; a[o+9] = 0; a[o+10] = c; a[o+11] = 0; a[o+12] = S.X[i]; a[o+13] = S.Y[i]; a[o+14] = S.Z[i]; a[o+15] = 1;
-                mesh.instanceColor.array[j*3] = S.Co[i*3]; mesh.instanceColor.array[j*3+1] = S.Co[i*3+1]; mesh.instanceColor.array[j*3+2] = S.Co[i*3+2];
-                const F = mesh.geometry.attributes.aF.array; F[j*2] = lo; F[j*2+1] = hi; mesh.geometry.attributes.aR.array[j] = S.Rn[i];
-              }
-            }
+            applyCull(results, countsBySet);
             for (let si = 0; si < sets.length; si++) {
               const M = sets[si].meshes, counts = countsBySet[si];
               for (let L=0; L<3; L++) {

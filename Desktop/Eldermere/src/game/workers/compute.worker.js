@@ -10,7 +10,21 @@ self.onmessage = ({ data }) => {
   if ((data?.cache || data?.cacheKey != null) && !cached) { self.postMessage({ id, ok: false, error: 'Missing cached data for ' + data.cacheKey }); return; }
   const workerStarted = performance.now();
   try {
-    if (type === 'tree-cull') {
+    if (type === 'tree-cull-multi') {
+      // ONE job per worker per LOD update (hundreds of tiny jobs made each update wait ~1 frame per round trip).
+      // cached: { sets: [{ X, Y, Z, Sc }] }; payload.ranges: Int32Array [si, start, end, targetLod (-1 = all)] × n;
+      // payload.sets: [{ mid, edges }]. Result: Float64Array [rangeIndex, localIndex, lod, fadeLo, fadeHi] × n.
+      const { ranges, sets, cx, cy, cz, hidden, baked } = payload;
+      let total = 0; for (let r = 0; r < ranges.length; r += 4) total += ranges[r + 2] - ranges[r + 1];
+      const out = new Float64Array(Math.max(1, total * 3 * 5)); let n = 0;
+      if (!hidden) for (let r = 0, ri = 0; r < ranges.length; r += 4, ri++) {
+        const si = ranges[r], start = ranges[r + 1], end = ranges[r + 2], tl = ranges[r + 3];
+        const D = cached.sets[si], P = sets[si];
+        n = cullRange(D.X, D.Y, D.Z, D.Sc, start, end, cx, cy, cz, P.mid, P.edges, baked, tl < 0 ? null : tl, out, n, ri);
+      }
+      const records = out.slice(0, n);
+      self.postMessage({ id, ok: true, workerMs: performance.now() - workerStarted, result: { records, scanned: total } }, [records.buffer]);
+    } else if (type === 'tree-cull') {
       // Positions come from the cached set ({ X, Y, Z, Sc }); the job only carries a range and the camera.
       // Result: Float32Array of [localIndex, lod, fadeLo, fadeHi] × n, transferred (no copy, no per-tree arrays).
       const { X, Y, Z, Sc } = cached, { start, end, cx, cy, cz, mid, edges, hidden, baked, targetLod } = payload;
@@ -117,5 +131,25 @@ self.onmessage = ({ data }) => {
     self.postMessage({ id, ok: false, workerMs: performance.now() - workerStarted, error: error?.message || String(error) });
   }
 };
+
+
+// Distance-based LOD fades for trees [start, end). Writes [rangeIndex, localIndex, lod, lo, hi] records.
+function cullRange(X, Y, Z, Sc, start, end, cx, cy, cz, mid, edges, baked, targetLod, out, n, rangeIndex) {
+  const far = edges[edges.length - 1], far2 = far * far, wv0 = Math.max(3, edges[0] * .1), wv1 = Math.max(3, edges[1] * .1), wv2 = Math.max(3, far * .1);
+  const lodCount = baked ? 3 : 2, firstLod = targetLod == null ? 0 : targetLod, lastLod = Math.min(targetLod == null ? lodCount : targetLod + 1, lodCount);
+  for (let i = start; i < end; i++) {
+    const dx = X[i] - cx, dy = Y[i] + mid * Sc[i] - cy, dz = Z[i] - cz, d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > far2) continue;
+    const d = Math.sqrt(d2);
+    const b0 = Math.min(1, Math.max(0, (d - (edges[0] - wv0)) / (2 * wv0)));
+    const b2 = Math.min(1, Math.max(0, (d - (far - wv2)) / wv2));
+    const b1 = baked ? Math.min(1, Math.max(0, (d - (edges[1] - wv1)) / (2 * wv1))) : b2;
+    for (let L = firstLod; L < lastLod; L++) {
+      const lo = L === 0 ? 0 : 1 - (L === 1 ? b0 : b1), hi = 1 - (L === 0 ? b0 : L === 1 ? b1 : b2);
+      if (lo < hi) { out[n++] = rangeIndex; out[n++] = i - start; out[n++] = L; out[n++] = lo; out[n++] = hi; }
+    }
+  }
+  return n;
+}
 
 self.postMessage({ type: 'ready' });

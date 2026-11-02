@@ -11,6 +11,7 @@ All background threads live in `src/game/workers/`. Read this before adding or m
 6. **Bulk work is `low: true`.** Latency-sensitive jobs go first; low-priority jobs are guaranteed a turn after every 3.
 7. **Everything can fail.** Jobs time out after 4 s by default (`timeoutMs`). A hung or crashed worker is replaced. Always handle the rejected promise and fall back to the main thread.
 8. **Worker code is pure.** `compute.worker.js` has no DOM or Three.js access. It receives plain data and returns plain data.
+9. **Few big jobs, not many small ones.** The main thread only reads worker replies between frames, so a chain of small jobs costs about a frame each. Pack an update into at most one job per worker.
 
 ## API
 ```js
@@ -25,7 +26,7 @@ To add a job type, add a branch to `compute.worker.js` (use `cached` for data se
 ## What runs where (Nov 2026)
 | Work | Where | Why |
 |---|---|---|
-| Tree LOD culling (`tree-cull`) | Worker (auto/worker modes) | Thousands of trees per update; positions cached per worker, results packed |
+| Tree LOD culling (`tree-cull-multi`) | Worker (auto/worker modes) | Thousands of trees per update. All ranges are packed into **one job per worker** (hundreds of tiny jobs made each update take ~3 s of round trips); positions cached per worker; results packed |
 | Creature AI sense, creature presentation plan | Main thread (`auto`); worker only in explicit `worker` mode | A few µs of maths; the round trip cost more than it saved |
 | NPC AI sense, NPC presentation plan | Same as creatures | Same |
 

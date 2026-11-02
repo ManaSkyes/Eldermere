@@ -834,6 +834,7 @@ export function createMonsterActors(THREE, scene, { shapes = [], shapesIn = null
       }
       if (sampleActor) actorStageMs.visibility += performance.now() - visibilityStartedAt;
       const isUmbrafiend = A.id === 'umbrafiend';
+      if (isUmbrafiend) { A.C.groundY = A.pos.y; A.C.melting = A.mo.actName === 'sink' || A.mo.actName === 'rise'; }   // umbraModel.js: while sinking or rising it melts into the floor below this
       A.near = d < 7 && tier < 2;
       // Umbrafiends keep their full bodies and update their poses every frame; only soft shadow details
       // and distant glow sprites are reduced to make large packs affordable.

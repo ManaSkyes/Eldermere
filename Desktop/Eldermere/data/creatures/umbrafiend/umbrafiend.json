@@ -1,5 +1,5 @@
 {
- "version": 1,
+ "version": 2,
  "bones": [
   "jaw:0",
   "front.L:3",
@@ -43,25 +43,30 @@
  ],
  "lods": [
   {
-   "verts": 19355,
-   "tris": 14908,
+   "verts": 12915,
+   "tris": 16302,
    "pos": 0,
-   "nor": 232260,
-   "uv": 309680,
-   "bone": 387100,
-   "idx": 406456,
+   "nor": 154980,
+   "uv": 206640,
+   "bone": 258300,
+   "ao": 271216,
+   "idx": 284132,
    "idx32": false
   },
   {
-   "verts": 11366,
-   "tris": 7264,
-   "pos": 495904,
-   "nor": 632296,
-   "uv": 677760,
-   "bone": 723224,
-   "idx": 734592,
+   "verts": 7259,
+   "tris": 8150,
+   "pos": 381944,
+   "nor": 469052,
+   "uv": 498088,
+   "bone": 527124,
+   "ao": 534384,
+   "idx": 541644,
    "idx32": false
   }
  ],
+ "textures": {
+  "normal": "normal.jpg"
+ },
  "note": "rigid bone pieces; game space at size 1; see src/game/umbraModel.js"
 }

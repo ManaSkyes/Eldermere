@@ -6,7 +6,8 @@
 // zones drive it unchanged. The skull and jaw come from a museum scan (docs/CREDITS.md).
 //
 // File: data/creatures/umbrafiend/umbrafiend.json + .bin (per LOD: positions f32, normals i8x4, uvs u16x2, bone u8,
-// indices u16/u32), color.png, normal.png. Geometry is in game space at size 1, default legs/tail.
+// baked ambient occlusion u8, indices u16/u32) and normal.jpg (the scan skull + jaw detail; body bones map to a flat
+// corner). Geometry is in game space at size 1, default legs/tail. The charring is procedural (boneMaterial).
 //
 // Binding (any size or leg length): each bone's inverse is built from the bone's rest position in that size-1 model,
 // scaled by the creature's size, and the mesh's bind matrix scales the model by size. A rigid piece then sits at its
@@ -30,9 +31,8 @@ async function load(THREE) {
   ]);
   const tl = new THREE.TextureLoader();
   const tex = f => new Promise((res, rej) => tl.load(BASE + f, res, undefined, rej));
-  const [color, normal] = await Promise.all([tex('color.png'), tex('normal.png')]);
-  color.encoding = THREE.sRGBEncoding; color.anisotropy = normal.anisotropy = 4;
-  const material = new THREE.MeshStandardMaterial({ map: color, normalMap: normal, roughness: 0.82, metalness: 0, skinning: true });
+  const normal = await tex(head.textures?.normal || 'normal.jpg'); normal.anisotropy = 4;
+  const material = new THREE.MeshStandardMaterial({ normalMap: normal, roughness: 0.8, metalness: 0, skinning: true });
   // (Blender bakes OpenGL-style normals (+Y up); with flipY textures three reads them as-is: normalScale stays (1, 1))
 
   // the size-1 rest frame the model was built on
@@ -45,6 +45,7 @@ async function load(THREE) {
     g.setAttribute('normal', new THREE.BufferAttribute(new Int8Array(bin, L.nor, n * 4), 4, true));
     g.setAttribute('uv', new THREE.BufferAttribute(new Uint16Array(bin, L.uv, n * 2), 2, true));
     const bone = new Uint8Array(bin, L.bone, n);
+    g.setAttribute('aAo', new THREE.BufferAttribute(new Uint8Array(bin, L.ao, n), 1, true));
     g.setIndex(new THREE.BufferAttribute(L.idx32 ? new Uint32Array(bin, L.idx, L.tris * 3) : new Uint16Array(bin, L.idx, L.tris * 3), 1));
     g.userData.bone = bone;   // index into head.bones; turned into skinIndex once the frame's bone order is known
     g.computeBoundingSphere();
@@ -68,6 +69,51 @@ function skinFor(THREE, data, C) {
   data.order = key;
 }
 
+// The bone material for one fiend (a clone of the shared one; the shader program itself is shared):
+// - the core lights the bones from inside: a violet glow falling off with distance from the core (the ribs round it)
+// - sink / rise: everything below the ground (uGround, world y) is cut away along a ragged, drifting edge that burns
+//   violet, so it melts into the floor rather than sliding through it
+function boneMaterial(THREE, base, U) {
+  const m = base.clone();
+  m.onBeforeCompile = sh => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vUmbraW, vRest; attribute float aAo; varying float vAo;')
+      .replace('#include <skinning_vertex>', '#include <skinning_vertex>\nvUmbraW = (modelMatrix * vec4(transformed, 1.0)).xyz; vRest = position; vAo = aAo;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+varying vec3 vUmbraW, vRest; varying float vAo;
+uniform vec3 uCore; uniform float uCoreK, uCoreR, uGround, uTime, uMelt;
+float uHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float uNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(uHash(i), uHash(i + vec2(1, 0)), f.x), mix(uHash(i + vec2(0, 1)), uHash(i + vec2(1, 1)), f.x), f.y); }
+float uHash3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float uNoise3(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(uHash3(i), uHash3(i + vec3(1, 0, 0)), f.x), mix(uHash3(i + vec3(0, 1, 0)), uHash3(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(uHash3(i + vec3(0, 0, 1)), uHash3(i + vec3(1, 0, 1)), f.x), mix(uHash3(i + vec3(0, 1, 1)), uHash3(i + vec3(1, 1, 1)), f.x), f.y), f.z); }`)
+      // charred bone, from the model-space (rest) position: soot black, brown scorching, burnt bone showing through on the
+      // exposed surfaces (baked occlusion), fine soot grain, violet-black hairline cracks; hollows darkened by the occlusion
+      .replace('#include <color_fragment>', `#include <color_fragment>
+float cN1 = uNoise3(vRest * 7.0), cN2 = uNoise3(vRest * 22.0), cN3 = uNoise3(vRest * 140.0);
+float cRidge = 1.0 - abs(uNoise3(vRest * 55.0) * 2.0 - 1.0), uCrack = smoothstep(0.975, 0.995, cRidge) * smoothstep(0.45, 0.7, uNoise3(vRest * 9.0 + 3.1));
+vec3 cCol = mix(vec3(0.016, 0.013, 0.016), vec3(0.05, 0.036, 0.03), smoothstep(0.5, 0.75, cN2));
+cCol = mix(cCol, vec3(0.12, 0.1, 0.088), smoothstep(0.78, 0.92, cN1 + cN2 * 0.35) * smoothstep(0.45, 0.95, vAo));
+cCol *= 1.0 - smoothstep(0.3, 0.7, cN3) * 0.35;
+cCol = mix(cCol, vec3(0.035, 0.006, 0.065), uCrack);
+diffuseColor.rgb = cCol * mix(0.4, 1.0, vAo);`)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+float uEdge = vUmbraW.y - uGround + (uNoise(vUmbraW.xz * 18.0 + vec2(uTime * 0.7, -uTime * 0.5)) - 0.5) * 0.08;
+if (uEdge < 0.0) discard;`)
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+{ vec3 dc = vUmbraW - uCore; float k = exp(-dot(dc, dc) / (uCoreR * uCoreR));
+  totalEmissiveRadiance += vec3(0.5, 0.26, 1.0) * k * uCoreK * 1.4;
+  totalEmissiveRadiance += vec3(0.6, 0.3, 1.0) * uCrack * 2.5 * k * uCoreK;   // the cracks smoulder near the core
+  totalEmissiveRadiance += vec3(0.55, 0.25, 1.0) * smoothstep(0.05, 0.0, uEdge) * 2.0 * uMelt; }`);
+  };
+  m.customProgramCacheKey = () => 'umbraBones3';
+  return m;
+}
+
 // a soft additive glow (eyes and core)
 let glowTex = null;
 function glowTexture(THREE) {
@@ -86,7 +132,8 @@ export function attachUmbraModel(THREE, C, data, size = 1) {
     return new THREE.Matrix4().makeTranslation(-p.x * s, -p.y * s, -p.z * s);
   });
   const skeleton = new THREE.Skeleton(C.skeleton.bones, inv);
-  const mesh = new THREE.SkinnedMesh(data.lods[0], data.material);
+  const U = { uCore: { value: new THREE.Vector3(0, -1e4, 0) }, uCoreK: { value: 1 }, uCoreR: { value: 0.16 * s }, uGround: { value: -1e4 }, uTime: { value: 0 }, uMelt: { value: 0 } };
+  const mesh = new THREE.SkinnedMesh(data.lods[0], boneMaterial(THREE, data.material, U));
   mesh.castShadow = true; mesh.receiveShadow = false; mesh.frustumCulled = false;
   C.root.add(mesh); mesh.bind(skeleton, new THREE.Matrix4().makeScale(s, s, s));
 
@@ -106,10 +153,19 @@ export function attachUmbraModel(THREE, C, data, size = 1) {
     if (b) {
       const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.032 * s, 2), coreMat); core.position.copy(local); b.add(core); extra.push(core);
       const h = new THREE.Sprite(halo('#7a3cff', 0.75)); h.scale.setScalar(0.42 * s); h.position.copy(local); b.add(h); extra.push(h); glows.push(h);
-      C.core = core;
+      C.core = core; C.coreHalo = h;
     }
   }
   for (const g of glows) g.userData.base = g.material.opacity;
+  // per frame, just before drawing: where the core is (it lights the ribs) and where the ground is (sink / rise)
+  const tmp = new THREE.Vector3();
+  mesh.onBeforeRender = () => {
+    U.uTime.value = performance.now() / 1000;
+    if (C.core) U.uCore.value.copy(C.core.getWorldPosition(tmp));
+    U.uCoreK.value = C.coreHalo ? C.coreHalo.material.opacity / (C.coreHalo.userData.base || 1) : 1;   // follows the core's pulse
+    // the floor only cuts it while it sinks or rises (C.melting, set by the actor); otherwise nothing is clipped
+    U.uMelt.value = C.melting ? 1 : 0; U.uGround.value = C.melting ? (C.groundY ?? -1e4) : -1e4;
+  };
   C.glows = glows;   // the spec's idle() pulses C.glows
 
   C.mesh = mesh; C.meshes = [mesh];
@@ -119,7 +175,7 @@ export function attachUmbraModel(THREE, C, data, size = 1) {
   C.dispose = () => {
     mesh.removeFromParent(); skeleton.dispose?.();
     for (const o of extra) { o.removeFromParent(); if (o.isSprite) o.material.dispose(); else o.geometry.dispose(); }
-    eyeMat.dispose(); coreMat.dispose();
+    eyeMat.dispose(); coreMat.dispose(); mesh.material.dispose();
   };
   C.root.traverse(o => { if (o.isMesh) o.userData.noLampShadow = true; });
   C.umbraModel = true;

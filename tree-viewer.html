@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Tree viewer</title>
+<style>body{margin:0;background:#222;font:13px system-ui,sans-serif;color:#eee}#ui{position:absolute;top:8px;left:8px;background:rgba(14,16,40,.9);padding:10px 14px;border-radius:8px}label{display:block;cursor:pointer}select{margin:4px 0}</style></head>
+<body><div id="ui"><b>Tree viewer</b> (drag to orbit, wheel to zoom)<br>
+<select id="sp"><option value="all">All species</option></select>
+<label><input type="checkbox" data-s="roots" checked> Roots</label><label><input type="checkbox" data-s="trunk" checked> Trunk</label><label><input type="checkbox" data-s="branches" checked> Branches</label><label><input type="checkbox" data-s="leaves" checked> Leaves</label>
+<label>Level <select id="lod"><option value="0">Near</option><option value="1">Mid</option><option value="2">Far (impostor)</option></select></label>
+<label>Wind <input id="wind" type="range" min="0" max="1.5" step="0.05" value="0.45"></label></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script type="module">
+// src/gfx/trees.js, one species at a time, built up stage by stage: roots, trunk, branches, leaves (for checking the trees)
+const { createTrees } = await import('./src/gfx/trees.js');
+const ALL = ['tree:0', 'tree:1', 'tree:2', 'pine:0', 'pine:1', 'dead:0', 'dead:1', 'bush:0', 'bush:1', 'bush:2'], NAMES = ['oak', 'elm', 'birch', 'pine', 'spruce', 'dead oak', 'snag', 'bush', 'blossom bush', 'berry bush'];
+const sel = document.getElementById('sp'); ALL.forEach((k, i) => sel.insertAdjacentHTML('beforeend', `<option value="${k}">${NAMES[i]}</option>`));
+const W = innerWidth, H = innerHeight, R = new THREE.WebGLRenderer({ antialias: true }); R.setSize(W, H); document.body.appendChild(R.domElement); R.outputEncoding = THREE.sRGBEncoding; R.shadowMap.enabled = true;
+const sc = new THREE.Scene(); sc.background = new THREE.Color('#9fc3e6'); sc.add(new THREE.HemisphereLight('#dbe9ff', '#5d6b4a', 0.6)); const sun = new THREE.DirectionalLight('#fff1d6', 1.2); sun.position.set(10, 20, 8); sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40 }); sun.shadow.mapSize.set(2048, 2048); sc.add(sun);
+const g = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ color: '#6a8a4a' })); g.rotation.x = -Math.PI / 2; g.receiveShadow = true; sc.add(g);
+const nt = new THREE.DataTexture(new Uint8Array(64).fill(160), 4, 4, THREE.RGBAFormat); nt.needsUpdate = true;
+const uniforms = { uTime: { value: 0 }, uNoise: { value: nt }, uWind: { value: new THREE.Vector4(1, 0, 0.45, 0.6) }, uScroll: { value: new THREE.Vector2() } };
+const q = new URLSearchParams(location.search); if (q.get('k')) sel.value = q.get('k');
+let T = null, objs = [];
+const rebuild = () => {
+  for (const o of objs) sc.remove(o); const before = new Set(sc.children);
+  const kinds = sel.value === 'all' ? ALL : [sel.value], st = {}; document.querySelectorAll('[data-s]').forEach(c => st[c.dataset.s] = c.checked);
+  T = createTrees(THREE, sc, kinds.map((s, i) => { const [k, v] = s.split(':'); return { k, v: +v, x: (i - (kinds.length - 1) / 2) * 8, y: 0, z: 0 }; }), { uniforms, TILE: 192 }, st); T.bake(R);
+  objs = sc.children.filter(o => !before.has(o));
+};
+let yaw = 0, pitch = 0.15, dist = +(q.get('d') || 16), drag = null; const cam = new THREE.PerspectiveCamera(50, W / H, 0.05, 400);
+addEventListener('mousedown', e => { if (e.target.tagName !== 'CANVAS') return; drag = [e.clientX, e.clientY]; }); addEventListener('mouseup', () => drag = null);
+addEventListener('mousemove', e => { if (!drag) return; yaw -= (e.clientX - drag[0]) * 0.01; pitch = Math.max(-0.2, Math.min(1.4, pitch + (e.clientY - drag[1]) * 0.01)); drag = [e.clientX, e.clientY]; });
+addEventListener('wheel', e => { dist = Math.max(2, Math.min(150, dist * (e.deltaY > 0 ? 1.1 : 0.9))); });
+document.getElementById('ui').addEventListener('change', rebuild); rebuild();
+const t0 = performance.now(); let frames = 0;
+(function loop() {
+  const t = (performance.now() - t0) / 1000; uniforms.uTime.value = t; uniforms.uWind.value.z = +document.getElementById('wind').value;
+  const lod = +document.getElementById('lod').value, d = lod === 2 ? Math.max(dist, 140) : lod === 1 ? Math.max(dist, 60) : dist;
+  cam.position.set(Math.sin(yaw) * Math.cos(pitch) * d, 3 + Math.sin(pitch) * d, Math.cos(yaw) * Math.cos(pitch) * d); cam.lookAt(0, 3, 0);
+  T.cull(cam); R.render(sc, cam); if (++frames === 3) window.done = true; requestAnimationFrame(loop);
+})();
+</script></body></html>

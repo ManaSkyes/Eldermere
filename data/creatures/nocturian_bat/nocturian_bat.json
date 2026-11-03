@@ -1,0 +1,117 @@
+{
+ "name": "Nocturian bat",
+ "fps": 24,
+ "frames": 24,
+ "anims": {
+  "hover": {
+   "frames": 24,
+   "loop": true
+  },
+  "cruise": {
+   "frames": 24,
+   "loop": true
+  },
+  "swoop": {
+   "frames": 36,
+   "loop": false
+  },
+  "screech": {
+   "frames": 36,
+   "loop": false
+  }
+ },
+ "lods": [
+  {
+   "verts": 4596,
+   "tris": 3954,
+   "uv": 0,
+   "part": 36768,
+   "index": 55152,
+   "indexType": "u16",
+   "anims": {
+    "hover": {
+     "pos": 78876,
+     "nrm": 740700,
+     "frames": 24
+    },
+    "cruise": {
+     "pos": 1181916,
+     "nrm": 1843740,
+     "frames": 24
+    },
+    "swoop": {
+     "pos": 2284956,
+     "nrm": 3277692,
+     "frames": 36
+    },
+    "screech": {
+     "pos": 3939516,
+     "nrm": 4932252,
+     "frames": 36
+    }
+   }
+  },
+  {
+   "verts": 2154,
+   "tris": 1580,
+   "uv": 5594076,
+   "part": 5611308,
+   "index": 5619924,
+   "indexType": "u16",
+   "anims": {
+    "hover": {
+     "pos": 5629404,
+     "nrm": 5939580,
+     "frames": 24
+    },
+    "cruise": {
+     "pos": 6146364,
+     "nrm": 6456540,
+     "frames": 24
+    },
+    "swoop": {
+     "pos": 6663324,
+     "nrm": 7128588,
+     "frames": 36
+    },
+    "screech": {
+     "pos": 7438764,
+     "nrm": 7904028,
+     "frames": 36
+    }
+   }
+  },
+  {
+   "verts": 1003,
+   "tris": 592,
+   "uv": 8214204,
+   "part": 8222228,
+   "index": 8226240,
+   "indexType": "u16",
+   "anims": {
+    "hover": {
+     "pos": 8229792,
+     "nrm": 8374224,
+     "frames": 24
+    },
+    "cruise": {
+     "pos": 8470512,
+     "nrm": 8614944,
+     "frames": 24
+    },
+    "swoop": {
+     "pos": 8711232,
+     "nrm": 8927880,
+     "frames": 36
+    },
+    "screech": {
+     "pos": 9072312,
+     "nrm": 9288960,
+     "frames": 36
+    }
+   }
+  }
+ ],
+ "note": "per anim: positions (f16) / normals (i8) per frame; loop anims are cycles, moves run u 0..1 over their frames",
+ "binBytes": 9433392
+}

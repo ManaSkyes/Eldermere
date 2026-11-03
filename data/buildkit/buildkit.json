@@ -1,0 +1,954 @@
+{
+ "version": 1,
+ "units": "m; x right, y up, z out of the wall face (front face at z=0, wall runs back to -thick)",
+ "thick": 0.45,
+ "floor": 3.0,
+ "tile": [
+  2.5,
+  3.0
+ ],
+ "walls": {
+  "brick": {
+   "color": "wall_brick_color.jpg",
+   "normal": "wall_brick_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "brick_cracked": {
+   "color": "wall_brick_cracked_color.jpg",
+   "normal": "wall_brick_cracked_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "brick_pale": {
+   "color": "wall_brick_pale_color.jpg",
+   "normal": "wall_brick_pale_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "brick_pale_cracked": {
+   "color": "wall_brick_pale_cracked_color.jpg",
+   "normal": "wall_brick_pale_cracked_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "cobble": {
+   "color": "wall_cobble_color.jpg",
+   "normal": "wall_cobble_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "plaster": {
+   "color": "wall_plaster_color.jpg",
+   "normal": "wall_plaster_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "plaster_fresh": {
+   "color": "wall_plaster_fresh_color.jpg",
+   "normal": "wall_plaster_fresh_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "plaster_cracked": {
+   "color": "wall_plaster_cracked_color.jpg",
+   "normal": "wall_plaster_cracked_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "slate": {
+   "color": "wall_slate_color.jpg",
+   "normal": "wall_slate_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "flags": {
+   "color": "wall_flags_color.jpg",
+   "normal": "wall_flags_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "ashlar": {
+   "color": "wall_ashlar_color.jpg",
+   "normal": "wall_ashlar_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "ashlar_rustic": {
+   "color": "wall_ashlar_rustic_color.jpg",
+   "normal": "wall_ashlar_rustic_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "boards": {
+   "color": "wall_boards_color.jpg",
+   "normal": "wall_boards_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "weatherboard": {
+   "color": "wall_weatherboard_color.jpg",
+   "normal": "wall_weatherboard_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "daub": {
+   "color": "wall_daub_color.jpg",
+   "normal": "wall_daub_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "thatch": {
+   "color": "wall_thatch_color.jpg",
+   "normal": "wall_thatch_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  },
+  "shingle": {
+   "color": "wall_shingle_color.jpg",
+   "normal": "wall_shingle_normal.png",
+   "tile": [
+    2.5,
+    3.0
+   ]
+  }
+ },
+ "features": {
+  "feat_window": {
+   "outline": [
+    [
+     -0.5,
+     0.95
+    ],
+    [
+     0.5,
+     0.95
+    ],
+    [
+     0.5,
+     1.8
+    ],
+    [
+     0.4904,
+     1.8975
+    ],
+    [
+     0.4619,
+     1.9913
+    ],
+    [
+     0.4157,
+     2.0778
+    ],
+    [
+     0.3536,
+     2.1536
+    ],
+    [
+     0.2778,
+     2.2157
+    ],
+    [
+     0.1913,
+     2.2619
+    ],
+    [
+     0.0975,
+     2.2904
+    ],
+    [
+     0.0,
+     2.3
+    ],
+    [
+     -0.0975,
+     2.2904
+    ],
+    [
+     -0.1913,
+     2.2619
+    ],
+    [
+     -0.2778,
+     2.2157
+    ],
+    [
+     -0.3536,
+     2.1536
+    ],
+    [
+     -0.4157,
+     2.0778
+    ],
+    [
+     -0.4619,
+     1.9913
+    ],
+    [
+     -0.4904,
+     1.8975
+    ],
+    [
+     -0.5,
+     1.8
+    ]
+   ],
+   "verts": 450,
+   "tris": 236,
+   "pos": 0,
+   "nrm": 5400,
+   "uv": 10800,
+   "idx": 14400,
+   "kind": "opening"
+  },
+  "feat_door": {
+   "outline": [
+    [
+     -0.65,
+     0.0
+    ],
+    [
+     0.65,
+     0.0
+    ],
+    [
+     0.65,
+     1.85
+    ],
+    [
+     0.6375,
+     1.9768
+    ],
+    [
+     0.6005,
+     2.0987
+    ],
+    [
+     0.5405,
+     2.2111
+    ],
+    [
+     0.4596,
+     2.3096
+    ],
+    [
+     0.3611,
+     2.3905
+    ],
+    [
+     0.2487,
+     2.4505
+    ],
+    [
+     0.1268,
+     2.4875
+    ],
+    [
+     0.0,
+     2.5
+    ],
+    [
+     -0.1268,
+     2.4875
+    ],
+    [
+     -0.2487,
+     2.4505
+    ],
+    [
+     -0.3611,
+     2.3905
+    ],
+    [
+     -0.4596,
+     2.3096
+    ],
+    [
+     -0.5405,
+     2.2111
+    ],
+    [
+     -0.6005,
+     2.0987
+    ],
+    [
+     -0.6375,
+     1.9768
+    ],
+    [
+     -0.65,
+     1.85
+    ]
+   ],
+   "verts": 438,
+   "tris": 228,
+   "pos": 15816,
+   "nrm": 21072,
+   "uv": 26328,
+   "idx": 29832,
+   "kind": "opening"
+  },
+  "feat_window_rect": {
+   "outline": [
+    [
+     -0.5,
+     0.95
+    ],
+    [
+     0.5,
+     0.95
+    ],
+    [
+     0.5,
+     2.25
+    ],
+    [
+     -0.5,
+     2.25
+    ]
+   ],
+   "verts": 120,
+   "tris": 60,
+   "pos": 31200,
+   "nrm": 32640,
+   "uv": 34080,
+   "idx": 35040,
+   "kind": "opening"
+  },
+  "feat_quoin": {
+   "verts": 48,
+   "tris": 24,
+   "pos": 35400,
+   "nrm": 35976,
+   "uv": 36552,
+   "idx": 36936,
+   "kind": "corner",
+   "unit": 0.6
+  },
+  "feat_shutters": {
+   "verts": 48,
+   "tris": 24,
+   "pos": 37080,
+   "nrm": 37656,
+   "uv": 38232,
+   "idx": 38616,
+   "kind": "mount"
+  },
+  "feat_window_timber": {
+   "outline": [
+    [
+     -0.6,
+     0.9
+    ],
+    [
+     0.6,
+     0.9
+    ],
+    [
+     0.6,
+     2.1
+    ],
+    [
+     -0.6,
+     2.1
+    ]
+   ],
+   "verts": 120,
+   "tris": 60,
+   "pos": 38760,
+   "nrm": 40200,
+   "uv": 41640,
+   "idx": 42600,
+   "kind": "opening"
+  },
+  "feat_door_timber": {
+   "outline": [
+    [
+     -0.55,
+     0.0
+    ],
+    [
+     0.55,
+     0.0
+    ],
+    [
+     0.55,
+     2.15
+    ],
+    [
+     -0.55,
+     2.15
+    ]
+   ],
+   "verts": 96,
+   "tris": 48,
+   "pos": 42960,
+   "nrm": 44112,
+   "uv": 45264,
+   "idx": 46032,
+   "kind": "opening"
+  },
+  "prop_column": {
+   "verts": 264,
+   "tris": 156,
+   "pos": 46320,
+   "nrm": 49488,
+   "uv": 52656,
+   "idx": 54768,
+   "kind": "prop"
+  },
+  "prop_post": {
+   "verts": 72,
+   "tris": 36,
+   "pos": 55704,
+   "nrm": 56568,
+   "uv": 57432,
+   "idx": 58008,
+   "kind": "prop"
+  },
+  "feat_flowerbox": {
+   "verts": 120,
+   "tris": 60,
+   "pos": 58224,
+   "nrm": 59664,
+   "uv": 61104,
+   "idx": 62064,
+   "kind": "mount"
+  },
+  "feat_lantern": {
+   "verts": 156,
+   "tris": 84,
+   "pos": 62424,
+   "nrm": 64296,
+   "uv": 66168,
+   "idx": 67416,
+   "kind": "mount"
+  },
+  "feat_sign": {
+   "verts": 72,
+   "tris": 36,
+   "pos": 67920,
+   "nrm": 68784,
+   "uv": 69648,
+   "idx": 70224,
+   "kind": "mount"
+  },
+  "feat_window_grand": {
+   "outline": [
+    [
+     -0.65,
+     0.9
+    ],
+    [
+     0.65,
+     0.9
+    ],
+    [
+     0.65,
+     3.0
+    ],
+    [
+     0.6375,
+     3.1268
+    ],
+    [
+     0.6005,
+     3.2487
+    ],
+    [
+     0.5405,
+     3.3611
+    ],
+    [
+     0.4596,
+     3.4596
+    ],
+    [
+     0.3611,
+     3.5405
+    ],
+    [
+     0.2487,
+     3.6005
+    ],
+    [
+     0.1268,
+     3.6375
+    ],
+    [
+     0.0,
+     3.65
+    ],
+    [
+     -0.1268,
+     3.6375
+    ],
+    [
+     -0.2487,
+     3.6005
+    ],
+    [
+     -0.3611,
+     3.5405
+    ],
+    [
+     -0.4596,
+     3.4596
+    ],
+    [
+     -0.5405,
+     3.3611
+    ],
+    [
+     -0.6005,
+     3.2487
+    ],
+    [
+     -0.6375,
+     3.1268
+    ],
+    [
+     -0.65,
+     3.0
+    ]
+   ],
+   "verts": 474,
+   "tris": 248,
+   "pos": 70440,
+   "nrm": 76128,
+   "uv": 81816,
+   "idx": 85608,
+   "kind": "opening"
+  },
+  "feat_door_grand": {
+   "outline": [
+    [
+     -0.95,
+     0.0
+    ],
+    [
+     0.95,
+     0.0
+    ],
+    [
+     0.95,
+     2.75
+    ],
+    [
+     0.9317,
+     2.9353
+    ],
+    [
+     0.8777,
+     3.1135
+    ],
+    [
+     0.7899,
+     3.2778
+    ],
+    [
+     0.6718,
+     3.4218
+    ],
+    [
+     0.5278,
+     3.5399
+    ],
+    [
+     0.3635,
+     3.6277
+    ],
+    [
+     0.1853,
+     3.6817
+    ],
+    [
+     0.0,
+     3.7
+    ],
+    [
+     -0.1853,
+     3.6817
+    ],
+    [
+     -0.3635,
+     3.6277
+    ],
+    [
+     -0.5278,
+     3.5399
+    ],
+    [
+     -0.6718,
+     3.4218
+    ],
+    [
+     -0.7899,
+     3.2778
+    ],
+    [
+     -0.8777,
+     3.1135
+    ],
+    [
+     -0.9317,
+     2.9353
+    ],
+    [
+     -0.95,
+     2.75
+    ]
+   ],
+   "verts": 438,
+   "tris": 228,
+   "pos": 87096,
+   "nrm": 92352,
+   "uv": 97608,
+   "idx": 101112,
+   "kind": "opening"
+  },
+  "feat_pilaster": {
+   "verts": 168,
+   "tris": 84,
+   "pos": 102480,
+   "nrm": 104496,
+   "uv": 106512,
+   "idx": 107856,
+   "kind": "mount"
+  },
+  "feat_balustrade": {
+   "verts": 216,
+   "tris": 116,
+   "pos": 108360,
+   "nrm": 110952,
+   "uv": 113544,
+   "idx": 115272,
+   "kind": "mount"
+  }
+ },
+ "features_tex": {
+  "color": "features_color.jpg",
+  "normal": "features_normal.png"
+ },
+ "trims": {
+  "string_course": {
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.05,
+     0
+    ],
+    [
+     0.07,
+     0.03
+    ],
+    [
+     0.07,
+     0.19
+    ],
+    [
+     0.035,
+     0.25
+    ],
+    [
+     0,
+     0.25
+    ]
+   ],
+   "v": [
+    0.0,
+    0.25
+   ],
+   "tile": 2.5
+  },
+  "cornice": {
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.04,
+     0
+    ],
+    [
+     0.04,
+     0.08
+    ],
+    [
+     0.09,
+     0.13
+    ],
+    [
+     0.09,
+     0.21
+    ],
+    [
+     0.25,
+     0.29
+    ],
+    [
+     0.3,
+     0.35
+    ],
+    [
+     0.3,
+     0.45
+    ],
+    [
+     0.27,
+     0.5
+    ],
+    [
+     0,
+     0.5
+    ]
+   ],
+   "v": [
+    0.25,
+    0.75
+   ],
+   "tile": 2.5
+  },
+  "plinth": {
+   "profile": [
+    [
+     0.08,
+     0
+    ],
+    [
+     0.08,
+     0.48
+    ],
+    [
+     0.0,
+     0.58
+    ]
+   ],
+   "v": [
+    0.75,
+    1.0
+   ],
+   "tile": 2.5,
+   "variants": {
+    "clean": [
+     0.0,
+     0.25
+    ],
+    "mossy": [
+     0.25,
+     0.5
+    ],
+    "cracked": [
+     0.5,
+     0.75
+    ],
+    "chipped": [
+     0.75,
+     1.0
+    ]
+   }
+  },
+  "entablature": {
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.05,
+     0
+    ],
+    [
+     0.05,
+     0.1
+    ],
+    [
+     0.065,
+     0.115
+    ],
+    [
+     0.065,
+     0.24
+    ],
+    [
+     0.09,
+     0.27
+    ],
+    [
+     0.09,
+     0.3
+    ],
+    [
+     0.07,
+     0.32
+    ],
+    [
+     0.07,
+     0.6
+    ],
+    [
+     0.12,
+     0.64
+    ],
+    [
+     0.16,
+     0.7
+    ],
+    [
+     0.32,
+     0.78
+    ],
+    [
+     0.36,
+     0.82
+    ],
+    [
+     0.36,
+     0.9
+    ],
+    [
+     0.33,
+     0.93
+    ],
+    [
+     0,
+     0.93
+    ]
+   ],
+   "v": [
+    0.0,
+    0.55
+   ],
+   "tile": 2.5,
+   "sheet": "civic"
+  },
+  "band": {
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.06,
+     0
+    ],
+    [
+     0.08,
+     0.02
+    ],
+    [
+     0.08,
+     0.16
+    ],
+    [
+     0.06,
+     0.18
+    ],
+    [
+     0,
+     0.18
+    ]
+   ],
+   "v": [
+    0.55,
+    0.75
+   ],
+   "tile": 2.5,
+   "sheet": "civic"
+  },
+  "raking": {
+   "profile": [
+    [
+     0,
+     0
+    ],
+    [
+     0.04,
+     0
+    ],
+    [
+     0.04,
+     0.08
+    ],
+    [
+     0.12,
+     0.16
+    ],
+    [
+     0.26,
+     0.22
+    ],
+    [
+     0.3,
+     0.26
+    ],
+    [
+     0.3,
+     0.34
+    ],
+    [
+     0.27,
+     0.38
+    ],
+    [
+     0,
+     0.38
+    ]
+   ],
+   "v": [
+    0.75,
+    1.0
+   ],
+   "tile": 2.5,
+   "sheet": "civic"
+  }
+ },
+ "trims_tex": {
+  "color": "trims_color.jpg",
+  "normal": "trims_normal.png"
+ },
+ "plinths_tex": {
+  "color": "plinths_color.jpg",
+  "normal": "plinths_normal.png"
+ },
+ "civic_tex": {
+  "color": "civic_color.jpg",
+  "normal": "civic_normal.png"
+ }
+}

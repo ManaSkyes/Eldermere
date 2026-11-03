@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- tree-lab.html — preview ANY skill tree in the flow layout and check it for problems, without starting the game.
+     Open via the local server: tree-lab.html?tree=chainCasting   (the dropdown lists every tree).
+     Trees without `flow` are previewed as if they had `flow: {}`. The "Problems" box must be empty before a
+     tree ships. window.checkAllTrees() prints problems for every tree in the console. -->
+<html lang="en"><head><meta charset="utf-8"><title>Tree Lab · Eldermere</title>
+<link rel="stylesheet" href="src/ui/systems.css">
+<style>
+  html,body{margin:0;height:100%;background:#3a2a1c;font-family:Georgia,serif}
+  .book{--paper:#efe3c6;--ink-b:#3a2a1c;--ink-soft:#7a6450;--rule:rgba(90,62,36,.25);--accent:#7c2e2a;--caps:Georgia,serif;
+    position:absolute;inset:12px;background:#efe3c6;border-radius:8px;padding:12px 16px;box-sizing:border-box;display:flex;flex-direction:column;color:#3a2a1c}
+  .lab-bar{display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;margin-bottom:.4rem;font-size:.85rem}
+  .lab-bar select,.lab-bar input,.lab-bar button{font:inherit}
+  .lab-problems{margin:.2rem 0 .5rem;padding:.4rem .6rem;border-radius:6px;font-size:.78rem;max-height:7.5em;overflow:auto}
+  .lab-problems.ok{background:rgba(63,127,69,.12);color:#2c5e31}.lab-problems.bad{background:rgba(168,50,44,.12);color:#8a2a24}
+  #tree{flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+</style></head>
+<body><div class="book">
+  <div class="lab-bar">
+    <b>Tree Lab</b>
+    <label>Tree <select id="pick"></select></label>
+    <label>Skill <input id="lvl" type="range" min="0" max="12000" step="50"> <span id="lvlv"></span></label>
+    <button id="reset">Reset points</button>
+    <span id="flowtag"></span>
+  </div>
+  <div id="problems" class="lab-problems"></div>
+  <div id="tree"></div>
+</div>
+<script type="module">
+import { SKILL_TREES, canBuy, buyNode, treeState, pointsFree, resetTree } from './src/data/skillTrees.js';
+import { renderFlowTree, bindFlowTree, checkFlowTree, resetFlowScroll } from './src/ui/flowTree.js';
+const q = new URLSearchParams(location.search), ids = Object.keys(SKILL_TREES).sort();
+let id = ids.includes(q.get('tree')) ? q.get('tree') : (ids.includes('chainCasting') ? 'chainCasting' : ids[0]), sel = null;
+const c = { skills: {}, skillTrees: {} };
+for (const t of Object.values(SKILL_TREES)) t.flow ||= { _preview: true };   // preview every tree as flow
+pick.innerHTML = ids.map(k => `<option value="${k}">${SKILL_TREES[k].name}${SKILL_TREES[k].flow._preview ? ' (not migrated)' : ''}</option>`).join('');
+pick.value = id;
+function draw() {
+  const t = SKILL_TREES[id]; c.skills[id] ??= 2500; lvl.value = c.skills[id]; lvlv.textContent = c.skills[id];
+  flowtag.textContent = t.flow._preview ? 'Preview only: add `flow: {}` to this tree to use it in game.' : 'Uses the flow layout in game.';
+  const probs = checkFlowTree(t);
+  problems.className = 'lab-problems ' + (probs.length ? 'bad' : 'ok');
+  problems.innerHTML = probs.length ? '<b>Problems:</b><br>' + probs.map(p => '• ' + p).join('<br>') : 'No problems found.';
+  const st = treeState(c, id);
+  tree.innerHTML = '<div class="pg wtree flow-tree-page"><section class="cell-p tree-single">' + renderFlowTree(t, {
+    rank: n => n.innate ? n.ranks : st.nodes[n.id] || 0, check: n => canBuy(c, id, n.id), selected: sel, points: pointsFree(c, id),
+    branchName: n => n.branch ? t.branches[n.branch].name : (t.flow.coreName || 'Core') }) + '</section></div>';
+  bindFlowTree(tree, t, { onSelect: n => { sel = n; draw(); }, onBuy: n => { buyNode(c, id, n); draw(); } });
+}
+pick.onchange = () => { id = pick.value; sel = null; resetFlowScroll(); history.replaceState(null, '', '?tree=' + id); draw(); };
+lvl.oninput = () => { c.skills[id] = +lvl.value; draw(); };
+reset.onclick = () => { resetTree(c, id); draw(); };
+window.checkAllTrees = () => { const r = {}; for (const k of ids) { const p = checkFlowTree(SKILL_TREES[k]); if (p.length) r[k] = p; } console.table(Object.entries(r).map(([k, p]) => ({ tree: k, problems: p.join(' | ') }))); return r; };
+draw();
+</script></body></html>

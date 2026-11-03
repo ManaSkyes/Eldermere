@@ -1,0 +1,1047 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Building lab</title>
+<style>
+  body { margin: 0; background: #111; font: 13px system-ui, sans-serif; color: #e8e8f0; overflow: hidden; user-select: none; }
+  .panel { position: absolute; top: 10px; max-height: calc(100vh - 200px); overflow: auto; background: rgba(14, 16, 32, .93); padding: 10px 12px; border-radius: 10px; box-sizing: border-box; }
+  #left { left: 10px; width: 260px; } #right { right: 10px; width: 280px; }
+  h1 { font-size: 15px; margin: 0 0 6px; } h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #a9a9c8; margin: 12px 0 4px; }
+  select, button, input { font: inherit; background: #23264a; color: #e8e8f0; border: 1px solid #3a3e70; border-radius: 6px; padding: 3px 7px; }
+  button { cursor: pointer; } button:hover { background: #2e3260; } button.on { border-color: #e0b060; color: #ffd890; }
+  .row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 6px; margin: 3px 0; } .row input, .row select { width: 100%; box-sizing: border-box; }
+  .row input[type=checkbox] { width: auto; justify-self: start; }
+  .btns { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0; }
+  .help { color: #9a9ab8; font-size: 12px; line-height: 1.45; margin: 6px 0 0; }
+  #flash { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: rgba(30, 24, 36, .9); color: #ffe0a0; padding: 5px 14px; border-radius: 6px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #flash.on { opacity: 1; }
+  #stats { position: absolute; bottom: 176px; left: 50%; transform: translateX(-50%); color: #39405a; font-size: 12px; text-shadow: 0 0 4px #fff8; }
+  a { color: #b9a9e8; }
+  /* asset library */
+  #lib { position: absolute; left: 0; right: 0; bottom: 0; height: 168px; background: rgba(14, 16, 32, .95); border-top: 1px solid #2c3060; box-sizing: border-box; padding: 6px 10px 8px; }
+  #libTop { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; } #libTop label { color: #a9a9c8; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  #libHint { color: #8a8aa8; font-size: 12px; margin-left: 8px; }
+  #strip { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; height: 128px; padding-bottom: 4px; }
+  .item { flex: none; width: 104px; border-radius: 8px; background: #1b1e3c; border: 1px solid #2f3466; cursor: grab; text-align: center; padding: 4px; box-sizing: border-box; }
+  .item:hover { border-color: #6a70b8; } .item.on { border-color: #e0b060; box-shadow: 0 0 0 1px #e0b060; }
+  .item img { width: 96px; height: 84px; display: block; border-radius: 5px; background: #2a2e52; pointer-events: none; }
+  .item span { display: block; font-size: 11.5px; line-height: 1.2; margin-top: 4px; height: 28px; overflow: hidden; pointer-events: none; }
+  #ghost { position: fixed; pointer-events: none; width: 72px; height: 63px; border-radius: 6px; opacity: .85; display: none; z-index: 10; box-shadow: 0 4px 14px #0008; }
+</style></head>
+<body>
+<div class="panel" id="left">
+  <h1>Building lab</h1>
+  <div class="row"><span>Name</span><input id="name" value="townhouse"></div>
+  <div class="btns"><button id="save">Save</button><select id="load"><option value="">Load…</option></select><button id="del">Delete</button></div>
+  <div class="btns"><button id="export">Download JSON</button><input type="file" id="import" accept=".json" style="display:none"><button id="importB">Import</button><button id="clear">Clear</button></div>
+  <a href="dungeon-editor.html">Back to the editor</a>
+  <h2>Tools</h2>
+  <div class="btns" id="tools"><button data-t="select">Select / move</button><button data-t="wall">Draw wall</button></div>
+  <div class="row"><span>Storey</span><select id="storey"><option value="0">Ground</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option></select></div>
+  <p class="help" id="help"></p>
+  <h2>View</h2>
+  <label><input type="checkbox" id="shadow" checked> Shadows</label> <label><input type="checkbox" id="grid" checked> Grid</label>
+  <p class="help">Drag a part up from the library into the scene, or click it, then click where it goes.<br>
+  Drag anything to move it. Windows, doors and ivy slide along their wall (Shift: free up and down).
+  Shift-drag a wall to move the whole building. Q / E turn the selection; R flips a wall.<br>
+  Orbit: left-drag empty space · pan: right-drag · zoom: wheel · Delete · Ctrl+Z / Ctrl+Y</p>
+</div>
+<div class="panel" id="right"><h1 id="selT">Nothing selected</h1><div id="props"></div></div>
+<div id="lib">
+  <div id="libTop"><label>Style</label><select id="cat"></select><label>Type</label><select id="typ"></select><span id="libHint"></span></div>
+  <div id="strip"></div>
+</div>
+<img id="ghost"><div id="flash"></div><div id="stats"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script type="module">
+// Building lab (docs/BUILDKIT.md): build a town building by hand from the kit (src/game/buildKit.js).
+// The building is a list of walls (each with its features, ivy and trim flags), corners, roofs and chimneys;
+// toDesc() turns it into buildFromKit's description, and the whole building is rebuilt on every change.
+// Parts come from the asset library along the bottom (style + type filters), dragged or clicked into place.
+import { loadBuildKit, buildFromKit, featureFits, FRAMES, notchRect, canopyFront, joinWalls, DECALS, PROP_RADIUS } from './src/game/buildKit.js';
+const $ = (id) => document.getElementById(id);
+const kit = await loadBuildKit();
+const FLOOR = 3, T = kit.thick, SNAP = 0.25;
+const WALL_TYPES = [...Object.keys(kit.walls).filter(k => !['slate', 'flags', 'thatch', 'shingle'].includes(k)), ...Object.keys(FRAMES)];
+const INFILLS = ['plaster_fresh', 'plaster', 'plaster_cracked'].filter(k => kit.walls[k]);
+const PLINTHS = Object.keys(kit.trims.plinth?.variants || {});
+const LABEL = { boards: 'Board and batten', weatherboard: 'Weatherboard', daub: 'Wattle and daub', thatch: 'Thatch', shingle: 'Oak shingles', brick: 'Brick', brick_cracked: 'Brick, cracked', ashlar: 'Ashlar (cut stone)', ashlar_rustic: 'Rusticated ashlar', entablature: 'Entablature', band: 'Stone band', brick_pale: 'Pale brick', brick_pale_cracked: 'Pale brick, cracked', cobble: 'Cobble (rubble stone)', plaster: 'Plaster, aged', plaster_fresh: 'Plaster, fresh', plaster_cracked: 'Plaster, cracked', timber_close: 'Timber, close studs (aged)', timber_close_fresh: 'Timber, close studs (fresh)', timber_close_cracked: 'Timber, close studs (cracked)', timber_cross: 'Timber, braced (aged)', timber_cross_fresh: 'Timber, braced (fresh)', timber_cross_cracked: 'Timber, braced (cracked)',
+  clean: 'Clean', mossy: 'Mossy', cracked: 'Cracked', chipped: 'Chipped', plinth: 'Plinth', string: 'String course', cornice: 'Cornice' };
+
+// ---------------------------------------------------------------- the asset library
+// style: which town styles a part belongs to (the Style filter); type: the Type filter
+const STYLES = [['all', 'All'], ['tudor', 'Tudor'], ['wooden', 'Wooden town'], ['victorian', 'Victorian'], ['common', 'Common']];
+const TYPES = [['all', 'All'], ['shells', 'Shells'], ['walls', 'Walls'], ['windows', 'Windows'], ['doors', 'Doors'], ['roofs', 'Roofs'], ['civic', 'Guild & civic'], ['porch', 'Porches & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trims'], ['decor', 'Decoration'], ['street', 'Street props'], ['decals', 'Decals']];
+const ITEMS = [
+  { id: 'shell_cottage', name: 'Cottage', type: 'shells', style: ['tudor'], box: { w: 6, d: 4.5, s: 1, g: 'timber_close', u: 'timber_close', pitch: 52 } },
+  { id: 'shell_tudor', name: 'Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'brick', u: 'timber_close', pitch: 50 } },
+  { id: 'shell_braced', name: 'Braced Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'timber_cross', u: 'timber_close', pitch: 50 } },
+  { id: 'shell_victorian', name: 'Victorian house', type: 'shells', style: ['victorian'], box: { w: 7.5, d: 5.5, s: 2, g: 'brick', u: 'brick', pitch: 45 } },
+  { id: 'shell_terrace', name: 'Tall terrace', type: 'shells', style: ['victorian'], box: { w: 5, d: 7.5, s: 3, g: 'brick', u: 'brick', pitch: 45 } },
+  { id: 'shell_guild', name: "Adventurers' Guild hall", type: 'shells', style: ['victorian'], box: { w: 15, d: 10, s: 2, fh: 4.5, g: 'ashlar_rustic', u: 'ashlar', pitch: 32, civic: true } },
+  // the wooden town (batch 1): jettied timber houses, weatherboard, board-and-batten, wattle and daub; thatch and shingles
+  { id: 'shell_jettied', name: 'Jettied timber house', type: 'shells', style: ['wooden', 'tudor'], box: { w: 6, d: 5, s: 2, g: 'daub', u: 'timber_close', pitch: 52, jetty: 0.45, cover: 'shingle' } },
+  { id: 'shell_jettied3', name: 'Tall jettied house', type: 'shells', style: ['wooden', 'tudor'], box: { w: 5, d: 5, s: 3, g: 'cobble', u: 'daub', pitch: 54, jetty: 0.35, cover: 'shingle' } },
+  { id: 'shell_thatch_cottage', name: 'Thatched cottage', type: 'shells', style: ['wooden'], box: { w: 6, d: 4.5, s: 1, g: 'daub', u: 'daub', pitch: 55, cover: 'thatch' } },
+  { id: 'shell_weather', name: 'Weatherboard house', type: 'shells', style: ['wooden'], box: { w: 7, d: 5, s: 2, g: 'weatherboard', u: 'weatherboard', pitch: 45, cover: 'shingle' } },
+  { id: 'shell_barn', name: 'Board-and-batten barn', type: 'shells', style: ['wooden', 'common'], box: { w: 8, d: 6, s: 1, fh: 4, g: 'boards', u: 'boards', pitch: 45, cover: 'shingle' } },
+  { id: 'shell_stone_timber', name: 'Stone and timber house', type: 'shells', style: ['wooden', 'tudor'], box: { w: 7, d: 5, s: 2, g: 'cobble', u: 'weatherboard', pitch: 48, jetty: 0.3, cover: 'thatch' } },
+  { id: 'roof_thatch', name: 'Thatched roof', type: 'roofs', style: ['wooden', 'tudor', 'common'], roof: true, cover: 'thatch' },
+  { id: 'roof_shingle', name: 'Shingle roof', type: 'roofs', style: ['wooden', 'tudor', 'common'], roof: true, cover: 'shingle' },
+  { id: 'feat_door_stable', name: 'Stable door', type: 'doors', style: ['wooden', 'tudor', 'common'], feature: 'feat_door_stable' },
+  { id: 'feat_door_board', name: 'Ledged board door', type: 'doors', style: ['wooden', 'common'], feature: 'feat_door_board' },
+  { id: 'feat_shopfront', name: 'Shop counter', type: 'doors', style: ['wooden', 'tudor', 'common'], feature: 'feat_shopfront' },
+  { id: 'feat_shutters_plank', name: 'Plank shutters', type: 'decor', style: ['wooden', 'tudor', 'common'], feature: 'feat_shutters_plank' },
+  { id: 'feat_shutters_louvre', name: 'Louvred shutters', type: 'decor', style: ['wooden', 'victorian', 'common'], feature: 'feat_shutters_louvre' },
+  // batch 2: small windows, dormers, lean-tos, outside stairs, street props
+  { id: 'feat_window_lattice', name: 'Small leaded window', type: 'windows', style: ['wooden', 'tudor'], feature: 'feat_window_lattice' },
+  { id: 'feat_window_lattice2', name: 'Leaded two-light window', type: 'windows', style: ['wooden', 'tudor'], feature: 'feat_window_lattice2' },
+  { id: 'feat_window_square', name: 'Small timber window', type: 'windows', style: ['wooden', 'common'], feature: 'feat_window_square' },
+  { id: 'dormer', name: 'Dormer', type: 'roofs', style: ['wooden', 'tudor', 'victorian', 'common'], dormer: true },
+  { id: 'leanto', name: 'Lean-to shed', type: 'shells', style: ['wooden', 'common'], leanto: { width: 3, depth: 2, height: 2.1, wall: 'boards', cover: 'shingle' } },
+  { id: 'leanto_thatch', name: 'Lean-to, thatched', type: 'shells', style: ['wooden'], leanto: { width: 3, depth: 2, height: 2.1, wall: 'daub', cover: 'thatch' } },
+  { id: 'stair_out', name: 'Outside stair', type: 'porch', style: ['wooden', 'tudor', 'common'], platform: { kind: 'stair', material: 'oak', width: 1.0, height: 3.0 } },
+  { id: 'prop_barrel', name: 'Barrel', type: 'street', style: ['wooden', 'tudor', 'victorian', 'common'], prop: 'prop_barrel', natural: true },
+  { id: 'prop_crate', name: 'Crate', type: 'street', style: ['wooden', 'tudor', 'victorian', 'common'], prop: 'prop_crate', natural: true },
+  { id: 'prop_crates', name: 'Stacked crates', type: 'street', style: ['wooden', 'tudor', 'victorian', 'common'], prop: 'prop_crates', natural: true },
+  { id: 'prop_woodpile', name: 'Woodpile', type: 'street', style: ['wooden', 'tudor', 'common'], prop: 'prop_woodpile', natural: true },
+  { id: 'prop_well', name: 'Well', type: 'street', style: ['wooden', 'tudor', 'common'], prop: 'prop_well', natural: true },
+  // batch 3: the guild's civic pieces and banners
+  { id: 'pediment', name: 'Pediment with crest', type: 'civic', style: ['victorian', 'common'], pediment: { pitch: 20, crest: 'crest' } },
+  { id: 'prop_column_ionic', name: 'Ionic column', type: 'civic', style: ['victorian', 'common'], prop: 'prop_column_ionic' },
+  { id: 'prop_column_plain', name: 'Plain column', type: 'civic', style: ['victorian', 'tudor', 'common'], prop: 'prop_column_plain' },
+  { id: 'portico_ionic', name: 'Ionic portico', type: 'civic', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'ionic', width: 4.4, depth: 2.6, height: 3.4, columns: 4 } },
+  { id: 'portico_plain', name: 'Plain portico', type: 'civic', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'plain', width: 3.2, depth: 2.2, height: 3.0, columns: 2 } },
+  { id: 'feat_window_venetian', name: 'Venetian window', type: 'civic', style: ['victorian', 'common'], feature: 'feat_window_venetian' },
+  { id: 'cupola', name: 'Cupola', type: 'civic', style: ['victorian', 'wooden', 'common'], turret: { turret: 'cupola', finial: 'ball', size: 1.3 } },
+  { id: 'cupola_crystal', name: 'Guild crystal cupola', type: 'civic', style: ['victorian', 'common'], turret: { turret: 'cupola', finial: 'crystal', size: 1.5 } },
+  { id: 'bell_turret', name: 'Bell turret', type: 'civic', style: ['wooden', 'tudor', 'common'], turret: { turret: 'bell', finial: 'spike', size: 1.2 } },
+  { id: 'banner_red', name: 'Crest banner', type: 'decor', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#7a1f22', emblem: 'crest', width: 0.8, length: 1.8 } },
+  { id: 'banner_blue', name: 'Star banner', type: 'decor', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#1f3466', emblem: 'star', width: 0.8, length: 1.8 } },
+  { id: 'sign_hanging', name: 'Hanging sign', type: 'decor', style: ['wooden', 'tudor', 'common'], banner: { kind: 'sign', color: '#2c4a34', emblem: 'sun' } },
+  { id: 'shell_shed', name: 'Plaster shed', type: 'shells', style: ['common'], box: { w: 4, d: 3, s: 1, g: 'plaster', u: 'plaster', pitch: 40 } },
+  { id: 'wall_25', name: 'Wall 2.5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5 } },
+  { id: 'wall_5', name: 'Wall 5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 5 } },
+  { id: 'wall_75', name: 'Wall 7.5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 7.5 } },
+  { id: 'wall_125', name: 'Wall 1.25 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 1.25 } },
+  { id: 'wall_0625', name: 'Wall 0.625 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 0.625 } },
+  { id: 'wall_half_h', name: 'Half-height wall', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, height: 1.5 } },
+  { id: 'wall_quarter_h', name: 'Quarter-height wall', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, height: 0.75 } },
+  { id: 'wall_L_tr', name: 'L wall, notch top right', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, notch: { corner: 'tr', w: 1.25, h: 1.5 } } },
+  { id: 'wall_L_tl', name: 'L wall, notch top left', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, notch: { corner: 'tl', w: 1.25, h: 1.5 } } },
+  { id: 'wall_L_br', name: 'L wall, notch bottom right', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, notch: { corner: 'br', w: 1.25, h: 1.5 } } },
+  { id: 'wall_L_bl', name: 'L wall, notch bottom left', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5, notch: { corner: 'bl', w: 1.25, h: 1.5 } } },
+  { id: 'wall_gable', name: 'Gable wall 5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 5, shape: 'gable', pitch: 50 } },
+  { id: 'feat_window', name: 'Arched window', type: 'windows', style: ['victorian'], feature: 'feat_window' },
+  { id: 'feat_window_rect', name: 'Square window', type: 'windows', style: ['victorian', 'common'], feature: 'feat_window_rect' },
+  { id: 'feat_window_timber', name: 'Tudor casement', type: 'windows', style: ['tudor'], feature: 'feat_window_timber' },
+  { id: 'feat_door', name: 'Arched door', type: 'doors', style: ['victorian'], feature: 'feat_door' },
+  { id: 'feat_door_timber', name: 'Plank door', type: 'doors', style: ['tudor', 'common'], feature: 'feat_door_timber' },
+  { id: 'roof_gable', name: 'Gable roof', type: 'roofs', style: ['tudor', 'victorian', 'common'], roof: true },
+  { id: 'prop_column', name: 'Stone porch column', type: 'porch', style: ['victorian'], prop: 'prop_column' },
+  { id: 'prop_post', name: 'Oak porch post', type: 'porch', style: ['tudor', 'common'], prop: 'prop_post' },
+  { id: 'feat_window_grand', name: 'Grand arched window', type: 'civic', style: ['victorian'], feature: 'feat_window_grand' },
+  { id: 'feat_door_grand', name: 'Grand double doors', type: 'civic', style: ['victorian'], feature: 'feat_door_grand' },
+  { id: 'feat_pilaster', name: 'Pilaster', type: 'civic', style: ['victorian'], feature: 'feat_pilaster' },
+  { id: 'balustrade', name: 'Balustrade parapet', type: 'civic', style: ['victorian'], balustrade: true },
+  { id: 'trim_entablature', name: 'Entablature', type: 'civic', style: ['victorian'], trim: 'entablature' },
+  { id: 'trim_band', name: 'Stone sill band', type: 'civic', style: ['victorian'], trim: 'band' },
+  { id: 'platform_stone', name: 'Stone porch platform', type: 'porch', style: ['victorian', 'common'], platform: { kind: 'platform', material: 'stone', width: 2.5, depth: 1.6, height: 0.48 } },
+  { id: 'platform_oak', name: 'Oak porch deck', type: 'porch', style: ['tudor', 'common'], platform: { kind: 'platform', material: 'oak', width: 2.5, depth: 1.6, height: 0.48 } },
+  { id: 'steps_stone', name: 'Stone steps', type: 'porch', style: ['victorian', 'common'], platform: { kind: 'steps', material: 'stone', width: 1.5, height: 0.48 } },
+  { id: 'steps_oak', name: 'Oak steps', type: 'porch', style: ['tudor', 'common'], platform: { kind: 'steps', material: 'oak', width: 1.5, height: 0.48 } },
+  { id: 'canopy_porch', name: 'Slate porch roof', type: 'porch', style: ['tudor', 'victorian', 'common'], canopy: 'porch' },
+  { id: 'canopy_awning', name: 'Striped awning', type: 'porch', style: ['victorian', 'common'], canopy: 'awning' },
+  { id: 'fence_iron', name: 'Iron railings', type: 'fences', style: ['victorian', 'common'], fence: 'iron' },
+  { id: 'fence_iron_wall', name: 'Railings on a wall', type: 'fences', style: ['victorian'], fence: 'iron_wall' },
+  { id: 'fence_picket', name: 'Picket fence', type: 'fences', style: ['tudor', 'common'], fence: 'picket' },
+  { id: 'fence_rail', name: 'Post-and-rail fence', type: 'fences', style: ['tudor', 'common'], fence: 'rail' },
+  { id: 'gate_iron_double', name: 'Iron gates', type: 'fences', style: ['victorian', 'common'], gate: { kind: 'double', fence: 'iron' } },
+  { id: 'gate_iron_single', name: 'Iron gate', type: 'fences', style: ['victorian', 'common'], gate: { kind: 'single', fence: 'iron' } },
+  { id: 'gate_gap_iron', name: 'Iron gate for a wall gap', type: 'fences', style: ['victorian', 'common'], gap: 'iron' },
+  { id: 'gate_gap_oak', name: 'Oak gate for a wall gap', type: 'fences', style: ['tudor', 'common'], gap: 'rail' },
+  { id: 'gate_picket', name: 'Picket gate', type: 'fences', style: ['tudor', 'common'], gate: { kind: 'single', fence: 'picket' } },
+  { id: 'gate_rail', name: 'Five-bar gate', type: 'fences', style: ['tudor', 'common'], gate: { kind: 'single', fence: 'rail', width: 2.4 } },
+  ...Object.entries(DECALS).map(([k, d]) => ({ id: 'decal_' + k, name: { wanted: 'Wanted poster', notice: 'Public notice', playbill: 'Theatre playbill', torn: 'Torn poster', ghost_sign: 'Painted coal sign', street_plate: 'Street nameplate', guild_notice: 'Adventurers wanted', soot: 'Soot streak', damp: 'Damp stain', moss: 'Moss patch', brick_showing: 'Plaster fallen off', apothecary: 'Apothecary lettering', chalk: 'Chalk marks', coal_hole: 'Coal-hole cover' }[k] || k, type: 'decals', style: ['tudor', 'victorian', 'common'], decal: k })),
+  { id: 'trim_plinth', name: 'Plinth', type: 'trims', style: ['victorian', 'common'], trim: 'plinth', variant: 'clean' },
+  { id: 'trim_plinth_mossy', name: 'Mossy plinth', type: 'trims', style: ['victorian', 'common', 'tudor'], trim: 'plinth', variant: 'mossy' },
+  { id: 'trim_plinth_cracked', name: 'Cracked plinth', type: 'trims', style: ['victorian', 'common'], trim: 'plinth', variant: 'cracked' },
+  { id: 'trim_plinth_chipped', name: 'Chipped plinth', type: 'trims', style: ['victorian', 'common', 'tudor'], trim: 'plinth', variant: 'chipped' },
+  { id: 'trim_string', name: 'String course', type: 'trims', style: ['victorian'], trim: 'string' },
+  { id: 'trim_cornice', name: 'Cornice', type: 'trims', style: ['victorian'], trim: 'cornice' },
+  { id: 'feat_shutters', name: 'Shutters', type: 'decor', style: ['victorian'], feature: 'feat_shutters' },
+  { id: 'feat_flowerbox', name: 'Window box', type: 'decor', style: ['tudor', 'victorian', 'common'], feature: 'feat_flowerbox' },
+  { id: 'feat_lantern', name: 'Wall lantern', type: 'decor', style: ['victorian', 'common'], feature: 'feat_lantern' },
+  { id: 'feat_sign', name: 'Hanging sign', type: 'decor', style: ['tudor', 'victorian', 'common'], feature: 'feat_sign' },
+  { id: 'pipe', name: 'Downpipe', type: 'decor', style: ['victorian', 'common'], pipe: true },
+  { id: 'quoins', name: 'Quoins', type: 'decor', style: ['victorian'], quoins: true },
+  { id: 'ivy', name: 'Ivy', type: 'decor', style: ['tudor', 'victorian', 'common'], ivy: true },
+  { id: 'chimney', name: 'Chimney', type: 'decor', style: ['tudor', 'victorian', 'common'], chimney: true },
+].filter(it => (!it.feature || kit.features[it.feature]) && (!it.prop || kit.features[it.prop]));
+const HINT = { balustrade: 'Drop it on a wall: it runs along the top', gap: 'Drop it in the gap between two wall ends', fence: 'Drag on the ground to draw it (or drop for 5 m)', gate: 'Drop it on a fence, or on the ground', decal: 'Drop it on a wall (the coal-hole cover goes on the ground)', platform: 'Drop it in front of a wall or platform', prop: 'Drop it on the ground', canopy: 'Drop it on a wall', pipe: 'Drop it on a wall', feature: 'Drop it on a wall', wall: 'Drop it on the ground (storey from the Tools panel)', box: 'Drop it on the ground', roof: 'Drop it on a building',
+  trim: 'Drop it on a wall', quoins: 'Drop it near the end of a wall', ivy: 'Drop it on a wall', chimney: 'Drop it on a roof' };
+const hintOf = it => HINT[Object.keys(HINT).find(k => it[k] !== undefined)] || '';
+$('cat').innerHTML = STYLES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+$('typ').innerHTML = TYPES.map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
+const styleWall = () => ({ tudor: 'timber_close', wooden: 'weatherboard', victorian: 'brick', common: 'plaster' })[$('cat').value] || 'brick';
+
+// ---------------------------------------------------------------- scene
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(2, devicePixelRatio));
+renderer.outputEncoding = THREE.sRGBEncoding; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#9db4c8'); scene.fog = new THREE.Fog('#9db4c8', 60, 160);
+const lights = () => { const g = new THREE.Group(); g.add(new THREE.HemisphereLight('#dfe8f0', '#5a4a3a', 0.6)); return g; };
+scene.add(lights());
+const sun = new THREE.DirectionalLight('#fff4e0', 1.6); sun.position.set(12, 20, 16); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, far: 80 }); sun.shadow.bias = -0.0004; scene.add(sun);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: '#7a705e', roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(40, 160, 0x4a4438, 0x6a6150); grid.position.y = 0.005; grid.material.transparent = true; grid.material.opacity = 0.35; scene.add(grid);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 400);
+const orbit = { tx: 0, ty: 3, tz: 0, dist: 24, yaw: 0.7, pitch: 0.42 };
+function placeCam() {
+  const { tx, ty, tz, dist, yaw, pitch } = orbit;
+  camera.position.set(tx + Math.sin(yaw) * Math.cos(pitch) * dist, ty + Math.sin(pitch) * dist, tz + Math.cos(yaw) * Math.cos(pitch) * dist);
+  camera.lookAt(tx, ty, tz);
+}
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize(); placeCam();
+$('shadow').onchange = () => { sun.castShadow = $('shadow').checked; }; $('grid').onchange = () => { grid.visible = $('grid').checked; };
+
+// ---------------------------------------------------------------- the building
+let B = blank(), sel = null, uid = 1;
+function blank() { return { name: 'townhouse', walls: [], corners: [], roofs: [], chimneys: [], props: [], platforms: [], fences: [], floorDecals: [] }; }
+const newId = () => 'i' + (uid++) + Math.random().toString(36).slice(2, 5);
+const wallM = (w) => new THREE.Matrix4().makeRotationY(w.rot || 0).setPosition(w.x, w.base || 0, w.z);
+const wallH = (w) => w.shape === 'gable' ? w.width / 2 * Math.tan((w.pitch || 50) * Math.PI / 180) : w.height;
+const featLabel = k => (ITEMS.find(i => i.feature === k) || {}).name || k;
+
+// Trims are pieces of their own, kept on the wall they run along: w.trimList = [{ id, trim: 'plinth' | 'string' |
+// 'cornice', variant, x0, x1, y }]. Older buildings kept them as flags (w.trims); upgrade() turns those into pieces.
+const TRIM_Y = { plinth: 0, string: -0.15, cornice: null };
+function trimPiece(w, trim, variant) {
+  const y = trim === 'cornice' ? w.height - 0.5 : trim === 'entablature' ? w.height - 0.93 : trim === 'band' ? 0.72 : TRIM_Y[trim];
+  return { id: newId(), trim, variant: trim === 'plinth' ? (variant || 'clean') : undefined, x0: 0, x1: w.width, y };
+}
+function upgrade(b) {
+  for (const w of b.walls || []) {
+    if (w.trims && !w.trimList) {
+      w.trimList = [];
+      if (w.trims.plinth && !(w.base > 0)) w.trimList.push(trimPiece(w, 'plinth'));
+      if (w.trims.string && w.base > 0) w.trimList.push(trimPiece(w, 'string'));
+      if (w.trims.cornice) w.trimList.push(trimPiece(w, 'cornice'));
+    }
+    delete w.trims;
+    if (w.infill && FRAMES[w.variant]) { const base = w.variant.replace(/_(fresh|cracked)$/, ''), sfx = { plaster_fresh: '_fresh', plaster_cracked: '_cracked' }[w.infill] || ''; if (FRAMES[base + sfx]) w.variant = base + sfx; delete w.infill; }
+    for (const o of w.openings || []) if (o.feature === 'feat_flowerbox' && o.flowers && !o.keepFlowers) delete o.flowers;
+  }
+  b.props = b.props || []; b.platforms = b.platforms || []; b.fences = b.fences || []; b.floorDecals = b.floorDecals || [];
+  return b;
+}
+// the editor's building → buildFromKit's description (each plinth broken round its wall's doors)
+function toDesc(b) {
+  const trims = [], joins = joinWalls(kit, b.walls), endOf = k => k === 'out' ? 1 : k === 'in' ? -1 : 0;
+  for (const w of b.walls) {
+    const J = joins.get(w);
+    if (w.shape === 'gable') continue;
+    const doors = (w.openings || []).map(o => [o, kit.features[o.feature]]).filter(([o, f]) => f && f.door && (o.y || 0) < 0.1)
+      .map(([o, f]) => { const bb = f.geometry.boundingBox; return [o.x + bb.min.x, o.x + bb.max.x]; }).sort((a, c) => a[0] - c[0]);
+    for (const t of w.trimList || []) {
+      const name = t.trim === 'string' ? 'string_course' : t.trim, x0 = Math.max(0, t.x0 ?? 0), x1 = Math.min(w.width, t.x1 ?? w.width);
+      let x = x0; const segs = [];
+      if (t.trim === 'plinth') for (const [l, r] of doors) { if (r <= x0 || l >= x1) continue; segs.push([x, Math.max(x, l)]); x = Math.min(x1, r); }
+      segs.push([x, x1]);
+      for (const [a, c] of segs) if (c - a > 0.1) {
+        const p = new THREE.Vector3(a, 0, 0).applyMatrix4(wallM(w));
+        trims.push({ trim: name, variant: t.variant, x: p.x, z: p.z, rot: w.rot, base: (w.base || 0) + (t.y ?? 0), length: c - a,
+          ends: [a < 0.01 ? endOf(J?.kind[0]) : 0, c > w.width - 0.01 ? endOf(J?.kind[1]) : 0] });
+      }
+    }
+  }
+  return { walls: b.walls, trims, corners: b.corners, roofs: b.roofs, chimneys: b.chimneys, props: b.props || [], platforms: b.platforms || [], fences: b.fences || [], floorDecals: b.floorDecals || [] };
+}
+
+// a box house as a list of parts, centred on (cx, cz), tagged with a group id so it moves as one
+const WOOD = new Set(['boards', 'weatherboard', 'daub']);   // (timber walls: no stone string course between storeys)
+function boxParts(p, cx = 0, cz = 0) {
+  const g = newId(), W = p.w, D = p.d, S = p.s, out = blank(), FH = p.fh || FLOOR;
+  const sides = [[cx - W / 2, cz + D / 2, 0, W], [cx + W / 2, cz + D / 2, Math.PI / 2, D], [cx + W / 2, cz - D / 2, Math.PI, W], [cx - W / 2, cz - D / 2, -Math.PI / 2, D]];
+  // a jettied house: every storey above the ground stands p.jetty further out on all four sides
+  const J = p.jetty || 0, sidesAt = j => [[cx - W / 2 - j, cz + D / 2 + j, 0, W + 2 * j], [cx + W / 2 + j, cz + D / 2 + j, Math.PI / 2, D + 2 * j], [cx + W / 2 + j, cz - D / 2 - j, Math.PI, W + 2 * j], [cx - W / 2 - j, cz - D / 2 - j, -Math.PI / 2, D + 2 * j]];
+  for (let s = 0; s < S; s++) for (const [x, z, rot, width] of sidesAt(s ? J * s : 0))
+    out.walls.push({ id: newId(), g, x, z, rot, width, height: FH, base: s * FH, storeyH: FH, variant: s ? p.u : p.g, caps: [false, false], openings: [], vines: [], ...(s && J ? { jetty: J } : {}),
+      trims: { plinth: s === 0 && !FRAMES[p.g] && p.g !== 'daub', string: s > 0 && !FRAMES[p.u] && !WOOD.has(p.u) && !J, cornice: false } });
+  upgrade(out);
+  const brick = v => v === 'brick' || v === 'brick_cracked';
+  if (brick(p.g)) for (const [x, z, rot] of sides) out.corners.push({ id: newId(), g, x, z, rot, base: 0, height: (brick(p.u) ? S : 1) * FH });
+  if (p.civic) civicDress(out, p, W, D, S, FH);
+  roofOver(out, out.walls, p.pitch || 50, g);
+  if (p.cover) for (const r of out.roofs) r.cover = p.cover;
+  if (p.dress) p.dress(out, W, D, S, FH, J);
+  return out;
+}
+// a lean-to against wall w, centred at x along it: two side walls and a front wall in `wall`, and a lean roof whose
+// high edge is on the wall (its own group, so it moves as one)
+function addLeanTo(b, w, x, o) {
+  const g = newId(), W = o.width, D = o.depth, H = o.height, x0 = Math.max(0, Math.min(w.width - W, x - W / 2)), M = wallM(w);
+  const at = (lx, lz, rot, width) => { const p = new THREE.Vector3(lx, 0, lz).applyMatrix4(M); return { id: newId(), g, x: +p.x.toFixed(3), z: +p.z.toFixed(3), rot: (w.rot || 0) + rot, width, height: H, base: w.base || 0, variant: o.wall, caps: [false, false], openings: [], vines: [], trims: {} }; };
+  b.walls.push(at(x0, D, 0, W), at(x0 + W, D, Math.PI / 2, D), at(x0, 0, -Math.PI / 2, D));
+  const rp = new THREE.Vector3(x0, 0, D).applyMatrix4(M);
+  b.roofs.push({ id: newId(), g, kind: 'lean', x: +rp.x.toFixed(3), z: +rp.z.toFixed(3), rot: w.rot || 0, width: W, depth: D, base: (w.base || 0) + H, pitch: 24, cover: o.cover });
+  upgrade(b);
+}
+// a civic front: grand doors in the middle, tall arched windows in bays, pilasters between them, a stone band
+// over the ground floor and an entablature under the eaves; side walls get windows too
+function civicDress(b, p, W, D, S, FH) {
+  for (const w of b.walls) {
+    const front = Math.abs(w.rot) < 1e-6, back = Math.abs(Math.abs(w.rot) - Math.PI) < 1e-6, ground = w.base === 0, top = w.base === (S - 1) * FH;
+    let n = Math.max(1, Math.round((w.width - 1) / 2.8)); if (front && n % 2 === 0) n += 1; const sp = Math.min(3, (w.width - 1.2) / n);
+    const bays = []; for (let i = 0; i < n; i++) bays.push(+(w.width / 2 + (i - (n - 1) / 2) * sp).toFixed(3));
+    for (const x of bays) {
+      if (front && ground && Math.abs(x - w.width / 2) < 1) { w.openings.push({ feature: 'feat_door_grand', x, y: 0 }); continue; }
+      if (ground) w.openings.push({ feature: 'feat_window_grand', x, y: 0 });
+      else w.openings.push({ feature: 'feat_window', x, y: 0.7 });
+    }
+    if (front) for (let i = 0; i < bays.length - 1; i++) w.openings.push({ feature: 'feat_pilaster', x: +((bays[i] + bays[i + 1]) / 2).toFixed(3), y: 0, sy: +(FH / 2.9).toFixed(3) });
+    w.trimList = w.trimList || [];
+    if (top) w.trimList.push({ id: newId(), trim: 'entablature', x0: 0, x1: w.width, y: FH - 0.93 });
+    if (!ground) w.trimList = w.trimList.filter(t => t.trim !== 'string'), w.trimList.push({ id: newId(), trim: 'band', x0: 0, x1: w.width, y: -0.09 });
+  }
+}
+// a gable roof over these walls' footprint, ridge along the longer side, gable walls on the short ends
+function roofOver(b, walls, pitch = 50, g = null) {
+  walls = walls.filter(w => w.shape !== 'gable'); if (!walls.length) return false;
+  const box = new THREE.Box3(); let top = 0;
+  for (const w of walls) { const m = wallM(w); for (const x of [0, w.width]) box.expandByPoint(new THREE.Vector3(x, 0, 0).applyMatrix4(m)); top = Math.max(top, (w.base || 0) + w.height); }
+  b.roofs = b.roofs.filter(r => r.g !== g || g === null && false); if (g) b.walls = b.walls.filter(w => !(w.g === g && w.shape === 'gable'));
+  const sx = box.max.x - box.min.x, sz = box.max.z - box.min.z, topVar = (walls.find(w => (w.base || 0) + w.height === top) || {}).variant || 'brick';
+  const gw = (x, z, rot, width) => b.walls.push({ id: newId(), g, x, z, rot, width, base: top, shape: 'gable', pitch, variant: topVar, caps: [false, false], openings: [], vines: [] });
+  if (sx >= sz) { b.roofs.push({ id: newId(), g, x: box.min.x, z: box.max.z, rot: 0, width: sx, depth: sz, base: top, pitch }); gw(box.max.x, box.max.z, Math.PI / 2, sz); gw(box.min.x, box.min.z, -Math.PI / 2, sz); }
+  else { b.roofs.push({ id: newId(), g, x: box.max.x, z: box.max.z, rot: Math.PI / 2, width: sz, depth: sx, base: top, pitch }); gw(box.max.x, box.min.z, Math.PI, sx); gw(box.min.x, box.max.z, 0, sx); }
+  return true;
+}
+const merge = (a, b) => { for (const k of ['walls', 'corners', 'roofs', 'chimneys', 'props', 'platforms', 'fences', 'floorDecals']) (a[k] = a[k] || []).push(...(b[k] || [])); };
+
+// ---------------------------------------------------------------- build + pick proxies
+let built = null; const proxies = new THREE.Group(); scene.add(proxies);
+const hiMat = new THREE.MeshBasicMaterial({ color: 0xffd060, wireframe: true, transparent: true, opacity: 0.85, depthTest: false });
+const hoverMat = new THREE.MeshBasicMaterial({ color: 0x80c8ff, wireframe: true, transparent: true, opacity: 0.7, depthTest: false });
+const pickMat = new THREE.MeshBasicMaterial({ visible: false });
+let selBox = null, hoverBox = null;
+function rebuild() {
+  if (built) scene.remove(built.group);
+  const t0 = performance.now();
+  built = buildFromKit(kit, toDesc(B)); scene.add(built.group);
+  const ms = performance.now() - t0;
+  let tris = 0; built.group.traverse(o => { if (o.geometry && o.geometry.index) tris += o.geometry.index.count / 3; });
+  $('stats').textContent = `${B.walls.length} walls · ${built.group.children.length} meshes · ${Math.round(tris)} tris · built in ${ms.toFixed(0)} ms`;
+  proxies.clear();
+  const prox = (w, h, d, m, data) => { const p = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), pickMat); p.applyMatrix4(m); p.userData = data; proxies.add(p); };
+  for (const w of B.walls) {
+    const m = wallM(w), H = wallH(w);
+    prox(w.width, H, T, m.clone().multiply(new THREE.Matrix4().makeTranslation(w.width / 2, H / 2, -T / 2)), { kind: 'wall', w, o: w });
+    for (const o of w.openings || []) {
+      const f = kit.features[o.feature]; if (!f) continue; const bb = f.geometry.boundingBox;
+      const c = new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5), sz = new THREE.Vector3().subVectors(bb.max, bb.min);
+      prox(sz.x, sz.y, 0.3, m.clone().multiply(new THREE.Matrix4().makeTranslation(o.x + c.x, (o.y || 0) + c.y, 0.12)), { kind: 'feature', w, o });
+    }
+    for (const t of w.trimList || []) {
+      const pr = kit.trims[t.trim === 'string' ? 'string_course' : t.trim]?.profile || [[0.1, 0.3]], th = Math.max(...pr.map(q => q[1])), dp = Math.max(...pr.map(q => q[0]));
+      const x0 = t.x0 ?? 0, x1 = t.x1 ?? w.width;
+      prox(Math.max(0.1, x1 - x0), th + 0.04, dp + 0.04, m.clone().multiply(new THREE.Matrix4().makeTranslation((x0 + x1) / 2, (t.y ?? 0) + th / 2, dp / 2 + 0.01)), { kind: 'trim', w, o: t });
+    }
+    for (const c of w.canopies || []) { const d = (c.depth || 1.2), dr = d * Math.tan((c.pitch ?? (c.kind === 'awning' ? 28 : 22)) * Math.PI / 180);
+      prox(c.width || 2.5, dr + 0.3, d, m.clone().multiply(new THREE.Matrix4().makeTranslation(c.x, c.y - dr / 2, d / 2)), { kind: 'canopy', w, o: c }); }
+    for (const r of w.balustrades || []) prox(Math.max(0.2, (r.x1 ?? w.width) - (r.x0 ?? 0)), 1.0, 0.5, m.clone().multiply(new THREE.Matrix4().makeTranslation(((r.x0 ?? 0) + (r.x1 ?? w.width)) / 2, (r.y ?? w.height) + 0.5, -T / 2)), { kind: 'bal', w, o: r });
+    for (const d of w.decals || []) { const D = DECALS[d.d]; if (D) prox(d.w || D.size[0], d.h || D.size[1], 0.04, m.clone().multiply(new THREE.Matrix4().makeTranslation(d.x, d.y, 0.02)).multiply(new THREE.Matrix4().makeRotationZ((d.rot || 0) * Math.PI / 180)), { kind: 'decal', w, o: d }); }
+    for (const pp of w.pipes || []) prox(0.25, wallH(w), 0.25, m.clone().multiply(new THREE.Matrix4().makeTranslation(pp.x, wallH(w) / 2, 0.12)), { kind: 'pipe', w, o: pp });
+    for (const v of w.vines || []) prox(v.width, v.height, 0.14, m.clone().multiply(new THREE.Matrix4().makeTranslation(v.x, (v.y || 0) + v.height / 2, 0.12)), { kind: 'vine', w, o: v });
+  }
+  for (const r of B.roofs) {
+    const rise = r.depth / 2 * Math.tan((r.pitch || 50) * Math.PI / 180);
+    prox(r.width + 0.6, rise, r.depth + 0.7, new THREE.Matrix4().makeRotationY(r.rot || 0).setPosition(r.x, r.base, r.z).multiply(new THREE.Matrix4().makeTranslation(r.width / 2, rise / 2, -r.depth / 2)), { kind: 'roof', o: r });
+  }
+  for (const c of B.chimneys) prox(c.width || 1.1, c.height, c.depth || 0.6, new THREE.Matrix4().makeRotationY(c.rot || 0).setPosition(c.x, c.base + c.height / 2, c.z), { kind: 'chimney', o: c });
+  for (const f of B.fences || []) {
+    const h = (f.height || 1.1) + (f.kind === 'iron_wall' ? 0.6 : 0);
+    prox(f.length, h, 0.35, new THREE.Matrix4().makeRotationY(f.rot || 0).setPosition(f.x, f.base || 0, f.z).multiply(new THREE.Matrix4().makeTranslation(f.length / 2, h / 2, f.kind === 'iron_wall' ? -0.15 : 0)), { kind: 'fence', o: f });
+  }
+  for (const d of B.floorDecals || []) { const D = DECALS[d.d]; prox(d.w || D.size[0], 0.04, d.h || D.size[1], new THREE.Matrix4().makeRotationY(-(d.rot || 0) * Math.PI / 180).setPosition(d.x, (d.y || 0) + 0.02, d.z), { kind: 'fdecal', o: d }); }
+  for (const pl of B.platforms || []) {
+    const W2 = pl.width || 2.5, H2 = pl.height || 0.45, D2 = pl.kind === 'steps' ? Math.max(1, Math.round(H2 / 0.16)) * (pl.tread || 0.3) : (pl.depth || 1.5);
+    prox(W2, H2, D2, new THREE.Matrix4().makeRotationY(pl.rot || 0).setPosition(pl.x, (pl.base || 0), pl.z).multiply(new THREE.Matrix4().makeTranslation(0, H2 / 2, D2 / 2)), { kind: 'platform', o: pl });
+  }
+  for (const pr of B.props || []) for (const pm of pr.mounts || []) {
+    const mf = kit.features[pm.feature]; if (!mf) continue; const bb = mf.geometry.boundingBox, c = new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5), sz = new THREE.Vector3().subVectors(bb.max, bb.min);
+    prox(sz.x + 0.05, sz.y + 0.05, sz.z + 0.05, new THREE.Matrix4().makeRotationY((pr.rot || 0) + (pm.side || 0) * Math.PI / 2).setPosition(pr.x, pr.base || 0, pr.z).multiply(new THREE.Matrix4().makeTranslation(c.x, (pm.y ?? 2.1) + c.y, (PROP_RADIUS[pr.prop] ?? 0.12) + c.z)), { kind: 'pmount', p: pr, o: pm });
+  }
+  for (const pr of B.props || []) { const h = pr.height || 2.7; prox(0.45, h, 0.45, new THREE.Matrix4().makeRotationY(pr.rot || 0).setPosition(pr.x, (pr.base || 0) + h / 2, pr.z), { kind: 'prop', o: pr }); }
+  for (const c of B.corners) prox(0.5, c.height, 0.5, new THREE.Matrix4().makeRotationY(c.rot || 0).setPosition(c.x, (c.base || 0) + c.height / 2, c.z).multiply(new THREE.Matrix4().makeTranslation(0.2, 0, -0.2)), { kind: 'corner', o: c });
+  showSel();
+}
+let pending = 0;
+function changed(push = true) { if (push) pushUndo(); cancelAnimationFrame(pending); pending = requestAnimationFrame(() => rebuild()); saveDraft(); }
+
+// ---------------------------------------------------------------- undo
+let undo = [], redo = [], lastSnap = JSON.stringify(B);
+function pushUndo() { undo.push(lastSnap); if (undo.length > 100) undo.shift(); redo = []; lastSnap = JSON.stringify(B); }
+function restore(s) { B = JSON.parse(s); lastSnap = s; sel = null; changed(false); props(); }
+function doUndo() { if (!undo.length) return; redo.push(JSON.stringify(B)); restore(undo.pop()); }
+function doRedo() { if (!redo.length) return; undo.push(JSON.stringify(B)); restore(redo.pop()); }
+function beginEdit() { return JSON.stringify(B); }
+function endEdit(before) { if (before !== JSON.stringify(B)) { undo.push(before); redo = []; lastSnap = JSON.stringify(B); saveDraft(); } }
+
+// ---------------------------------------------------------------- picking helpers
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function aim(ev) { ndc.set(ev.clientX / innerWidth * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); }
+function pick(ev) { aim(ev); return ray.intersectObjects(proxies.children, false); }
+function planeAt(ev, plane) { aim(ev); const p = new THREE.Vector3(); return ray.ray.intersectPlane(plane, p) ? p : null; }
+const groundAt = (ev, y) => planeAt(ev, new THREE.Plane(new THREE.Vector3(0, 1, 0), -y));
+const snap = (v, s = SNAP) => Math.round(v / s) * s;
+const wallLocal = (w, p) => p.clone().applyMatrix4(wallM(w).invert());
+const firstWall = (hits) => hits.find(h => ['wall', 'feature', 'vine', 'canopy', 'pipe', 'trim', 'decal'].includes(h.object.userData.kind));
+// where a feature's base goes for a hit at local y: the storey its click falls in (window outlines carry their own sill height)
+// mounts (lanterns, signs) go where they're dropped; flower boxes snap under the nearest window's sill
+function mountY(w, feat, l) {
+  const k = kit.features[feat]?.kind;
+  if (k === 'mount' && !feat.startsWith('feat_shutters')) return snap(l.y, 0.05);
+  return featureY(w, l.y);
+}
+function sillUnder(w, l) {
+  let best = null;
+  for (const o of w.openings || []) {
+    const f = kit.features[o.feature]; if (!f || !f.outline || f.door) continue;
+    const bb = f.geometry.boundingBox, d = Math.abs(o.x - l.x) + Math.abs((o.y || 0) + bb.min.y - l.y) * 0.5;
+    if (d < 1.2 && (!best || d < best.d)) best = { d, x: o.x, y: (o.y || 0) + bb.min.y + 0.01 };
+  }
+  return best;
+}
+// A gateway for the gap between two wall ends near p: piers centred on each wall end (as thick as the wall, a little
+// taller), the gate hung between them on the walls' centre line, single or double by the width.
+function fitGap(p, kind, keep) {
+  const ends = [];
+  for (const w of B.walls) {
+    if (w.shape === 'gable' || Math.abs((w.base || 0) - p.y) > 0.01) continue;
+    const r = w.rot || 0, d = [Math.cos(r), -Math.sin(r)], n = [Math.sin(r), Math.cos(r)], Tw = w.thick || T;
+    for (const [k, px, pz] of [[0, w.x, w.z], [1, w.x + d[0] * w.width, w.z + d[1] * w.width]])
+      ends.push({ w, out: k ? d : [-d[0], -d[1]], c: [px - n[0] * Tw / 2, pz - n[1] * Tw / 2], T: Tw });
+  }
+  let best = null;
+  for (const a of ends) for (const b of ends) {
+    if (a.w === b.w) continue;
+    const v = [b.c[0] - a.c[0], b.c[1] - a.c[1]], L = Math.hypot(...v); if (L < 0.8 || L > 6) continue;
+    const u = [v[0] / L, v[1] / L];
+    if (a.out[0] * u[0] + a.out[1] * u[1] < 0.9 || -(b.out[0] * u[0] + b.out[1] * u[1]) < 0.9) continue;     // the ends face each other across the gap
+    const t = Math.max(0, Math.min(1, ((p.x - a.c[0]) * u[0] + (p.z - a.c[1]) * u[1]) / L)), q = [a.c[0] + u[0] * t * L, a.c[1] + u[1] * t * L];
+    const dist = Math.hypot(p.x - q[0], p.z - q[1]); if (dist > 2) continue;
+    const score = dist + 0.15 * L; if (!best || score < best.score) best = { a, b, L, u, dist, score };
+  }
+  if (!best) return null;
+  const { a, b, L, u } = best, pw = Math.max(a.T, b.T) + 0.16, gw = L - pw;
+  const wh = Math.min(a.w.height || FLOOR, b.w.height || FLOOR), gh = Math.max(1, Math.min(2.4, wh - 0.15));
+  // a plinth on either wall carries round the piers (the variant at the end it caps)
+  const plinthAt = (e) => (e.w.trimList || []).find(t => t.trim === 'plinth');
+  const pl = plinthAt(a) || plinthAt(b);
+  const pv = kit.walls[a.w.variant] && !a.w.variant.startsWith('plaster') ? a.w.variant : 'brick';
+  return { id: keep?.id || newId(), kind, x: a.c[0], z: a.c[1], rot: Math.atan2(-u[1], u[0]), base: a.w.base || 0, length: +L.toFixed(3), height: gh,
+    pierW: pw, pierH: wh + 0.25, pierVariant: pv, gap: true, pierPlinth: pl ? (pl.variant || true) : undefined,
+    gates: [{ kind: keep?.gates?.[0]?.kind || (gw > 1.6 ? 'double' : 'single'), width: +gw.toFixed(3), at: +(L / 2).toFixed(3), open: keep?.gates?.[0]?.open || false }] };
+}
+// a platform dropped in front of a wall sits against its face; steps dropped near a platform run down from its front
+function snapPlatform(pl, p) {
+  if (pl.kind === 'steps') {
+    for (const q of B.platforms) {
+      if (q.kind !== 'platform') continue;
+      const m = new THREE.Matrix4().makeRotationY(q.rot || 0).setPosition(q.x, q.base || 0, q.z), l = p.clone().applyMatrix4(m.clone().invert());
+      if (Math.abs(l.x) < (q.width || 2.5) / 2 + 0.5 && l.z > (q.depth || 1.5) - 0.6 && l.z < (q.depth || 1.5) + 2) {
+        const o = new THREE.Vector3(snap(Math.max(-(q.width || 2.5) / 2 + pl.width / 2, Math.min((q.width || 2.5) / 2 - pl.width / 2, l.x)), 0.05), 0, q.depth || 1.5).applyMatrix4(m);
+        pl.x = o.x; pl.z = o.z; pl.rot = q.rot || 0; pl.base = q.base || 0;
+        pl.height = +(q.height * (1 - 1 / Math.max(2, Math.round(q.height / 0.16)))).toFixed(3); return;
+      }
+    }
+  }
+  let best = null;
+  for (const w of B.walls) {
+    if (w.shape === 'gable' || Math.abs((w.base || 0) - (pl.base || 0)) > 0.01) continue;
+    const l = wallLocal(w, p);
+    if (l.x > -0.2 && l.x < w.width + 0.2 && l.z > -0.3 && l.z < 3 && (!best || l.z < best.l.z)) best = { w, l };
+  }
+  if (!best) return;
+  const hw = (pl.width || 2.5) / 2, lx = snap(Math.max(hw, Math.min(best.w.width - hw, best.l.x)), 0.25);
+  const o = new THREE.Vector3(lx, 0, 0).applyMatrix4(wallM(best.w));
+  pl.x = o.x; pl.z = o.z; pl.rot = best.w.rot || 0;
+}
+// a porch column dropped under a porch roof or awning: stand it under the front edge, at the right height
+function fitUnderCanopy(pr) {
+  for (const w of B.walls) for (const c of w.canopies || []) {
+    const l = wallLocal(w, new THREE.Vector3(pr.x, (w.base || 0), pr.z)), D = c.depth || 1.2;
+    if (Math.abs(l.x - c.x) > (c.width || 2.5) / 2 + 0.4 || l.z < -0.2 || l.z > D + 0.6) continue;
+    const F = canopyFront(c), front = F.z, under = F.y;
+    const half = (c.width || 2.5) / 2 - 0.12, lx = Math.abs(l.x - c.x) > half * 0.5 ? c.x + Math.sign(l.x - c.x) * half : l.x;
+    const p = new THREE.Vector3(lx, 0, front).applyMatrix4(wallM(w));
+    pr.x = snap(p.x, 0.05); pr.z = snap(p.z, 0.05); pr.base = w.base || 0;
+    // stand on a platform if there is one under the spot
+    let floor = w.base || 0;
+    for (const q of B.platforms) { const m = new THREE.Matrix4().makeRotationY(q.rot || 0).setPosition(q.x, q.base || 0, q.z), ql = new THREE.Vector3(pr.x, 0, pr.z).applyMatrix4(m.clone().invert());
+      if (q.kind === 'platform' && Math.abs(ql.x) <= (q.width || 2.5) / 2 && ql.z >= 0 && ql.z <= (q.depth || 1.5)) floor = Math.max(floor, (q.base || 0) + (q.height || 0.48)); }
+    pr.base = floor; pr.height = +(under + (w.base || 0) - floor).toFixed(2);
+    return true;
+  }
+  return false;
+}
+// a point on the ground, snapped to the 25 cm grid, or onto a wall's end if one is within 35 cm
+function snapEnd(g) {
+  let best = null, bd = 0.35;
+  for (const w of B.walls) {
+    if (w.shape === 'gable' || Math.abs((w.base || 0) - g.y) > 0.01) continue;
+    const r = w.rot || 0;
+    for (const P of [[w.x, w.z], [w.x + Math.cos(r) * w.width, w.z - Math.sin(r) * w.width]]) { const d = Math.hypot(P[0] - g.x, P[1] - g.z); if (d < bd) { bd = d; best = P; } }
+  }
+  return best ? new THREE.Vector3(best[0], g.y, best[1]) : new THREE.Vector3(snap(g.x), g.y, snap(g.z));
+}
+function featureY(w, ly) { if (w.shape === 'gable') return snap(Math.max(-0.9, ly - 1.4), 0.05); const sh = w.storeyH || (w.height > 3.5 && w.height <= 6 ? w.height : FLOOR); return Math.floor(Math.max(0, ly) / sh) * sh; }
+
+// ---------------------------------------------------------------- placing a library item (drop or click)
+function place(it, ev) {
+  const hits = pick(ev), wh = firstWall(hits), w = wh?.object.userData.w;
+  const before = beginEdit();
+  let ok = true;
+  const propHit = hits.find(h => h.object.userData.kind === 'prop' || h.object.userData.kind === 'pmount');
+  if (it.feature && ['feat_lantern', 'feat_sign'].includes(it.feature) && propHit && (!wh || propHit.distance < wh.distance)) {
+    // a lantern or sign on a post or column: on the side facing the click, at the click's height
+    const pr = propHit.object.userData.kind === 'prop' ? propHit.object.userData.o : propHit.object.userData.p;
+    const a = Math.atan2(propHit.point.x - pr.x, propHit.point.z - pr.z) - (pr.rot || 0), side = ((Math.round(a / (Math.PI / 2)) % 4) + 4) % 4;
+    const pm = { feature: it.feature, side, y: Math.max(0.6, snap(propHit.point.y - (pr.base || 0), 0.05)) };
+    (pr.mounts = pr.mounts || []).push(pm); sel = { kind: 'pmount', p: pr, o: pm };
+  } else if (it.feature) {
+    if (!w) return flash('Drop it on a wall');
+    const l = wallLocal(w, wh.point), o = { feature: it.feature, x: snap(l.x), y: mountY(w, it.feature, l) };
+    if (it.feature === 'feat_flowerbox') { const s2 = sillUnder(w, l); if (s2) { o.x = s2.x; o.y = s2.y; } }
+    if (it.feature.startsWith('feat_shutters_')) { const s2 = sillUnder(w, l); if (s2) { o.x = s2.x; o.y = 0; } }   // (onto the nearest window)
+    if (it.feature === 'feat_pilaster') { o.y = featureY(w, l.y); o.sy = +((w.shape === 'gable' ? 3 : Math.min(w.height, (w.storeyH || w.height))) / 2.9).toFixed(3); }
+    if (!featureFits(kit, w, o)) return flash("It doesn't fit there");
+    (w.openings = w.openings || []).push(o); sel = { kind: 'feature', w, o };
+  } else if (it.wall) {
+    const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+    const nw = { id: newId(), x: snap(p.x - it.wall.width / 2), z: snap(p.z), rot: 0, width: it.wall.width, height: it.wall.height || FLOOR, base: +$('storey').value * FLOOR,
+      shape: it.wall.shape, pitch: it.wall.pitch, notch: it.wall.notch ? { ...it.wall.notch } : undefined, variant: styleWall(), caps: [true, true], openings: [], vines: [], trimList: [] };
+    B.walls.push(nw); sel = { kind: 'wall', w: nw, o: nw };
+  } else if (it.balustrade) {
+    if (!w || w.shape === 'gable') return flash('Drop it on a wall');
+    const top = Math.max(...B.walls.filter(x => x.g === w.g && x.shape !== 'gable').map(x => (x.base || 0) + x.height));
+    const group = w.g ? B.walls.filter(x => x.g === w.g && x.shape !== 'gable' && (x.base || 0) + x.height === top) : [w];
+    for (const x of group) x.balustrades = [{ x0: 0, x1: x.width, y: x.height }];
+    sel = { kind: 'wall', w, o: w };
+  } else if (it.fence) {
+    const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+    const f = { id: newId(), kind: it.fence, x: snap(p.x - 2.5), z: snap(p.z), rot: 0, base: +$('storey').value * FLOOR, length: 5, gates: [] };
+    B.fences.push(f); sel = { kind: 'fence', o: f };
+  } else if (it.gap) {
+    const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+    const f = fitGap(p, it.gap); if (!f) return flash('Drop it in a gap between two wall ends (up to 6 m)');
+    B.fences.push(f); sel = { kind: 'fence', o: f };
+  } else if (it.gate) {
+    const fh = hits.find(h => h.object.userData.kind === 'fence');
+    const gw = it.gate.width || (it.gate.kind === 'double' ? 2.6 : 1.1);
+    if (fh) {
+      const f = fh.object.userData.o, l = fh.point.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(f.rot || 0).setPosition(f.x, f.base || 0, f.z).invert());
+      const g = { kind: it.gate.kind, width: gw, at: snap(Math.max(gw / 2 + 0.5, Math.min(f.length - gw / 2 - 0.5, l.x)), 0.25), open: false };
+      (f.gates = f.gates || []).push(g); sel = { kind: 'fence', o: f };
+    } else {
+      const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+      const pw = it.gate.fence.startsWith('iron') ? 0.46 : 0.14, L = gw + 2 * pw;
+      const f = { id: newId(), kind: it.gate.fence, x: snap(p.x - L / 2, 0.05), z: snap(p.z), rot: 0, base: +$('storey').value * FLOOR, length: L, gates: [{ kind: it.gate.kind, width: gw, at: L / 2, open: false }] };
+      B.fences.push(f); sel = { kind: 'fence', o: f };
+    }
+  } else if (it.decal) {
+    const D = DECALS[it.decal];
+    if (it.decal === 'coal_hole' || !w) {
+      const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+      const d = { d: it.decal, x: snap(p.x, 0.05), z: snap(p.z, 0.05), y: +$('storey').value * FLOOR, rot: 0 }; B.floorDecals.push(d); sel = { kind: 'fdecal', o: d };
+    } else {
+      const l = wallLocal(w, wh.point), d = { d: it.decal, x: snap(l.x, 0.05), y: snap(l.y, 0.05), rot: 0 };
+      if (it.decal === 'soot') d.y = Math.min(wallH(w) - D.size[1] / 2, d.y);
+      (w.decals = w.decals || []).push(d); sel = { kind: 'decal', w, o: d };
+    }
+  } else if (it.platform) {
+    const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+    const pl = { id: newId(), ...it.platform, x: snap(p.x), z: snap(p.z), rot: 0, base: +$('storey').value * FLOOR };
+    snapPlatform(pl, p);
+    B.platforms.push(pl); sel = { kind: 'platform', o: pl };
+  } else if (it.prop) {
+    const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
+    const pr = { id: newId(), prop: it.prop, x: snap(p.x, 0.05), z: snap(p.z, 0.05), rot: 0, base: +$('storey').value * FLOOR, ...(it.natural ? {} : { height: 2.7 }) };
+    if (!it.natural) fitUnderCanopy(pr);
+    (B.props = B.props || []).push(pr); sel = { kind: 'prop', o: pr };
+  } else if (it.canopy) {
+    if (!w) return flash('Drop it on a wall');
+    const l = wallLocal(w, wh.point), st = Math.floor(Math.max(0, l.y) / FLOOR) * FLOOR;
+    const c = it.canopy === 'porch' ? { kind: 'porch', x: snap(l.x), y: st + 2.75, width: 2.5, depth: 1.4, pitch: 22 } : { kind: 'awning', x: snap(l.x), y: st + 2.6, width: 2.2, depth: 1.1, pitch: 28, color: 'green' };
+    (w.canopies = w.canopies || []).push(c); sel = { kind: 'canopy', w, o: c };
+  } else if (it.pipe) {
+    if (!w) return flash('Drop it on a wall');
+    const pp = { x: snap(wallLocal(w, wh.point).x) }; (w.pipes = w.pipes || []).push(pp); sel = { kind: 'pipe', w, o: pp };
+  } else if (it.box) {
+    const p = groundAt(ev, 0); if (!p) return;
+    merge(B, boxParts(it.box, snap(p.x, 0.5), snap(p.z, 0.5))); sel = null;
+  } else if (it.dormer) {
+    const rh = hits.find(x => x.object.userData.kind === 'roof'), rf = rh?.object.userData.o;
+    if (!rf || rf.kind === 'lean') return flash('Drop it on a gable roof');
+    const l = new THREE.Vector3().copy(rh.point).applyMatrix4(new THREE.Matrix4().makeRotationY(rf.rot || 0).setPosition(rf.x, rf.base || 0, rf.z).invert());
+    (rf.dormers = rf.dormers || []).push({ x: +Math.max(0.9, Math.min(rf.width - 0.9, l.x)).toFixed(2) }); sel = { kind: 'roof', o: rf };
+  } else if (it.pediment) {
+    if (!w || w.shape === 'gable') return flash('Drop it on a wall');
+    const l = wallLocal(w, wh.point), wd = Math.min(4, w.width - 0.4), pd = { x: snap(Math.max(wd / 2, Math.min(w.width - wd / 2, l.x)), 0.25), y: wallH(w), width: wd, ...it.pediment };
+    (w.pediments = w.pediments || []).push(pd); sel = { kind: 'wall', w, o: w };
+  } else if (it.banner) {
+    if (!w) return flash('Drop it on a wall');
+    const l = wallLocal(w, wh.point), bn = { ...it.banner, x: snap(l.x, 0.05) };
+    bn.y = bn.kind === 'sign' ? snap(Math.max(2.3, Math.min(wallH(w) - 0.3, l.y)), 0.05) : snap(Math.min(wallH(w) - 0.15, Math.max(bn.length + 0.4, l.y + bn.length / 2)), 0.05);
+    (w.banners = w.banners || []).push(bn); sel = { kind: 'wall', w, o: w };
+  } else if (it.turret) {
+    const rh = hits.find(x => x.object.userData.kind === 'roof'), rf = rh?.object.userData.o;
+    if (!rf || rf.kind === 'lean') return flash('Drop it on a gable roof');
+    const M = new THREE.Matrix4().makeRotationY(rf.rot || 0).setPosition(rf.x, rf.base || 0, rf.z), l = rh.point.clone().applyMatrix4(M.clone().invert());
+    const pt = (rf.pitch || 50) * Math.PI / 180, th = rf.thick ?? (rf.cover === 'thatch' ? 0.38 : rf.cover === 'shingle' ? 0.12 : 0.16), top = rf.depth / 2 * Math.tan(pt) + th / Math.cos(pt);
+    const q = new THREE.Vector3(snap(Math.max(0.8, Math.min(rf.width - 0.8, l.x)), 0.25), 0, -rf.depth / 2).applyMatrix4(M);
+    const c = { id: newId(), g: rf.g, ...it.turret, x: q.x, z: q.z, rot: rf.rot || 0, base: (rf.base || 0) + top - 0.05, height: 2.6, width: it.turret.size, depth: it.turret.size };
+    B.chimneys.push(c); sel = { kind: 'chimney', o: c };
+  } else if (it.leanto) {
+    if (!w || w.shape === 'gable') return flash('Drop it on a wall');
+    addLeanTo(B, w, wallLocal(w, wh.point).x, it.leanto); sel = { kind: 'wall', w, o: w };
+  } else if (it.roof) {
+    const walls = w ? (w.g ? B.walls.filter(x => x.g === w.g) : B.walls) : B.walls;
+    ok = roofOver(B, walls, 50, w?.g || null); if (!ok) return flash('Build some walls first');
+    if (it.cover) for (const r of B.roofs.filter(r => r.g === (w?.g || null))) r.cover = it.cover;
+  } else if (it.trim) {
+    if (!w || w.shape === 'gable') return flash('Drop it on a wall');
+    const group = w.g ? B.walls.filter(x => x.g === w.g && x.shape !== 'gable' && (it.trim !== 'plinth' || !(x.base > 0)) && (it.trim !== 'cornice' || x.base === Math.max(...B.walls.filter(y => y.g === w.g && y.shape !== 'gable').map(y => y.base || 0))) && (it.trim !== 'string' || x.base > 0)) : [w];
+    for (const x of (group.length ? group : [w])) { x.trimList = (x.trimList || []).filter(t => t.trim !== it.trim); x.trimList.push(trimPiece(x, it.trim, it.variant)); }
+    sel = { kind: 'wall', w, o: w };
+  } else if (it.quoins) {
+    if (!w) return flash('Drop it near the end of a wall');
+    const l = wallLocal(w, wh.point), atEnd = l.x > w.width / 2, p = new THREE.Vector3(atEnd ? w.width : 0, 0, 0).applyMatrix4(wallM(w));
+    const c = { id: newId(), g: w.g, x: p.x, z: p.z, rot: (w.rot || 0) + (atEnd ? Math.PI / 2 : 0), base: w.base || 0, height: w.height || FLOOR };
+    B.corners.push(c); sel = { kind: 'corner', o: c };
+  } else if (it.ivy) {
+    if (!w) return flash('Drop it on a wall');
+    const l = wallLocal(w, wh.point), v = { x: snap(l.x), y: 0, width: 2.2, height: Math.min(wallH(w), 3), seed: (Math.random() * 1e4) | 0, out: 0.09 };
+    (w.vines = w.vines || []).push(v); sel = { kind: 'vine', w, o: v };
+  } else if (it.chimney) {
+    const rh = hits.find(x => x.object.userData.kind === 'roof'), r = rh?.object.userData.o || B.roofs[0];
+    const p = rh ? rh.point : groundAt(ev, 0); if (!p) return;
+    const rise = r ? r.depth / 2 * Math.tan((r.pitch || 50) * Math.PI / 180) : 3;
+    const c = { id: newId(), g: r?.g, x: snap(p.x), z: snap(p.z), rot: r ? r.rot : 0, base: r ? r.base : 0, height: rise + 1.6, width: 1.1, depth: 0.6, pots: 2 };
+    B.chimneys.push(c); sel = { kind: 'chimney', o: c };
+  }
+  endEdit(before); changed(false); props();
+}
+
+// ---------------------------------------------------------------- library strip: thumbnails, filters, drag
+const thumbR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true }); thumbR.setSize(192, 168); thumbR.outputEncoding = THREE.sRGBEncoding;
+function thumbFor(it) {
+  const s = new THREE.Scene(); s.add(new THREE.HemisphereLight('#e8eef6', '#6a5a48', 0.75)); const d = new THREE.DirectionalLight('#fff4e0', 1.3); d.position.set(4, 6, 7); s.add(d);
+  let desc = { walls: [] };
+  if (it.feature && !['feat_flowerbox', 'feat_lantern', 'feat_sign'].includes(it.feature) && !it.feature.startsWith('feat_shutters_')) desc.walls.push({ x: -1.25, z: 0, rot: 0, width: 2.5, height: 3, variant: (it.type === 'civic' ? 'ashlar' : it.style[0] === 'wooden' ? 'weatherboard' : it.style.includes('tudor') ? 'plaster' : 'brick'), openings: [{ feature: it.feature, x: 1.25, y: 0 }] });
+  else if (it.wall) desc.walls.push({ x: -it.wall.width / 2, z: 0, rot: 0, width: it.wall.width, height: 3, shape: it.wall.shape, pitch: it.wall.pitch, variant: 'brick' });
+  else if (it.box) { const b = boxParts(it.box); desc = toDesc(b); }
+  else if (it.roof) { const b = boxParts({ w: 4, d: 3, s: 0, g: 'brick', u: 'brick', pitch: 50 }); b.walls = b.walls.filter(w => w.shape === 'gable'); desc = toDesc({ ...b, walls: b.walls }); desc.roofs = [{ x: -2, z: 1.5, rot: 0, width: 4, depth: 3, base: 0, pitch: 50, cover: it.cover }]; }
+  else if (it.trim) { const w = { x: -1.25, z: 0, rot: 0, width: 2.5, height: 3, variant: 'brick', base: it.trim === 'string' ? 3 : 0 }; w.trimList = [trimPiece(w, it.trim, it.variant)]; desc = toDesc({ walls: [w], corners: [], roofs: [], chimneys: [] }); }
+  else if (it.quoins) desc = { walls: [{ x: 0, z: 0, rot: 0, width: 1.5, height: 3, variant: 'brick', caps: [false, true] }, { x: 0, z: -1.5, rot: -Math.PI / 2, width: 1.5, height: 3, variant: 'brick', caps: [true, false] }], corners: [{ x: 0, z: 0, rot: 0, height: 3 }] };
+  else if (it.ivy) desc.walls.push({ x: -1.25, z: 0, rot: 0, width: 2.5, height: 3, variant: 'brick', vines: [{ x: 1.25, y: 0, width: 2, height: 2.8, seed: 4, out: 0.05 }] });
+  else if (it.wall && it.wall.notch) desc.walls[0].notch = it.wall.notch;
+  if (it.wall) { desc.walls[0].height = it.wall.height || 3; desc.walls[0].notch = it.wall.notch; }
+  if (it.prop) desc = { walls: [], props: [{ prop: it.prop, x: 0, z: 0, base: 0, ...(it.natural ? {} : { height: 2.7 }) }] };
+  if (it.dormer) { const b = boxParts({ w: 4, d: 3, s: 0, g: 'plaster', u: 'plaster', pitch: 50 }); desc = toDesc({ ...b, walls: b.walls.filter(w => w.shape === 'gable') }); desc.roofs = [{ x: -2, z: 1.5, rot: 0, width: 4, depth: 3, base: 0, pitch: 50, dormers: [{ x: 2 }] }]; }
+  if (it.leanto) { const b = { walls: [{ id: 'x', x: -1.5, z: 0, rot: 0, width: 3, height: 3, variant: 'brick', openings: [] }], corners: [], roofs: [], chimneys: [] }; addLeanTo(b, b.walls[0], 1.5, it.leanto); desc = toDesc(b); }
+  else if (it.fence) desc = { walls: [], fences: [{ kind: it.fence, x: -1.5, z: 0, rot: 0, length: 3 }] };
+  else if (it.gap) desc = { walls: [{ x: -3.3, z: 0, rot: 0, width: 2, height: 2, variant: 'brick' }, { x: 1.3, z: 0, rot: 0, width: 2, height: 2, variant: 'brick' }],
+    fences: [{ kind: it.gap, x: -1.3, z: -0.225, rot: 0, length: 2.6, height: 1.85, pierW: 0.61, pierH: 2.25, pierVariant: 'brick', gates: [{ kind: 'double', width: 1.99, at: 1.3 }] }] };
+  else if (it.gate) { const gw = it.gate.width || (it.gate.kind === 'double' ? 2.6 : 1.1), pw = it.gate.fence.startsWith('iron') ? 0.46 : 0.14; desc = { walls: [], fences: [{ kind: it.gate.fence, x: -(gw / 2 + pw + 0.6), z: 0, rot: 0, length: gw + 2 * pw + 1.2, gates: [{ kind: it.gate.kind, width: gw, at: gw / 2 + pw + 0.6 }] }] }; }
+  else if (it.decal) desc = it.decal === 'coal_hole' ? { walls: [], floorDecals: [{ d: 'coal_hole', x: 0, z: 0, y: 0 }], platforms: [{ kind: 'platform', material: 'stone', x: 0, z: -0.6, width: 1.2, depth: 1.2, height: 0.02 }] }
+    : { walls: [{ x: -(DECALS[it.decal].size[0] / 2 + 0.25), z: 0, rot: 0, width: DECALS[it.decal].size[0] + 0.5, height: DECALS[it.decal].size[1] + 0.5, variant: ['ghost_sign', 'brick_showing', 'apothecary', 'soot', 'chalk', 'moss'].includes(it.decal) ? (it.decal === 'brick_showing' ? 'plaster' : 'brick') : 'plaster', decals: [{ d: it.decal, x: DECALS[it.decal].size[0] / 2 + 0.25, y: DECALS[it.decal].size[1] / 2 + 0.25 }] }] };
+  else if (it.platform) desc = { walls: [{ x: it.platform.kind === 'stair' ? -2.5 : -1.5, z: 0, rot: 0, width: it.platform.kind === 'stair' ? 5 : 3, height: it.platform.kind === 'stair' ? 4 : 1.2, variant: it.platform.kind === 'stair' ? 'weatherboard' : 'brick' }], platforms: it.platform.kind === 'steps' || it.platform.kind === 'stair' ? [{ ...it.platform, x: 0, z: 0, base: 0 }] : [{ ...it.platform, x: 0, z: 0, base: 0 }, { kind: 'steps', material: it.platform.material, width: 1.2, height: 0.32, x: 0, z: it.platform.depth, base: 0 }] };
+  else if (it.canopy) desc.walls.push({ x: -1.5, z: 0, rot: 0, width: 3, height: 3, variant: it.canopy === 'awning' ? 'brick' : 'plaster', canopies: [it.canopy === 'porch' ? { kind: 'porch', x: 1.5, y: 2.75, width: 2.5, depth: 1.4, pitch: 22 } : { kind: 'awning', x: 1.5, y: 2.6, width: 2.2, depth: 1.1, pitch: 28, color: 'green' }] });
+  else if (it.pipe) desc.walls.push({ x: -0.75, z: 0, rot: 0, width: 1.5, height: 3, variant: 'brick', pipes: [{ x: 0.75 }] });
+  else if (it.feature && it.feature.startsWith('feat_shutters_')) desc.walls = [{ x: -1.5, z: 0, rot: 0, width: 3, height: 3, variant: 'plaster', openings: [{ feature: 'feat_window_timber', x: 1.5, y: 0 }, { feature: it.feature, x: 1.5, y: 0 }] }];
+  else if (it.feature === 'feat_flowerbox') desc.walls = [{ x: -1.25, z: 0, rot: 0, width: 2.5, height: 3, variant: 'brick', openings: [{ feature: 'feat_window_rect', x: 1.25, y: 0 }, { feature: 'feat_flowerbox', x: 1.25, y: 0.9 }] }];
+  else if (it.feature === 'feat_lantern' || it.feature === 'feat_sign') desc.walls = [{ x: -1, z: 0, rot: 0, width: 2, height: 3, variant: 'brick', openings: [{ feature: it.feature, x: 1, y: 2.2 }] }];
+  if (it.pediment) desc = { walls: [{ x: -2.5, z: 0, rot: 0, width: 5, height: 3, variant: 'ashlar', pediments: [{ x: 2.5, y: 3, width: 4, ...it.pediment }] }] };
+  if (it.banner) desc = { walls: [{ x: -1, z: 0, rot: 0, width: 2, height: 3, variant: 'ashlar', banners: [{ ...it.banner, x: 1, y: it.banner.kind === 'sign' ? 2.4 : 2.7 }] }] };
+  if (it.turret) desc = { walls: [], chimneys: [{ ...it.turret, x: 0, z: 0, base: 0 }] };
+  if (it.platform && it.platform.kind === 'portico') desc = { walls: [{ x: -3, z: 0, rot: 0, width: 6, height: 6, variant: 'ashlar' }], platforms: [{ ...it.platform, x: 0, z: 0, base: 0 }] };
+  if (it.chimney) desc = { walls: [], chimneys: [{ x: 0, z: 0, base: 0, height: 2.4, width: 1.1, depth: 0.6, pots: 2 }] };
+  const g = buildFromKit(kit, desc).group; s.add(g);
+  const bb = new THREE.Box3().setFromObject(g), c = bb.getCenter(new THREE.Vector3()), r = bb.getSize(new THREE.Vector3()).length() * 0.5;
+  const cam = new THREE.PerspectiveCamera(30, 192 / 168, 0.05, 200), dir = it.quoins ? new THREE.Vector3(-0.7, 0.35, 0.9) : it.feature === 'feat_sign' || it.banner?.kind === 'sign' ? new THREE.Vector3(1, 0.2, 0.6) : new THREE.Vector3(0.45, 0.3, 1);
+  cam.position.copy(c).addScaledVector(dir.normalize(), r / Math.sin(15 * Math.PI / 180) * 0.92); cam.lookAt(c);
+  thumbR.render(s, cam); return thumbR.domElement.toDataURL();
+}
+const thumbs = {};
+function drawThumbs() { for (const it of ITEMS) thumbs[it.id] = thumbFor(it); fillStrip(); }
+function fillStrip() {
+  const c = $('cat').value, t = $('typ').value;
+  const list = ITEMS.filter(it => (c === 'all' || it.style.includes(c)) && (t === 'all' || it.type === t));
+  $('strip').innerHTML = list.map(it => `<div class="item ${armed?.id === it.id ? 'on' : ''}" data-id="${it.id}" title="${it.name}: ${hintOf(it)}"><img src="${thumbs[it.id] || ''}"><span>${it.name}</span></div>`).join('') || '<span class="help">Nothing in this style and type yet.</span>';
+}
+$('cat').onchange = fillStrip; $('typ').onchange = fillStrip;
+$('strip').addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { $('strip').scrollLeft += e.deltaY; e.preventDefault(); } }, { passive: false });
+let armed = null, libDrag = null;
+$('strip').addEventListener('pointerdown', (ev) => {
+  const el = ev.target.closest('.item'); if (!el) return;
+  libDrag = { it: ITEMS.find(i => i.id === el.dataset.id), x: ev.clientX, y: ev.clientY, moved: false };
+  ev.preventDefault();
+});
+addEventListener('pointermove', (ev) => {
+  if (!libDrag) return;
+  if (!libDrag.moved && Math.hypot(ev.clientX - libDrag.x, ev.clientY - libDrag.y) > 6) { libDrag.moved = true; const g = $('ghost'); g.src = thumbs[libDrag.it.id]; g.style.display = 'block'; }
+  if (libDrag.moved) { const g = $('ghost'); g.style.left = ev.clientX - 36 + 'px'; g.style.top = ev.clientY - 50 + 'px'; hover(ev, libDrag.it); }
+});
+addEventListener('pointerup', (ev) => {
+  if (!libDrag) return;
+  const d = libDrag; libDrag = null; $('ghost').style.display = 'none'; clearHover();
+  if (!d.moved) { arm(armed?.id === d.it.id ? null : d.it); return; }
+  if (ev.clientY < innerHeight - 168) place(d.it, ev);
+});
+function arm(it) { armed = it; tool = it ? 'place' : 'select'; fillStrip(); setToolButtons(); $('libHint').textContent = it ? it.name + ' — ' + hintOf(it) + ' (Esc to stop)' : ''; }
+// while dragging or armed: outline the wall it would go on
+function hover(ev, it) {
+  clearHover(); if (ev.clientY > innerHeight - 168) return;
+  if (!(it.feature || it.trim || it.ivy || it.quoins || it.roof)) return;
+  const h = firstWall(pick(ev)); if (!h) return;
+  const p = proxies.children.find(x => x.userData.kind === 'wall' && x.userData.w === h.object.userData.w); if (!p) return;
+  hoverBox = new THREE.Mesh(p.geometry, hoverMat); hoverBox.matrixAutoUpdate = false; hoverBox.matrix.copy(p.matrix); hoverBox.renderOrder = 9; scene.add(hoverBox);
+}
+function clearHover() { if (hoverBox) { scene.remove(hoverBox); hoverBox = null; } }
+
+// ---------------------------------------------------------------- tools + scene pointer
+let tool = 'select';
+const HELP = { select: 'Click to select · drag to move', wall: 'Drag on the ground to draw a wall on the chosen storey (25 cm snap). Its front faces to the left of the way you drag; R flips it.' };
+function setToolButtons() { for (const b of $('tools').children) b.classList.toggle('on', b.dataset.t === tool); $('help').textContent = HELP[tool] || ''; }
+$('tools').onclick = (e) => { const t = e.target.dataset.t; if (!t) return; armed = null; fillStrip(); $('libHint').textContent = ''; tool = t; setToolButtons(); };
+setToolButtons();
+
+let drag = null;
+const cv = renderer.domElement;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('pointerdown', (ev) => {
+  cv.setPointerCapture(ev.pointerId);
+  if (ev.button === 2 || ev.button === 1) { drag = { kind: 'pan', x: ev.clientX, y: ev.clientY }; return; }
+  if (tool === 'place' && armed?.fence) { const g = groundAt(ev, +$('storey').value * FLOOR); if (g) drag = { kind: 'drawFence', a: snapEnd(g), it: armed }; return; }
+  if (tool === 'place' && armed) { place(armed, ev); return; }
+  if (tool === 'wall') { const g = groundAt(ev, +$('storey').value * FLOOR); if (g) drag = { kind: 'drawWall', a: snapEnd(g) }; return; }
+  const h = pick(ev)[0];
+  if (!h) { sel = null; props(); drag = { kind: 'orbit', x: ev.clientX, y: ev.clientY }; return; }
+  const d = h.object.userData; sel = { kind: d.kind, w: d.w, o: d.o }; props();
+  const before = beginEdit();
+  if (d.kind === 'bal') { drag = null; return; }
+  if (d.kind === 'trim' || d.kind === 'pmount') { if (d.kind === 'pmount') sel.p = d.p; drag = null; return; }
+  if (d.kind === 'decal') { drag = { kind: 'slide', w: d.w, o: d.o, sk: 'decal', before }; return; }
+  if (['feature', 'vine', 'canopy', 'pipe'].includes(d.kind)) { drag = { kind: 'slide', w: d.w, o: d.o, sk: d.kind, before }; return; }
+  // everything else drags on a level plane through the grab point; Shift on a wall takes the whole building
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -h.point.y), start = h.point.clone();
+  let movers;
+  if (d.kind === 'wall' && ev.shiftKey) { const g = d.w.g; movers = [...B.walls, ...B.corners, ...B.roofs, ...B.chimneys, ...(B.props || []), ...(B.platforms || []), ...(B.fences || []), ...(B.floorDecals || [])].filter(o => !g || o.g === g); }
+  else movers = [d.o];
+  drag = { kind: 'move', plane, start, movers, orig: movers.map(o => [o.x, o.z]), before };
+});
+cv.addEventListener('pointermove', (ev) => {
+  if (!drag) { if (tool === 'place' && armed) hover(ev, armed); return; }
+  if (drag.kind === 'orbit') { orbit.yaw -= (ev.clientX - drag.x) * 0.006; orbit.pitch = Math.max(-0.1, Math.min(1.45, orbit.pitch + (ev.clientY - drag.y) * 0.005)); drag.x = ev.clientX; drag.y = ev.clientY; placeCam(); return; }
+  if (drag.kind === 'pan') {
+    const k = orbit.dist * 0.0016, dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+    orbit.tx -= Math.cos(orbit.yaw) * dx * k; orbit.tz += Math.sin(orbit.yaw) * dx * k; orbit.ty += dy * k;
+    drag.x = ev.clientX; drag.y = ev.clientY; placeCam(); return;
+  }
+  if (drag.kind === 'drawFence') {
+    const g = groundAt(ev, drag.a.y); if (!g) return; drag.b = snapEnd(g);
+    if (drag.line) scene.remove(drag.line);
+    drag.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([drag.a, drag.b]), new THREE.LineBasicMaterial({ color: 0x80c8ff, depthTest: false })); scene.add(drag.line); return;
+  }
+  if (drag.kind === 'drawWall') {
+    const g = groundAt(ev, drag.a.y); if (!g) return; drag.b = snapEnd(g);
+    if (drag.line) scene.remove(drag.line);
+    drag.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([drag.a, drag.b]), new THREE.LineBasicMaterial({ color: 0xffd060, depthTest: false })); scene.add(drag.line); return;
+  }
+  if (drag.kind === 'move') {
+    const p = planeAt(ev, drag.plane); if (!p) return;
+    const dx = snap(p.x - drag.start.x), dz = snap(p.z - drag.start.z); let moved = false;
+    drag.movers.forEach((o, i) => { const nx = drag.orig[i][0] + dx, nz = drag.orig[i][1] + dz; if (o.x !== nx || o.z !== nz) { o.x = nx; o.z = nz; moved = true; } });
+    if (moved) { changed(false); props(); }
+    return;
+  }
+  if (drag.kind === 'slide') {
+    const w = drag.w, m = wallM(w);
+    const p = planeAt(ev, new THREE.Plane().setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1).transformDirection(m), new THREE.Vector3().setFromMatrixPosition(m))); if (!p) return;
+    const l = wallLocal(w, p), o = drag.o, old = { x: o.x, y: o.y };
+    if (o.feature) {
+      o.x = snap(l.x);
+      if (o.feature === 'feat_flowerbox' && !ev.shiftKey) { const s2 = sillUnder(w, l); if (s2) { o.x = s2.x; o.y = s2.y; } }
+      else o.y = ev.shiftKey ? snap(l.y - 1.4, 0.05) : mountY(w, o.feature, l);
+      if (!featureFits(kit, w, o)) Object.assign(o, old);
+    }
+    else if (drag.sk === 'canopy') { o.x = snap(l.x); if (ev.shiftKey) o.y = snap(l.y, 0.05); }
+    else if (drag.sk === 'pipe') o.x = snap(l.x, 0.05);
+    else if (drag.sk === 'decal') { o.x = snap(l.x, 0.05); o.y = snap(l.y, 0.05); }
+    else { o.x = snap(l.x); o.y = Math.max(0, snap(l.y - o.height / 2)); }
+    if (old.x !== o.x || old.y !== o.y) { changed(false); props(); }
+  }
+});
+cv.addEventListener('pointerup', () => {
+  if (drag?.kind === 'drawFence') {
+    if (drag.line) scene.remove(drag.line);
+    const a = drag.a, b = drag.b || a, d = new THREE.Vector3().subVectors(b, a), L = Math.hypot(d.x, d.z);
+    const f = L >= 0.5 ? { id: newId(), kind: drag.it.fence, x: a.x, z: a.z, rot: Math.atan2(-d.z, d.x), base: a.y, length: +L.toFixed(3), gates: [] }
+                       : { id: newId(), kind: drag.it.fence, x: a.x, z: a.z, rot: 0, base: a.y, length: 5, gates: [] };
+    B.fences.push(f); sel = { kind: 'fence', o: f }; changed(); props(); drag = null; return;
+  }
+  if (drag?.kind === 'drawWall' && drag.b) {
+    scene.remove(drag.line); const a = drag.a, b = drag.b, d = new THREE.Vector3().subVectors(b, a), L = Math.hypot(d.x, d.z);
+    if (L >= 0.5) {
+      const w = { id: newId(), x: a.x, z: a.z, rot: Math.atan2(-d.z, d.x), width: L, height: FLOOR, base: a.y, variant: styleWall(), caps: [true, true], openings: [], vines: [], trimList: [] };
+      B.walls.push(w); sel = { kind: 'wall', w, o: w }; changed(); props();
+    }
+  } else if (drag?.before) {
+    if (drag.kind === 'move' && drag.movers.length === 1 && sel?.kind === 'wall') {    // a moved wall clicks onto a nearby wall end
+      const w = sel.w, r = w.rot || 0, ends = [[w.x, w.z], [w.x + Math.cos(r) * w.width, w.z - Math.sin(r) * w.width]];
+      for (const [i, P] of ends.entries()) {
+        const B0 = B.walls; let hit = null;
+        for (const o of B0) { if (o === w || o.shape === 'gable' || Math.abs((o.base || 0) - (w.base || 0)) > 0.01) continue; const ro = o.rot || 0;
+          for (const Q of [[o.x, o.z], [o.x + Math.cos(ro) * o.width, o.z - Math.sin(ro) * o.width]]) if (Math.hypot(P[0] - Q[0], P[1] - Q[1]) < 0.3) hit = Q; }
+        if (hit) { w.x += hit[0] - P[0]; w.z += hit[1] - P[1]; changed(false); break; }
+      }
+    }
+    endEdit(drag.before);
+  }
+  if (drag?.line) scene.remove(drag.line);
+  drag = null;
+});
+cv.addEventListener('pointerleave', clearHover);
+cv.addEventListener('wheel', (ev) => { orbit.dist = Math.max(3, Math.min(120, orbit.dist * (1 + Math.sign(ev.deltaY) * 0.1))); placeCam(); }, { passive: true });
+
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
+  else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); doRedo(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') removeSel();
+  else if (k === 'r' && sel?.kind === 'wall') flipWall(sel.w);
+  else if ((k === 'q' || k === 'e') && sel) turnSel(k === 'q' ? 1 : -1);
+  else if (e.key === 'Escape') { arm(null); tool = 'select'; setToolButtons(); }
+});
+// turn the selection 90° about its middle (walls, roofs, chimneys, quoins)
+function turnSel(dir) {
+  const o = sel.o, a = dir * Math.PI / 2;
+  if (sel.kind === 'wall' || sel.kind === 'roof') {
+    const len = o.width, dep = sel.kind === 'roof' ? o.depth : 0;
+    const m = sel.kind === 'wall' ? wallM(o) : new THREE.Matrix4().makeRotationY(o.rot || 0).setPosition(o.x, o.base, o.z);
+    const c = new THREE.Vector3(len / 2, 0, -dep / 2).applyMatrix4(m);
+    o.rot = (o.rot || 0) + a;
+    const s = new THREE.Vector3(-len / 2, 0, dep / 2).applyAxisAngle(new THREE.Vector3(0, 1, 0), o.rot).add(c);
+    o.x = snap(s.x, 0.05); o.z = snap(s.z, 0.05);
+  } else if (['chimney', 'corner', 'prop', 'platform', 'fence'].includes(sel.kind)) o.rot = (o.rot || 0) + a;
+  else if (sel.kind === 'pmount') o.side = ((o.side || 0) + (dir > 0 ? 1 : 3)) % 4;
+  else if (sel.kind === 'decal' || sel.kind === 'fdecal') o.rot = ((o.rot || 0) + dir * 15) % 360;
+  else return;
+  changed(); props();
+}
+function flipWall(w) {
+  const p = new THREE.Vector3(w.width, 0, 0).applyMatrix4(wallM(w));
+  w.x = p.x; w.z = p.z; w.rot = (w.rot || 0) + Math.PI;
+  for (const o of w.openings || []) o.x = w.width - o.x; for (const v of w.vines || []) v.x = w.width - v.x;
+  changed();
+}
+function removeSel() {
+  if (!sel) return;
+  if (sel.kind === 'wall') B.walls = B.walls.filter(w => w !== sel.w);
+  else if (sel.kind === 'feature') sel.w.openings = sel.w.openings.filter(o => o !== sel.o);
+  else if (sel.kind === 'vine') sel.w.vines = sel.w.vines.filter(o => o !== sel.o);
+  else if (sel.kind === 'roof') B.roofs = B.roofs.filter(o => o !== sel.o);
+  else if (sel.kind === 'chimney') B.chimneys = B.chimneys.filter(o => o !== sel.o);
+  else if (sel.kind === 'corner') B.corners = B.corners.filter(o => o !== sel.o);
+  else if (sel.kind === 'prop') B.props = B.props.filter(o => o !== sel.o);
+  else if (sel.kind === 'platform') B.platforms = B.platforms.filter(o => o !== sel.o);
+  else if (sel.kind === 'fence') B.fences = B.fences.filter(o => o !== sel.o);
+  else if (sel.kind === 'bal') sel.w.balustrades = sel.w.balustrades.filter(o => o !== sel.o);
+  else if (sel.kind === 'decal') sel.w.decals = sel.w.decals.filter(o => o !== sel.o);
+  else if (sel.kind === 'fdecal') B.floorDecals = B.floorDecals.filter(o => o !== sel.o);
+  else if (sel.kind === 'pmount') sel.p.mounts = sel.p.mounts.filter(o => o !== sel.o);
+  else if (sel.kind === 'trim') sel.w.trimList = sel.w.trimList.filter(o => o !== sel.o);
+  else if (sel.kind === 'canopy') sel.w.canopies = sel.w.canopies.filter(o => o !== sel.o);
+  else if (sel.kind === 'pipe') sel.w.pipes = sel.w.pipes.filter(o => o !== sel.o);
+  sel = null; changed(); props();
+}
+
+// ---------------------------------------------------------------- selection + properties
+function showSel() {
+  if (selBox) { scene.remove(selBox); selBox = null; }
+  if (!sel) return;
+  const p = proxies.children.find(x => x.userData.o === sel.o); if (!p) return;
+  selBox = new THREE.Mesh(p.geometry, hiMat); selBox.matrixAutoUpdate = false; selBox.matrix.copy(p.matrix); selBox.renderOrder = 10; scene.add(selBox);
+}
+const field = (label, html) => `<div class="row"><span>${label}</span>${html}</div>`;
+const num = (k, v, step = 0.25, min = '', max = '') => `<input type="number" data-k="${k}" value="${+(+v).toFixed(3)}" step="${step}" min="${min}" max="${max}">`;
+const opts = (k, list, cur) => `<select data-k="${k}">${list.map(([v, n]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+function props() {
+  const P = $('props'); showSel();
+  if (!sel) { $('selT').textContent = 'Nothing selected'; P.innerHTML = '<p class="help">Click a part in the scene to edit it here.</p>'; return; }
+  const o = sel.o; let h = '';
+  if (sel.kind === 'wall') {
+    $('selT').textContent = o.shape === 'gable' ? 'Gable wall' : 'Wall';
+    h += field('Texture', opts('variant', WALL_TYPES.map(k => [k, LABEL[k] || k]), o.variant));
+    h += field('Length', num('width', o.width)) + (o.shape === 'gable' ? field('Pitch', num('pitch', o.pitch || 50, 1, 20, 65)) : field('Height', num('height', o.height, 0.5, 0.5)));
+    h += field('Base', num('base', o.base || 0, 0.5)) + field('Jetty (overhang)', num('jetty', o.jetty || 0, 0.05, 0, 1)) + field('Shape', opts('shape', [['rect', 'Rectangle'], ['gable', 'Gable']], o.shape || 'rect'));
+    if (o.shape !== 'gable') {
+      h += field('L notch', opts('notchC', [['', 'None'], ['tr', 'Top right'], ['tl', 'Top left'], ['br', 'Bottom right'], ['bl', 'Bottom left']], o.notch?.corner || ''));
+      if (o.notch?.corner) h += field('Notch w × h', `<span style="display:flex;gap:4px">${num('notchW', o.notch.w || o.width / 2, 0.125, 0.125)}${num('notchH', o.notch.h || o.height / 2, 0.125, 0.125)}</span>`);
+    }
+    h += field('End caps', `<span><input type="checkbox" data-k="cap0" ${o.caps?.[0] !== false ? 'checked' : ''}> left <input type="checkbox" data-k="cap1" ${o.caps?.[1] !== false ? 'checked' : ''}> right</span>`);
+    if (o.g) h += field('Whole building', `<button data-a="texAll">Use this texture on its storey</button>`);
+    const EMB = [['crest', 'Crest'], ['star', 'Star'], ['sun', 'Sun'], ['moon', 'Moon'], ['tower', 'Tower'], ['none', 'None']];
+    if ((o.pediments || []).length) h += field('Pediment pitch', num('pdPitch', o.pediments[0].pitch || 20, 1, 10, 35)) + field('Pediment crest', opts('pdCrest', EMB, o.pediments[0].crest || 'crest')) + field('Pediment finial', opts('pdFinial', [['none', 'None'], ['ball', 'Gilt ball'], ['crystal', 'Guild crystal']], o.pediments[0].finial || 'none'));
+    if ((o.banners || []).length) h += field('Banner colour', `<input type="color" data-k="bnColor" value="${o.banners[0].color || '#7a1f22'}">`) + field('Banner emblem', opts('bnEmblem', EMB, o.banners[0].emblem || 'crest'));
+    if ((o.pediments || []).length || (o.banners || []).length) h += `<div class="btns">${(o.pediments || []).length ? '<button data-a="noPed">Remove pediment</button>' : ''}${(o.banners || []).length ? '<button data-a="noBan">Remove banners</button>' : ''}</div>`;
+    h += `<div class="btns"><button data-a="flip">Flip (R)</button><button data-a="dup">Copy up a storey</button><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'feature') {
+    const kind = kit.features[o.feature]?.kind;
+    $('selT').textContent = featLabel(o.feature);
+    h += field('Part', opts('feature', ITEMS.filter(i => i.feature && kit.features[i.feature].kind === kind).map(i => [i.feature, i.name]), o.feature));
+    h += field('Along', num('x', o.x, 0.05)) + field('Up', num('y', o.y || 0, 0.05));
+    if (o.feature === 'feat_pilaster') h += field('Stretch', num('sy', o.sy || 1, 0.05, 0.3, 3));
+    if (o.feature === 'feat_flowerbox') h += `<p class="help">Empty for now; planting comes with the new foliage.</p>`;
+    if (kit.features[o.feature]?.door) h += field('Doorstep', `<input type="checkbox" data-k="step" ${o.step !== false ? 'checked' : ''}>`);
+    h += `<div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'trim') {
+    $('selT').textContent = LABEL[o.trim] || o.trim;
+    if (o.trim === 'plinth' && PLINTHS.length) h += field('Variant', opts('tvariant', PLINTHS.map(k => [k, LABEL[k] || k]), o.variant || 'clean'));
+    h += field('From', num('x0', o.x0 ?? 0, 0.125, 0)) + field('To', num('x1', o.x1 ?? sel.w.width, 0.125, 0)) + field('Height', num('y', o.y ?? 0, 0.05));
+    h += `<p class="help">Shorten it and add another piece to mix variants along one wall.</p><div class="btns"><button data-a="splitTrim">Split in two</button><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'bal') {
+    $('selT').textContent = 'Balustrade parapet';
+    h += field('From', num('x0', o.x0 ?? 0, 0.25, 0)) + field('To', num('x1', o.x1 ?? sel.w.width, 0.25, 0)) + field('Height', num('y', o.y ?? sel.w.height, 0.05));
+    h += `<p class="help">Whole 1.2 m bays, stretched to fill the run.</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'fence') {
+    $('selT').textContent = { iron: 'Iron railings', iron_wall: 'Railings on a wall', picket: 'Picket fence', rail: 'Post-and-rail fence' }[o.kind] || 'Fence';
+    h += field('Kind', opts('fkind', [['iron', 'Iron railings'], ['iron_wall', 'Railings on a wall'], ['picket', 'Picket fence'], ['rail', 'Post and rail']], o.kind)) + field('Length', num('length', o.length, 0.25, 0.5)) + field('Height', num('height', o.height || (o.kind === 'iron_wall' ? 0.95 : o.kind === 'rail' ? 1.15 : 1.1), 0.05, 0.5, 3));
+    (o.gates || []).forEach((g, i) => { h += `<h2>Gate ${i + 1}</h2>` + field('Along', num('g' + i + '_at', g.at, 0.25, 0)) + field('Width', num('g' + i + '_width', g.width, 0.1, 0.6)) + field('Leaves', opts('g' + i + '_kind', [['single', 'Single'], ['double', 'Double']], g.kind)) + field('Open', `<input type="checkbox" data-k="g${i}_open" ${g.open ? 'checked' : ''}>`) + `<div class="btns"><button data-a="delGate" data-i="${i}">Remove gate</button></div>`; });
+    if (o.gap) h += `<p class="help">Fitted to a wall gap: its piers cap the wall ends. Moved the walls? Refit it.</p><div class="btns"><button data-a="refit">Refit to the gap</button><button data-a="del">Delete</button></div>`;
+    else h += `<p class="help">Drop a gate from the library onto the fence to add one. Q / E turn it.</p><div class="btns"><button data-a="addGate">Add a gate</button><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'decal' || sel.kind === 'fdecal') {
+    const D = DECALS[o.d]; $('selT').textContent = (ITEMS.find(i => i.decal === o.d) || {}).name || 'Decal';
+    h += field('Decal', opts('decalD', Object.keys(DECALS).map(k => [k, (ITEMS.find(i => i.decal === k) || {}).name || k]), o.d)) + field('Width', num('w', o.w || D.size[0], 0.05, 0.1)) + field('Height', num('h', o.h || D.size[1], 0.05, 0.1)) + field('Turn (°)', num('rot', o.rot || 0, 5));
+    h += `<p class="help">Drag to move it on the wall · Q / E turn it 15°</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'pmount') {
+    $('selT').textContent = featLabel(o.feature) + ' (on a post)';
+    h += field('Side', opts('pside', [['0', 'Front'], ['1', 'Right'], ['2', 'Back'], ['3', 'Left']], String(o.side || 0))) + field('Height', num('y', o.y ?? 2.1, 0.05, 0.3));
+    h += `<div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'platform') {
+    $('selT').textContent = o.kind === 'steps' ? 'Steps' : o.kind === 'portico' ? 'Portico' : 'Porch platform';
+    if (o.kind === 'portico') h += field('Order', opts('order', [['ionic', 'Ionic'], ['plain', 'Plain']], o.order || 'ionic')) + field('Columns', num('columns', o.columns || 4, 1, 2, 8)) + field('Pitch', num('pitch', o.pitch || 18, 1, 10, 30));
+    h += field('Material', opts('material', [['stone', 'Flagstone'], ['oak', 'Oak']], o.material || 'stone')) + field('Width', num('width', o.width || 2.5, 0.25, 0.5));
+    if (o.kind !== 'steps') h += field('Depth', num('depth', o.depth || 1.5, 0.25, 0.5));
+    h += field('Height', num('height', o.height || 0.48, 0.04, 0.12)) + `<p class="help">Drag to move · Q / E to turn</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'prop') {
+    $('selT').textContent = (ITEMS.find(i => i.prop === o.prop) || {}).name || 'Prop';
+    h += field('Part', opts('prop', ITEMS.filter(i => i.prop).map(i => [i.prop, i.name]), o.prop)) + field('Height', num('height', o.height || 2.7, 0.05, 1, 4)) + field('Base', num('base', o.base || 0, 0.5));
+    h += `<p class="help">Drag to move · Q / E to turn</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'canopy') {
+    $('selT').textContent = o.kind === 'awning' ? 'Awning' : 'Porch roof';
+    h += field('Along', num('x', o.x, 0.05)) + field('Up', num('y', o.y, 0.05)) + field('Width', num('width', o.width, 0.25, 0.5)) + field('Depth', num('depth', o.depth, 0.1, 0.3)) + field('Pitch', num('pitch', o.pitch, 1, 5, 60));
+    if (o.kind === 'awning') h += field('Colour', opts('color', [['green', 'Green and cream'], ['red', 'Red and cream'], ['blue', 'Blue and cream'], ['ochre', 'Ochre and brown']], o.color || 'green'));
+    h += `<p class="help">Drag to slide along the wall; Shift-drag to raise or lower it.</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'pipe') {
+    $('selT').textContent = 'Downpipe'; h += field('Along', num('x', o.x, 0.05)) + `<div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'vine') {
+    $('selT').textContent = 'Ivy';
+    h += field('Along', num('x', o.x, 0.05)) + field('Up', num('y', o.y || 0, 0.05)) + field('Width', num('width', o.width, 0.1, 0.3)) + field('Height', num('height', o.height, 0.1, 0.3));
+    h += field('Off the wall', num('out', o.out ?? 0.04, 0.01, 0)) + field('Density', num('density', o.density ?? 1, 0.1, 0.2, 2)) + field('Seed', num('seed', o.seed, 1));
+    h += `<div class="btns"><button data-a="reseed">New growth</button><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'roof') {
+    $('selT').textContent = 'Roof';
+    h += field('Covering', opts('cover', [['slate', 'Slate'], ['thatch', 'Thatch'], ['shingle', 'Oak shingles']], o.cover || 'slate'));
+    h += field('Pitch', num('pitch', o.pitch || 50, 1, 20, 65)) + field('Eave', num('eave', o.eave ?? 0.35, 0.05, 0)) + field('Verge', num('verge', o.verge ?? 0.3, 0.05, 0));
+    h += field('Bargeboards', `<input type="checkbox" data-k="barge" ${o.barge !== false ? 'checked' : ''}>`) + field('Finials', `<input type="checkbox" data-k="finial" ${o.finial !== false ? 'checked' : ''}>`);
+    h += `<p class="help">The pitch also re-pitches this building's gable walls.</p><div class="btns">${(o.dormers || []).length ? '<button data-a="nodormer">Remove dormers</button>' : ''}<button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'chimney' && o.turret) {
+    $('selT').textContent = o.turret === 'bell' ? 'Bell turret' : 'Cupola';
+    h += field('Kind', opts('turret', [['cupola', 'Cupola'], ['bell', 'Bell turret']], o.turret)) + field('Size', num('size', o.size || 1.3, 0.1, 0.6, 3));
+    h += field('Finial', opts('finial', [['ball', 'Gilt ball'], ['spike', 'Iron spike'], ['crystal', 'Guild crystal'], ['none', 'None']], o.finial || 'ball')) + field('Height', num('base', o.base, 0.05));
+    h += `<div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'chimney') {
+    $('selT').textContent = 'Chimney';
+    h += field('Height', num('height', o.height, 0.25, 1)) + field('Width', num('width', o.width || 1.1, 0.05, 0.4)) + field('Depth', num('depth', o.depth || 0.6, 0.05, 0.4)) + field('Pots', num('pots', o.pots ?? 2, 1, 0, 4));
+    h += field('Texture', opts('variant', [['brick', 'Brick'], ['brick_cracked', 'Brick, cracked']], o.variant || 'brick'));
+    h += `<div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'corner') {
+    $('selT').textContent = 'Quoins'; h += field('Height', num('height', o.height, 0.6, 0.6)) + `<div class="btns"><button data-a="del">Delete</button></div>`;
+  }
+  P.innerHTML = h;
+}
+$('props').addEventListener('change', (e) => {
+  const k = e.target.dataset.k; if (!k || !sel) return; const o = sel.o, v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const gm = k.match(/^g(\d+)_(at|width|kind|open)$/);
+  if (gm) { const g = o.gates[+gm[1]]; g[gm[2]] = gm[2] === 'kind' ? v : gm[2] === 'open' ? v : +v; changed(); props(); return; }
+  if (k === 'fkind') { o.kind = v; delete o.height; changed(); props(); return; }
+  if (k === 'decalD') { o.d = v; delete o.w; delete o.h; changed(); props(); return; }
+  if (k === 'pside') { o.side = +v; changed(); props(); return; }
+  if (k === 'cap0' || k === 'cap1') { o.caps = o.caps || [true, true]; o.caps[k === 'cap0' ? 0 : 1] = v; }
+  else if (k.startsWith('t_')) { o.trims = o.trims || {}; o.trims[k.slice(2)] = v; }
+  else if (['variant', 'shape', 'feature', 'flowers', 'color', 'prop', 'infill', 'tvariant', 'material', 'cover'].includes(k)) {
+    if (k === 'tvariant') { o.variant = v; changed(); props(); return; } o[k] = v; if (k === 'shape' && v === 'gable') o.pitch = o.pitch || 50; }
+  else if (k === 'notchC') { o.notch = v ? { corner: v, w: o.notch?.w || o.width / 2, h: o.notch?.h || o.height / 2 } : undefined; }
+  else if (k === 'notchW' || k === 'notchH') { o.notch = o.notch || { corner: 'tr' }; o.notch[k === 'notchW' ? 'w' : 'h'] = +v; }
+  else if (['barge', 'step'].includes(k)) o[k] = v;
+  else if (['turret', 'finial', 'order'].includes(k)) o[k] = v;
+  else if (k === 'pdPitch' || k === 'pdCrest' || k === 'pdFinial') for (const pd of o.pediments) pd[{ pdPitch: 'pitch', pdCrest: 'crest', pdFinial: 'finial' }[k]] = k === 'pdPitch' ? +v : v;
+  else if (k === 'bnColor' || k === 'bnEmblem') for (const bn of o.banners) bn[k === 'bnColor' ? 'color' : 'emblem'] = v;
+  else o[k] = +v;
+  if (sel.kind === 'roof' && k === 'pitch') for (const w of B.walls) if (w.shape === 'gable' && w.g === o.g) w.pitch = +v;
+  changed(); props();
+});
+$('props').addEventListener('click', (e) => {
+  const a = e.target.dataset.a; if (!a || !sel) return;
+  if (a === 'del') removeSel();
+  else if (a === 'refit') {
+    const o = sel.o, mid = new THREE.Vector3(o.length / 2, 0, 0).applyMatrix4(new THREE.Matrix4().makeRotationY(o.rot || 0).setPosition(o.x, o.base || 0, o.z));
+    const f = fitGap(mid, o.kind, o); if (!f) { flash('No wall gap found here'); return; }
+    Object.assign(o, f); changed(); props();
+  }
+  else if (a === 'addGate') { const o = sel.o; (o.gates = o.gates || []).push({ kind: 'single', width: 1.1, at: +(o.length / 2).toFixed(2), open: false }); changed(); props(); }
+  else if (a === 'delGate') { sel.o.gates.splice(+e.target.dataset.i, 1); changed(); props(); }
+  else if (a === 'flip') flipWall(sel.w);
+  else if (a === 'splitTrim') { const t = sel.o, x0 = t.x0 ?? 0, x1 = t.x1 ?? sel.w.width, mid = snap((x0 + x1) / 2, 0.125); const t2 = { ...t, id: newId(), x0: mid }; t.x1 = mid; sel.w.trimList.push(t2); changed(); props(); }
+  else if (a === 'noPed') { sel.o.pediments = []; changed(); props(); }
+  else if (a === 'noBan') { sel.o.banners = []; changed(); props(); }
+  else if (a === 'nodormer') { sel.o.dormers = []; changed(); props(); }
+  else if (a === 'reseed') { sel.o.seed = (Math.random() * 1e4) | 0; changed(); props(); }
+  else if (a === 'texAll') { for (const w of B.walls) if (w.g === sel.w.g && (w.base || 0) === (sel.w.base || 0) && w.shape !== 'gable') w.variant = sel.w.variant; changed(); }
+  else if (a === 'dup') {
+    const w = JSON.parse(JSON.stringify(sel.w)); w.id = newId(); w.base = (w.base || 0) + (w.height || FLOOR); w.trimList = [];
+    B.walls.push(w); sel = { kind: 'wall', w, o: w }; changed(); props();
+  }
+});
+
+// ---------------------------------------------------------------- save / load (browser storage + files)
+const KEY = 'eldermere.buildings';
+const store = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } };
+function refreshLoad() { const s = store(); $('load').innerHTML = '<option value="">Load…</option>' + Object.keys(s).sort().map(n => `<option>${n}</option>`).join(''); }
+function saveDraft() { try { localStorage.setItem(KEY + '.draft', JSON.stringify(B)); } catch {} }
+$('save').onclick = () => { B.name = $('name').value.trim() || 'building'; const s = store(); s[B.name] = B; try { localStorage.setItem(KEY, JSON.stringify(s)); flash('Saved ' + B.name); } catch { flash('Could not save'); } refreshLoad(); };
+$('load').onchange = () => { const s = store()[$('load').value]; if (s) { pushUndo(); B = upgrade(s); $('name').value = B.name; sel = null; changed(false); props(); } $('load').value = ''; };
+$('del').onclick = () => { const s = store(); if (s[$('name').value]) { delete s[$('name').value]; localStorage.setItem(KEY, JSON.stringify(s)); refreshLoad(); flash('Deleted'); } };
+$('export').onclick = () => {
+  B.name = $('name').value.trim() || 'building';
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify({ building: B, desc: toDesc(B) }, null, 1)], { type: 'application/json' }));
+  a.download = B.name + '.building.json'; a.click();
+};
+$('importB').onclick = () => $('import').click();
+$('import').onchange = async () => { const f = $('import').files[0]; if (!f) return; try { const j = JSON.parse(await f.text()); pushUndo(); B = upgrade(j.building || j); $('name').value = B.name || 'building'; sel = null; changed(false); props(); } catch { flash('Not a building file'); } };
+$('clear').onclick = () => { pushUndo(); B = { ...blank(), name: $('name').value }; sel = null; changed(false); props(); };
+function flash(t) { const f = $('flash'); f.textContent = t; f.classList.add('on'); clearTimeout(flash.t); flash.t = setTimeout(() => f.classList.remove('on'), 1600); }
+
+// start: the last draft, or a Tudor house
+refreshLoad();
+try { const d = JSON.parse(localStorage.getItem(KEY + '.draft') || 'null'); if (d && d.walls) { B = upgrade(d); $('name').value = B.name || 'townhouse'; } } catch {}
+if (!B.walls.length) merge(B, boxParts(ITEMS.find(i => i.id === 'shell_tudor').box));
+lastSnap = JSON.stringify(B); rebuild(); props();
+drawThumbs(); THREE.DefaultLoadingManager.onLoad = () => drawThumbs();
+setTimeout(drawThumbs, 1500);
+renderer.setAnimationLoop(() => renderer.render(scene, camera));
+window.lab = { B: () => B, kit, rebuild, toDesc, cam: camera, place, fit: fitUnderCanopy, ITEMS, fitGap, boxParts, merge, addLeanTo };
+</script></body></html>

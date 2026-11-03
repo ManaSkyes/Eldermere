@@ -1,0 +1,21 @@
+{
+ "version": 1,
+ "units": "decimetres, game axes",
+ "atlas": "strand_atlas.png",
+ "atlasColumns": 8,
+ "parts": {
+  "Style_penelo": {
+   "slot": "Style",
+   "verts": 80400,
+   "tris": 102786,
+   "pos": 0,
+   "nrm": 964800,
+   "uv": 1929600,
+   "t": 2572800,
+   "col": 2894400,
+   "solid": 2974800,
+   "gid": 3055200,
+   "idx": 3376800
+  }
+ }
+}

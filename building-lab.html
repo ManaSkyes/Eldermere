@@ -249,7 +249,7 @@ function toDesc(b) {
       segs.push([x, x1]);
       for (const [a, c] of segs) if (c - a > 0.1) {
         const p = new THREE.Vector3(a, 0, 0).applyMatrix4(wallM(w));
-        trims.push({ trim: name, variant: t.variant, x: p.x, z: p.z, rot: w.rot, base: (w.base || 0) + (t.y ?? 0), length: c - a,
+        trims.push({ trim: name, variant: t.variant, wear: t.wear || w.wear, x: p.x, z: p.z, rot: w.rot, base: (w.base || 0) + (t.y ?? 0), length: c - a,
           ends: [a < 0.01 ? endOf(J?.kind[0]) : 0, c > w.width - 0.01 ? endOf(J?.kind[1]) : 0] });
       }
     }
@@ -971,10 +971,27 @@ function props() {
   } else if (sel.kind === 'corner') {
     $('selT').textContent = 'Quoins'; h += field('Height', num('height', o.height, 0.6, 0.6)) + `<div class="btns"><button data-a="del">Delete</button></div>`;
   }
+  // Weathering is stored per part as [weathering, damage, growth], matching buildFromKit.
+  // Wall-mounted features inherit the wall's values; independently built pieces get their own controls.
+  if (['wall', 'trim', 'roof', 'chimney', 'corner', 'prop', 'platform', 'fence'].includes(sel.kind)) {
+    const wear = Array.isArray(o.wear) ? o.wear : [0, 0, 0];
+    const wearSlider = (key, label, value) => field(label, `<span style="display:flex;align-items:center;gap:6px"><input type="range" min="0" max="1" step="0.01" data-k="${key}" value="${Math.max(0, Math.min(1, Number(value) || 0))}" style="flex:1;min-width:0"><output style="width:34px;text-align:right">${Math.round((Number(value) || 0) * 100)}%</output></span>`);
+    h += '<h2>Weather &amp; wear</h2>';
+    h += wearSlider('wearWeather', 'Weathering', wear[0]);
+    h += wearSlider('wearDamage', 'Damage', wear[1]);
+    h += wearSlider('wearGrowth', 'Moss / growth', wear[2]);
+  }
   P.innerHTML = h;
 }
 $('props').addEventListener('change', (e) => {
   const k = e.target.dataset.k; if (!k || !sel) return; const o = sel.o, v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const wearIndex = { wearWeather: 0, wearDamage: 1, wearGrowth: 2 }[k];
+  if (wearIndex !== undefined) {
+    o.wear = Array.isArray(o.wear) ? o.wear.slice(0, 3) : [0, 0, 0];
+    while (o.wear.length < 3) o.wear.push(0);
+    o.wear[wearIndex] = Math.max(0, Math.min(1, +v));
+    changed(); props(); return;
+  }
   const gm = k.match(/^g(\d+)_(at|width|kind|open)$/);
   if (gm) { const g = o.gates[+gm[1]]; g[gm[2]] = gm[2] === 'kind' ? v : gm[2] === 'open' ? v : +v; changed(); props(); return; }
   if (k === 'fkind') { o.kind = v; delete o.height; changed(); props(); return; }

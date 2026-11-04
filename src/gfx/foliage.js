@@ -1,12 +1,14 @@
 import { createTrees } from './trees.js';
+const FREE_FOLIAGE_BASE = new URL('../../data/foliage/grass_flowers_free/', import.meta.url).href;
+const RIVERSIDE_FOLIAGE_BASE = new URL('../../data/foliage/riverside_free/', import.meta.url).href;
 // src/gfx/foliage.js — every plant in a map, drawn, and the wind that moves them.
 // The ground builder (and the town pieces) list plants as
 //   { k: kind, x, y, z, s: scale, r: turn, v: variant, c: tint [r, g, b] }  (world coordinates)
-// Kinds: tree (three broadleaf shapes), pine, dead, bush, grass (a patch: dozens of blades over a square metre),
-// tallgrass (a tall patch with seed heads), flower, reed, cattail, lily, seagrass and pondweed (under water).
-// Models are made here once (vertex-coloured, low-poly but detailed: branching trunks, crowns of leaf clusters with
-// leaf cards round them for a soft outline); trees and bushes have a simpler far model they switch to with distance.
-// Grass and small plants are drawn as one instanced mesh per kind, variant and level of detail for the whole map, refilled
+// Kinds: tree (three broadleaf shapes), pine, dead, bush, grass, tallgrass, flower, reed, cattail, lily,
+// seagrass and pondweed (under water). Trees and bushes use generated branching models; grass and flowers use
+// crossed alpha cards made from the licensed Grass Flowers Pack textures; aquatic plants remain generated meshes.
+// Trees and bushes switch to simpler far models with distance. Small plants are drawn as one instanced mesh per kind,
+// variant and level of detail for the whole map, refilled
 // from the 32 m chunks in view whenever the camera moves or turns.
 //
 // Each kind has levels of detail (grass: the full patch to 22 m, fewer wider blades to 50, a few to 95; trees: the
@@ -69,6 +71,24 @@ function models(THREE) {
     const A = ring(a, r0), B = ring(b, r1); for (let k = 0; k < n; k++) { const m2 = (k + 1) % n, sh = 0.8 + 0.3 * Math.cos(k / n * Math.PI * 2 - 0.8); tri(A[k], B[k], B[m2], mul(col, sh)); tri(A[k], B[m2], A[m2], mul(col, sh)); }
   };
   const lerp3 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+  // Crossed alpha cards let the licensed clump textures work with Eldermere's instancing and wind system.
+  const spriteCross = (width = 0.9, height = 1) => {
+    const positions = [], uvs = [], indices = [];
+    for (const angle of [0, Math.PI * 0.5]) {
+      const cs = Math.cos(angle), sn = Math.sin(angle), base = positions.length / 3;
+      for (const [x, y] of [[-width * 0.5, 0], [width * 0.5, 0], [width * 0.5, height], [-width * 0.5, height]]) {
+        positions.push(x * cs, y, -x * sn);
+      }
+      uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(positions.length).fill(1), 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices); geometry.computeVertexNormals(); geometry.computeBoundingSphere();
+    return geometry;
+  };
   // a blade: a bent strip of three triangles from the ground to height h, leaning toward (dx, dz)
   const blade = (tri, x, z, h, w, dx, dz, colB, colT, y0 = 0) => {
     const nx = -dz || 1, nz = dx, ln = Math.hypot(nx, nz) || 1, ux = nx / ln, uz = nz / ln, m = [x + dx * h * 0.22, y0 + h * 0.55, z + dz * h * 0.22], top = [x + dx * h * 0.65, y0 + h, z + dz * h * 0.65];
@@ -77,23 +97,15 @@ function models(THREE) {
   };
   const M = {}, F = {};                                                       // detailed models, and far ones
   const BARK = hex('#5d4332'), BARK_D = hex('#47342a'), BIRCH = hex('#d8d2c4'), LEAF = ['#3f7a2e', '#4d8a34', '#36692a', '#5a9440', '#6a9a3a'].map(hex), PINE = ['#2b5236', '#335e3c', '#264a30'].map(hex);
-  const GRASS_B = hex('#36601f'), GRASS_T = hex('#8cb24c');
-  // ---- grass: a patch of blades over about a square metre (one instance: dozens of blades, one wind cluster) ----
-  const patch = (tri, r, n, rad, h0, h1, w, colB, colT) => { for (let k = 0; k < n; k++) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * rad, la = r() * Math.PI * 2, lean = 0.15 + r() * 0.45; blade(tri, Math.cos(a) * d, Math.sin(a) * d, h0 + r() * (h1 - h0), w * (0.8 + r() * 0.4), Math.cos(la) * lean, Math.sin(la) * lean, jit(colB, r, 0.1), jit(colT, r, 0.14)); } };
-  // (grass has three levels of detail: the full patch up close, then fewer, wider blades further off)
-  M.grass = [1, 2, 3].map(sd => make(tri => patch(tri, rng(sd * 17), 34, 0.55, 0.22, 0.48, 0.035, GRASS_B, GRASS_T)));
-  const G1 = [1, 2, 3].map(sd => make(tri => patch(tri, rng(sd * 17), 13, 0.55, 0.26, 0.46, 0.06, GRASS_B, GRASS_T))), G2 = [1, 2, 3].map(sd => make(tri => patch(tri, rng(sd * 17), 6, 0.5, 0.3, 0.45, 0.09, GRASS_B, GRASS_T)));
-  const T1 = [1, 2].map(sd => make(tri => patch(tri, rng(sd * 29), 11, 0.5, 0.6, 1.0, 0.065, GRASS_B, hex('#a8b860')))), T2 = [1, 2].map(sd => make(tri => patch(tri, rng(sd * 29), 5, 0.45, 0.65, 0.95, 0.1, GRASS_B, hex('#a8b860'))));
-  M.tallgrass = [1, 2].map(sd => make(tri => { const r = rng(sd * 29); patch(tri, r, 26, 0.5, 0.55, 1.05, 0.04, GRASS_B, hex('#a8b860'));
-    for (let k = 0; k < 5; k++) { const a = r() * Math.PI * 2, d = r() * 0.4, x = Math.cos(a) * d, z = Math.sin(a) * d, h = 0.9 + r() * 0.35; limb(tri, [x, 0, z], [x + 0.05, h, z], 0.008, 0.006, hex('#8a9a50'), 3); blob(tri, ICO, x + 0.05, h + 0.06, z, 0.025, 0.08, 0.025, hex('#c8b878'), r, 0, 0.2); } }));
-  const PETALS = ['#e04a6a', '#f0c040', '#f2f2f2', '#c060d0', '#5a8ae0', '#e86a3a'].map(hex);
-  M.flower = PETALS.map((pc, sd) => make(tri => { const r = rng(sd * 41 + 3); patch(tri, r, 10, 0.25, 0.15, 0.3, 0.03, GRASS_B, GRASS_T);
-    for (let k = 0; k < 4; k++) { const a = r() * Math.PI * 2, d = r() * 0.18, x = Math.cos(a) * d, z = Math.sin(a) * d, h = 0.28 + r() * 0.2; limb(tri, [x, 0, z], [x, h, z], 0.01, 0.008, GRASS_B, 3);
-      for (let lf = 0; lf < 2; lf++) { const la = r() * 6.28, y = h * (0.3 + r() * 0.3); tri([x, y, z], [x + Math.cos(la) * 0.08, y + 0.04, z + Math.sin(la) * 0.08], [x + Math.cos(la + 0.4) * 0.05, y + 0.06, z + Math.sin(la + 0.4) * 0.05], GRASS_B); }
-      for (let p = 0; p < 6; p++) { const pa = p / 6 * Math.PI * 2, c = [x, h, z], e1 = [x + Math.cos(pa - 0.3) * 0.045, h + 0.012, z + Math.sin(pa - 0.3) * 0.045], e2 = [x + Math.cos(pa) * 0.08, h + 0.025, z + Math.sin(pa) * 0.08], e3 = [x + Math.cos(pa + 0.3) * 0.045, h + 0.012, z + Math.sin(pa + 0.3) * 0.045]; tri(c, e1, e2, pc); tri(c, e2, e3, mul(pc, 0.88)); }
-      blob(tri, ICO, x, h + 0.015, z, 0.018, 0.014, 0.018, hex('#f0d040'), r, 0, 0); } }));
+  // ---- small plants: textured plant clumps on crossed cards (one instance is one clump) ----
+  M.grass = [spriteCross(1.05, 0.7), spriteCross(1.05, 0.7)];
+  const G1 = M.grass, G2 = M.grass;
+  const T1 = [spriteCross(1, 1.2), spriteCross(1, 1.2)], T2 = T1;
+  M.tallgrass = T1;
+  M.flower = Array.from({ length: 11 }, () => spriteCross(0.9, 1.15));
   const REED_B = hex('#4a6a2a'), REED_T = hex('#9aa860');
-  M.reed = [1, 2].map(sd => make(tri => { const r = rng(sd * 61); for (let k = 0; k < 16; k++) { const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 0.35; blade(tri, Math.cos(a) * d, Math.sin(a) * d, 1.3 + r() * 0.8, 0.03, (r() - 0.5) * 0.25, (r() - 0.5) * 0.25, REED_B, jit(REED_T, r, 0.15)); } }));
+  // The imported free reed billboard keeps its cutout shape on two crossed cards, matching our instancing and wind shader.
+  M.reed = [spriteCross(0.9, 1.55)];
   M.cattail = [1].map(sd => make(tri => { const r = rng(sd * 71); for (let k = 0; k < 10; k++) { const a = r() * Math.PI * 2, d = r() * 0.25; blade(tri, Math.cos(a) * d, Math.sin(a) * d, 1.2 + r() * 0.5, 0.03, (r() - 0.5) * 0.2, (r() - 0.5) * 0.2, REED_B, REED_T); }
     for (let k = 0; k < 4; k++) { const a = r() * Math.PI * 2, d = r() * 0.18, x = Math.cos(a) * d, z = Math.sin(a) * d, h = 1.5 + r() * 0.4; limb(tri, [x, 0, z], [x, h + 0.35, z], 0.015, 0.01, REED_B, 3); limb(tri, [x, h, z], [x, h + 0.3, z], 0.045, 0.04, hex('#6a4428'), 7); } }));
   M.lily = [1, 2, 3].map(sd => make(tri => { const r = rng(sd * 83), col = hex('#3f7a34'); for (let p = 0; p < 3; p++) { const cx = (r() - 0.5) * 0.7, cz = (r() - 0.5) * 0.7, rad = 0.16 + r() * 0.12, notch = r() * Math.PI * 2, n = 12;
@@ -140,7 +152,7 @@ export function createFoliage(THREE, scene, plants) {
   const inject = dither => sh => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>
-      uniform float uTime; uniform sampler2D uNoise, uNear; uniform vec4 uWind, uNearAt; uniform vec2 uScroll, uEye; attribute vec4 aP; varying vec2 vFade;`)
+      uniform float uTime; uniform sampler2D uNoise, uNear; uniform vec4 uWind, uNearAt; uniform vec2 uScroll, uEye; attribute vec4 aP; attribute float aPush; varying vec2 vFade;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         { vec3 c0 = instanceMatrix[0].xyz, c1 = instanceMatrix[1].xyz, c2 = instanceMatrix[2].xyz; vec2 ip = instanceMatrix[3].xz; float hgt = max(0.0, position.y);
           // fading in and out with distance (aP.z, aP.w: this level of detail's near and far edge)
@@ -154,7 +166,7 @@ export function createFoliage(THREE, scene, plants) {
           // near the player: the spring grid (lag and overshoot in rg; plants pushed aside in ba, the small ones only)
           float wn = 1.0 - smoothstep(uNearAt.z, uNearAt.w, distance(ip, uNearAt.xy));
           if (wn > 0.0) { vec2 wp = (instanceMatrix * vec4(position, 1.0)).xz; vec4 g = texture2D(uNear, wp / ${NG.toFixed(1)}) * 2.0 - 1.0;
-            bend += g.xy * ${RES.toFixed(2)} * wn; if (aP.x > 0.1) bend += g.zw * ${PUSH.toFixed(2)} * wn; }
+            bend += g.xy * ${RES.toFixed(2)} * wn; if (aP.x > 0.1) bend += g.zw * ${PUSH.toFixed(2)} * wn * aPush; }
           float flut = sin(uTime * (5.0 + aP.y * 3.0) + aP.y * 40.0 + position.x * 3.0) * 0.08 * (0.3 + length(bend));
           vec3 off = vec3(bend.x + flut * bend.y, 0.0, bend.y - flut * bend.x) * aP.x * hgt * hgt;
           float ol = length(off.xz), cap = hgt * 0.9; if (ol > cap) off.xz *= cap / ol;
@@ -166,17 +178,64 @@ export function createFoliage(THREE, scene, plants) {
         { float hd = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))); if (hd >= vFade.x || hd < 1.0 - vFade.y) discard; }`);
   };
     const matSmall = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); matSmall.onBeforeCompile = inject(false);
+  const plantTextureFiles = {
+    grass: ['grass01.png', 'grass02.png'],
+    tallgrass: ['grass01.png', 'grass02.png'],
+    flower: [...Array.from({ length: 10 }, (_, i) => `grassFlower${String(i + 1).padStart(2, '0')}.png`), 'DandelionOnlyLeaves_Billboard_Color.png'],
+    reed: ['CommonReed_Billboard_Color.png'],
+  };
+  let density = 1;
+  const plantMaterials = new Map(), textureLoader = new THREE.TextureLoader();
+  const smallMaterial = (kind, variant) => {
+    const files = plantTextureFiles[kind];
+    if (!files) return matSmall;
+    const file = files[variant % files.length];
+    if (plantMaterials.has(file)) return plantMaterials.get(file);
+    const texture = textureLoader.load((file.startsWith('grass') ? FREE_FOLIAGE_BASE : RIVERSIDE_FOLIAGE_BASE) + file);
+    texture.encoding = THREE.sRGBEncoding;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = 4;
+    const material = new THREE.MeshLambertMaterial({ map: texture, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.28, depthWrite: kind !== 'flower' });
+    material.onBeforeCompile = inject(false);
+    plantMaterials.set(file, material);
+    return material;
+  };
   // ---- the instanced meshes: one per kind, variant and level of detail for the whole map (about 30 draw calls) ----
   // Each kind's plants are sorted by 32 m chunk; whenever the camera moves or turns, the chunks in view and in range of
   // a level are copied into that level's buffer (each plant then fades by its own distance in the shader).
   const trees = createTrees(THREE, scene, plants.filter(p => BIG[p.k]), { uniforms, TILE });
   const byKV = new Map();
-  for (const p of plants) { if (!L[p.k] || BIG[p.k]) continue; const v = Math.abs(p.v || 0) % L[p.k][0][0].length, key = p.k + v; (byKV.get(key) || byKV.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p); }
+  const densityHash = (x, z, layer, salt) => { const h = Math.sin(x * 127.1 + z * 311.7 + layer * 74.7 + salt * 19.19) * 43758.5453; return h - Math.floor(h); };
+  const addPlant = p => {
+    const v = Math.abs(p.v || 0) % L[p.k][0][0].length, key = p.k + v;
+    (byKV.get(key) || byKV.set(key, { k: p.k, v, list: [] }).get(key)).list.push(p);
+  };
+  for (const p of plants) {
+    if (!L[p.k] || BIG[p.k]) continue;
+    addPlant({ ...p, _densityRank: 1 });
+    const files = plantTextureFiles[p.k];
+    if (!files) continue;
+    for (let layer = 1; layer <= 2; layer++) {
+      const angle = densityHash(p.x, p.z, layer, 1) * Math.PI * 2;
+      const distance = 0.18 + densityHash(p.x, p.z, layer, 2) * 0.43;
+      const size = 0.74 + densityHash(p.x, p.z, layer, 3) * 0.52;
+      addPlant({ ...p,
+        x: p.x + Math.cos(angle) * distance,
+        z: p.z + Math.sin(angle) * distance,
+        s: (p.s || 1) * size,
+        r: (p.r || 0) + (densityHash(p.x, p.z, layer, 4) - 0.5) * 2.2,
+        v: Math.floor(densityHash(p.x, p.z, layer, 5) * files.length),
+        _densityRank: layer + densityHash(p.x, p.z, layer, 6),
+      });
+    }
+  }
   const sets = [];
   for (const { k, v, list } of byKV.values()) {
     const gx = p => Math.floor(p.x / CHUNK), gz = p => Math.floor(p.z / CHUNK), ck = p => gx(p) + ',' + gz(p); list.sort((a, b) => gx(a) - gx(b) || gz(a) - gz(b));
-    const n = list.length, MAT = new Float32Array(n * 16), COL = new Float32Array(n * 3), PR = new Float32Array(n * 4), chunks = [];
+    const n = list.length, MAT = new Float32Array(n * 16), COL = new Float32Array(n * 3), PR = new Float32Array(n * 4), PUSH_F = new Float32Array(n), DEN = new Float32Array(n), chunks = [];
     list.forEach((p, i) => { const s2 = p.s || 1, c = Math.cos(p.r || 0) * s2, sn = Math.sin(p.r || 0) * s2; MAT.set([c, 0, -sn, 0, 0, s2, 0, 0, sn, 0, c, 0, p.x, p.y, p.z, 1], i * 16); COL.set(p.c || [1, 1, 1], i * 3);
+      DEN[i] = p._densityRank || 1; PUSH_F[i] = 1;
       const h = Math.sin(p.x * 12.9898 + p.z * 78.233) * 43758.5453; PR.set([SWAY[k], h - Math.floor(h), 0, 0], i * 4);
       const key = ck(p), last = chunks[chunks.length - 1];
       if (!last || last.key !== key) chunks.push({ key, a: i, b: i + 1, x0: p.x, x1: p.x, z0: p.z, z1: p.z, y0: p.y, y1: p.y, box: new THREE.Box3() });
@@ -185,12 +244,12 @@ export function createFoliage(THREE, scene, plants) {
     const chunkLookup = new Map(chunks.map(c => [c.key, c]));
     const lods = []; let lo = 0;
     for (const [geos, hi] of L[k]) {
-      const geo = geos[v % geos.length].clone(), aP = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aP', aP);
-      const im = new THREE.InstancedMesh(geo, matSmall, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
+      const geo = geos[v % geos.length].clone(), aP = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4).setUsage(THREE.DynamicDrawUsage), aPush = new THREE.InstancedBufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage); geo.setAttribute('aP', aP); geo.setAttribute('aPush', aPush);
+      const im = new THREE.InstancedMesh(geo, smallMaterial(k, v), n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = false; im.receiveShadow = true; im.userData.noCover = true; scene.add(im);
-      lods.push({ im, aP, lo, hi, from: lo - Math.max(3, lo * 0.1), activeChunkKeys: null }); lo = hi;
+      lods.push({ im, aP, aPush, lo, hi, from: lo - Math.max(3, lo * 0.1), activeChunkKeys: null }); lo = hi;
     }
-    sets.push({ k, n, MAT, COL, PR, chunks, chunkLookup, lods });
+    sets.push({ k, n, MAT, COL, PR, PUSH_F, DEN, chunks, chunkLookup, lods });
   }
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), wide = new THREE.PerspectiveCamera(), lastCam = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0 };
   // F7 policy is passed in by the play screen. The three small-foliage LOD buffers
@@ -199,7 +258,9 @@ export function createFoliage(THREE, scene, plants) {
   const refill = (camera, eye) => {
     lodRenderFrame++;
     camera.updateMatrixWorld(); wide.copy(camera); wide.fov = Math.min(170, camera.fov * 1.35); wide.updateProjectionMatrix(); pm.multiplyMatrices(wide.projectionMatrix, camera.matrixWorldInverse); fr.setFromProjectionMatrix(pm);   // (a third wider than the screen: turning needs no refill for a while)
-    for (const S of sets) for (let lodIndex = 0; lodIndex < S.lods.length; lodIndex++) {
+    for (const S of sets) {
+      let previousActiveHi = 0;
+      for (let lodIndex = 0; lodIndex < S.lods.length; lodIndex++) {
       const Lv = S.lods[lodIndex];
       const zoneId = lodIndex + 1;
       const zone = smallLodZonePolicy?.zones?.find(z => z.id === zoneId);
@@ -209,9 +270,16 @@ export function createFoliage(THREE, scene, plants) {
         if (Lv.im.count !== 0 || Lv.activeChunkKeys !== null) { Lv.im.count = 0; Lv.activeChunkKeys = null; }
         continue;
       }
+      // Keep the closest foliage visible around the player; a very short custom near-zone radius otherwise fades
+      // flowers (which have one model) and grass out right beside the player.
+      const effectiveHi = S.k === 'flower' ? Math.max(Lv.hi, zoneRadius) : lodIndex === 0 ? Math.max(8, zoneRadius) : zoneRadius;
+      const priorActiveHi = previousActiveHi; previousActiveHi = effectiveHi;
       if (Lv.activeChunkKeys !== null && lodRenderFrame % zoneInterval !== 0) continue;
-      const effectiveHi = zoneRadius;
-      const effectiveFrom = Math.min(Lv.from, Math.max(0, zoneRadius - Math.max(3, zoneRadius * 0.1)));
+      // Keep adjacent small-plant LODs overlapping even if the user shortens or disables an inner F7 zone.
+      // Otherwise the near mesh can finish fading out at its radius while the next mesh still waits for its
+      // original model-distance threshold (a visible empty ring a few metres around the player).
+      const overlapStart = priorActiveHi > 0 ? Math.max(0, priorActiveHi - Math.max(3, priorActiveHi * 0.1)) : 0;
+      const effectiveFrom = lodIndex === 0 ? 0 : Math.min(Lv.from, overlapStart);
       const visibleChunks = [];
       const reach = effectiveHi + CHUNK * 1.5, gx0 = Math.floor((eye.x - reach) / CHUNK), gx1 = Math.floor((eye.x + reach) / CHUNK), gz0 = Math.floor((eye.z - reach) / CHUNK), gz1 = Math.floor((eye.z + reach) / CHUNK);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -223,17 +291,24 @@ export function createFoliage(THREE, scene, plants) {
       }
       const sameChunks = Lv.activeChunkKeys && Lv.activeChunkKeys.length === visibleChunks.length && visibleChunks.every((c, i) => Lv.activeChunkKeys[i] === c.key);
       if (sameChunks) continue; // camera moved/turned, but this LOD's source chunks are unchanged: reuse its GPU buffers.
-      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array;
+      let cnt = 0; const M = Lv.im.instanceMatrix.array, Cc = Lv.im.instanceColor.array, A = Lv.aP.array, AP = Lv.aPush.array;
       for (const c of visibleChunks) {
-        const m = c.b - c.a; M.set(S.MAT.subarray(c.a * 16, c.b * 16), cnt * 16); Cc.set(S.COL.subarray(c.a * 3, c.b * 3), cnt * 3); A.set(S.PR.subarray(c.a * 4, c.b * 4), cnt * 4);
-        for (let q = cnt; q < cnt + m; q++) { A[q * 4 + 2] = effectiveFrom; A[q * 4 + 3] = effectiveHi; }
-        cnt += m;
+        for (let source = c.a; source < c.b; source++) {
+          if (S.DEN[source] > density) continue;
+          M.set(S.MAT.subarray(source * 16, source * 16 + 16), cnt * 16);
+          Cc.set(S.COL.subarray(source * 3, source * 3 + 3), cnt * 3);
+          A.set(S.PR.subarray(source * 4, source * 4 + 4), cnt * 4);
+          AP[cnt] = S.PUSH_F[source];
+          A[cnt * 4 + 2] = effectiveFrom; A[cnt * 4 + 3] = effectiveHi;
+          cnt++;
+        }
       }
       Lv.activeChunkKeys = visibleChunks.map(c => c.key);
       Lv.im.count = cnt;
       if (cnt) {
-        const attrs = [[Lv.im.instanceMatrix, cnt * 16], [Lv.im.instanceColor, cnt * 3], [Lv.aP, cnt * 4]];
+        const attrs = [[Lv.im.instanceMatrix, cnt * 16], [Lv.im.instanceColor, cnt * 3], [Lv.aP, cnt * 4], [Lv.aPush, cnt]];
         for (const [attr, length] of attrs) { if (attr.clearUpdateRanges) attr.clearUpdateRanges(); if (attr.addUpdateRange) attr.addUpdateRange(0, length); attr.needsUpdate = true; }
+      }
       }
     }
   };
@@ -282,6 +357,14 @@ export function createFoliage(THREE, scene, plants) {
     // camera has moved or turned enough (or the F8 panel hid them)
     setLodZonePolicy(policy) { trees.setLodZonePolicy?.(policy || null); },
     setSmallFoliageLodZonePolicy(policy) { smallLodZonePolicy = policy || null; for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null; this.dirty = true; lastCam.x = 1e9; },
+    get density() { return density; },
+    setDensity(value) {
+      const next = Math.max(1, Math.min(3, Number(value) || 1));
+      if (Math.abs(next - density) < 0.001) return;
+      density = next;
+      for (const S of sets) for (const Lv of S.lods) Lv.activeChunkKeys = null;
+      this.dirty = true; lastCam.x = 1e9;
+    },
     cull(camera) {
       trees.hidden = !!(this.off || this.hideBig); trees.cull(camera);
       const hs = !!(this.off || this.hideSmall), eye = this.eye || camera.position, c = camera.position;
@@ -302,3 +385,4 @@ export function createFoliage(THREE, scene, plants) {
     },
   };
 }
+

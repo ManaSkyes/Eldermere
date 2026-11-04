@@ -1,7 +1,7 @@
 <!doctype html><html><head><meta charset="utf-8"><title>Sky and weather lab</title>
 <style>
 body{margin:0;background:#111;font:13px system-ui,sans-serif;color:#eee;overflow:hidden}
-#ui{position:absolute;top:8px;left:8px;background:rgba(14,16,40,.9);padding:10px 14px;border-radius:8px;width:300px}
+#ui{position:absolute;top:8px;left:8px;background:rgba(14,16,40,.9);padding:10px 14px;border-radius:8px;width:300px;max-height:calc(100vh - 36px);overflow:auto}
 #ui b{font-size:14px} label{display:block;margin:4px 0} .row{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
 button{background:#2c2a55;color:#eee;border:1px solid #5a5490;border-radius:5px;padding:3px 7px;cursor:pointer;font:12px system-ui}
 button.on{background:#6a5ac8} input[type=range]{width:170px;vertical-align:middle} #clock{font-size:20px;font-weight:600}
@@ -13,6 +13,25 @@ button.on{background:#6a5ac8} input[type=range]{width:170px;vertical-align:middl
   <label><input id="run" type="checkbox" checked> Time passes · a day lasts <input id="day" type="number" min="0.5" max="600" step="0.5" value="4" style="width:52px"> min</label>
   <label>Change between looks <input id="blend" type="range" min="0" max="60" step="1" value="6"> <span id="blendv"></span> s</label>
   <div id="weather"></div>
+  <div id="sky-controls" style="margin-top:8px;border-top:1px solid #5a5490;padding-top:7px">
+    <b>Eldermere sky controls</b>
+    <label>Cloud density <input id="cloud-density" type="range" min="0" max="1.8" step="0.05" value="1"> <span id="cloud-density-v">1.00</span></label>
+    <details style="margin-top:5px"><summary>Atmospheric scattering prototype</summary>
+      <label>Strength <input id="atmo-strength" type="range" min="0" max="1" step="0.05" value="0"> <span id="atmo-strength-v">0.00</span></label>
+      <label>Rayleigh <input id="atmo-rayleigh" type="range" min="0" max="2" step="0.05" value="1"> <span id="atmo-rayleigh-v">1.00</span></label>
+      <label>Mie <input id="atmo-mie" type="range" min="0" max="2" step="0.05" value="1"> <span id="atmo-mie-v">1.00</span></label>
+      <label>Mie directionality <input id="atmo-g" type="range" min="0.5" max="0.9" step="0.01" value="0.76"> <span id="atmo-g-v">0.76</span></label>
+      <small>Layered over Eldermere's existing sky. Strength defaults to zero for a direct A/B comparison.</small>
+    </details>
+  </div>
+  <div id="local-weather" style="margin-top:8px;border-top:1px solid #5a5490;padding-top:7px">
+    <b>Local weather zone prototype</b>
+    <label><input id="zone-on" type="checkbox"> Enable zone around the lab center</label>
+    <label>Zone weather <select id="zone-kind"><option value="rain">Rain</option><option value="snow">Snow</option><option value="fog">Fog</option><option value="magic">Magic flare-up</option></select></label>
+    <label>Radius <input id="zone-radius" type="range" min="8" max="60" step="1" value="28"> <span id="zone-radius-v">28</span> m</label>
+    <label>Blend edge <input id="zone-edge" type="range" min="4" max="40" step="1" value="16"> <span id="zone-edge-v">16</span> m</label>
+    <small id="zone-status">Move the camera in and out of the marked area. This prototype fades the zone weather against clear weather; the scheduler can later blend full presets.</small>
+  </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script type="module">
@@ -52,8 +71,16 @@ for (let i = 0; i < 120; i++) plants.push({ k: 'flower', x: (rnd() - 0.5) * 40, 
 const flora = createFoliage(THREE, scene, plants); flora.bake(R);
 const $ = id => document.getElementById(id), ph = $('phases');
 const sky = createSky(THREE, scene, { hour: 7.5, cycle: true, dayMinutes: 4, blend: 6, view: 400 });
+const cloudDensity = $('cloud-density');
+const applyCloudDensity = () => { sky.setCloudDensity(+cloudDensity.value); $('cloud-density-v').textContent = (+cloudDensity.value).toFixed(2); };
+cloudDensity.oninput = applyCloudDensity; applyCloudDensity();
+const atmosphereControls = { strength: $('atmo-strength'), rayleigh: $('atmo-rayleigh'), mie: $('atmo-mie'), directionality: $('atmo-g') };
+const applyAtmosphereControls = () => { sky.setAtmosphereControls({ strength: +atmosphereControls.strength.value, rayleigh: +atmosphereControls.rayleigh.value, mie: +atmosphereControls.mie.value, directionality: +atmosphereControls.directionality.value });
+  $('atmo-strength-v').textContent = (+atmosphereControls.strength.value).toFixed(2); $('atmo-rayleigh-v').textContent = (+atmosphereControls.rayleigh.value).toFixed(2); $('atmo-mie-v').textContent = (+atmosphereControls.mie.value).toFixed(2); $('atmo-g-v').textContent = (+atmosphereControls.directionality.value).toFixed(2); };
+Object.values(atmosphereControls).forEach(input => input.oninput = applyAtmosphereControls); applyAtmosphereControls();
 const audio = createAudio(); addEventListener('pointerdown', () => audio.start(), { once: true });
 const wx = createWeather(THREE, scene, { sky, foliage: flora, audio });
+let cur = 'clear';
 const wt = createWeathering(THREE, R, scene); wt.weatherizeScene(scene); wx.useCover(wt);   // wet ground, puddles, snow lying; no rain under the roofs and trees
 { const box = $('weather'); box.innerHTML = `<b style="font-size:13px">Weather</b><div class="row" id="wxb"></div>
     <label>Strength <input id="wxs" type="range" min="0.1" max="1.5" step="0.05" value="1"> <span id="wxv">100</span>%</label>
@@ -67,7 +94,7 @@ const wt = createWeathering(THREE, R, scene); wt.weatherizeScene(scene); wx.useC
   const SF = { auto: null, dry: { wet: 0, puddle: 0, snow: 0 }, wet: { wet: 1, puddle: 0, snow: 0 }, puddles: { wet: 1, puddle: 1, gutter: 1, snow: 0 }, snow1: { wet: 0.2, puddle: 0, snow: 0.45 }, snow2: { wet: 0.3, puddle: 0, snow: 1 }, ice: { wet: 1, puddle: 0.8, gutter: 0.6, snow: 0, ice: 1 }, dust: { wet: 0, puddle: 0, gutter: 0, snow: 0, ice: 0, dust: 1 } };
   $('sf').onchange = () => wt.force = SF[$('sf').value]; if (new URLSearchParams(location.search).get('sf')) { $('sf').value = new URLSearchParams(location.search).get('sf'); wt.force = SF[$('sf').value]; }
   const set = k => { cur = k; wx.set(k, +$('wxs').value, +$('wxt').value); [...$('wxb').children].forEach(b => b.classList.toggle('on', b.dataset.k === k)); };
-  let cur = 'clear'; for (const [k, w] of Object.entries(WEATHER)) { const b = document.createElement('button'); b.textContent = w.name; b.dataset.k = k; b.onclick = () => set(k); $('wxb').appendChild(b); }
+  for (const [k, w] of Object.entries(WEATHER)) { const b = document.createElement('button'); b.textContent = w.name; b.dataset.k = k; b.onclick = () => set(k); $('wxb').appendChild(b); }
   $('wxs').oninput = e => { $('wxv').textContent = Math.round(e.target.value * 100); set(cur); }; $('wxt').oninput = e => $('wxtv').textContent = e.target.value;
   const layers = () => { wx.clouds = $('cl').value === 'auto' ? null : { type: $('cl').value, cover: +$('clc').value }; wx.wind = $('wa').checked ? null : { strength: +$('wsl').value }; wx.fog = $('fl').value === 'auto' ? null : $('fl').value; wx.aurora = $('au').value === 'auto' ? null : $('au').value === 'on' ? 1 : 0; wx.retarget(+$('wxt').value || 0.5); };
   $('cl').onchange = layers; $('clc').oninput = () => { if ($('cl').value === 'auto') $('cl').value = 'cumulus'; layers(); };
@@ -86,9 +113,23 @@ addEventListener('mousemove', e => { if (!drag) return; yaw -= (e.clientX - drag
 addEventListener('wheel', e => { dist = Math.max(3, Math.min(120, dist * (e.deltaY > 0 ? 1.1 : 0.9))); });
 addEventListener('resize', () => { R.setSize(innerWidth, innerHeight); cam.aspect = innerWidth / innerHeight; cam.updateProjectionMatrix(); fx.setSize?.(); });
 let last = performance.now(), frames = 0;
+const zoneRing = new THREE.Mesh(new THREE.TorusGeometry(1, 0.008, 6, 96), new THREE.MeshBasicMaterial({ color: '#87b9ff', transparent: true, opacity: 0.8 })); zoneRing.rotation.x = Math.PI / 2; zoneRing.position.set(0, 0.08, 0); zoneRing.visible = false; scene.add(zoneRing);
+let zoneTarget = null, zoneWeight = -1, zoneLastUpdate = 0;
+const zoneWeightAt = (x, z) => { const radius = +$('zone-radius').value, edge = +$('zone-edge').value, d = Math.hypot(x, z), u = Math.max(0, Math.min(1, (radius + edge - d) / edge)); return u * u * (3 - 2 * u); };
+for (const [id, value] of [['zone-radius', 'zone-radius-v'], ['zone-edge', 'zone-edge-v']]) $(id).oninput = e => { $(value).textContent = e.target.value; if (id === 'zone-radius') zoneRing.scale.setScalar(+e.target.value); };
+zoneRing.scale.setScalar(+$('zone-radius').value);
 (function loop(now) {
   const dt = Math.max(0, Math.min(0.1, (now - last) / 1000 || 0)); last = now;
+  { const U = sky.dome.material.uniforms;
+    U.cloudDensity.value = +cloudDensity.value;
+    U.atmosphereStrength.value = +$('atmo-strength').value; U.rayleighScale.value = +$('atmo-rayleigh').value; U.mieScale.value = +$('atmo-mie').value; U.mieDirectionality.value = +$('atmo-g').value; }
   cam.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, 2 + Math.sin(pitch) * dist + 1.5, Math.cos(yaw) * Math.cos(pitch) * dist); cam.lookAt(0, 2.5, 0); if (skyView) cam.lookAt(cam.position.x - Math.sin(yaw) * 100, 45, cam.position.z - Math.cos(yaw) * 100);   // (?sky: look up at the sky)
+  const zoneOn = $('zone-on').checked, wz = zoneWeightAt(cam.position.x, cam.position.z); zoneRing.visible = zoneOn;
+  if (zoneOn && (zoneTarget !== $('zone-kind').value || Math.abs(wz - zoneWeight) >= 0.08 || now - zoneLastUpdate > 1200)) {
+    zoneTarget = $('zone-kind').value; zoneWeight = wz; zoneLastUpdate = now;
+    const k = wz > 0.015 ? zoneTarget : cur, s = wz > 0.015 ? +$('wxs').value * wz : +$('wxs').value;
+    wx.set(k, s, 0.8); $('zone-status').textContent = `Zone influence ${Math.round(wz * 100)}% · camera ${Math.round(Math.hypot(cam.position.x, cam.position.z))} m from center`;
+  } else if (!zoneOn && zoneTarget !== null) { wx.set(cur, +$('wxs').value, 1.2); zoneTarget = null; zoneWeight = -1; $('zone-status').textContent = 'Move the camera in and out of the marked area. This prototype fades the zone weather against clear weather; the scheduler can later blend full presets.'; }
   wx.update(dt, cam, now / 1000); wt.update(dt, cam, { ...wx.falling, skyColor: sky.state.fog, t: now / 1000, temp: wx.temperature, sun: sky.state.sun, wind: wx.windNow, windDir: sky.weather.windDir, cover: sky.weather.cover, sunDir: sky.state.sunDir }); sky.update(dt, cam, now / 1000); const S = sky.state;
   scene.background.copy(S.horizon); hemi.color.copy(S.hemiSky); hemi.groundColor.copy(S.hemiGround); hemi.intensity = S.hemi[2]; sun.intensity = S.sun; sun.color.copy(S.sunColor);
   scene.fog.color.copy(S.fog); scene.fog.near = S.near; scene.fog.far = S.far;

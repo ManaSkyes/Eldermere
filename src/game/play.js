@@ -54,6 +54,7 @@ import { ATMOSPHERE_DEFAULTS, applyAtmosphericHaze } from '../gfx/atmosphere.js'
 import { runWorkerStressTest } from './workers/stressTest.js';
 import { processSnapshot, reportProcess, clearProcessesByPrefix, setMonitorEnabled } from './workers/processMonitor.js';
 import { createSky } from '../gfx/sky.js';
+import { createVolumetricLight } from '../gfx/volumetricLight.js';
 import { createWeather, WEATHER, CLOUDS, FOG } from '../gfx/weather.js';
 import { createWeathering } from '../gfx/weathering.js';
 import { createReflections } from '../gfx/reflections.js';
@@ -171,7 +172,8 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // training dummies beside the weapon rack, to try weapons (and spells) on
   const dummies = createDummies(THREE, scene, TG ? [{ x: 5.5, z: 8.5, yaw: 2.6 }, { x: 7.5, z: 6.5, yaw: 2.2 }, { x: 4.0, z: 11.0, yaw: 2.9 }] : []);
   shapes.push(...dummies.shapes);
-  buildTestGrounds(THREE, scene, shapes, dungeon?.decor || [], dungeon?.pathSurfaces || [], dungeon?.groundSplat || null, { field: TG });
+  buildTestGrounds(THREE, scene, shapes, dungeon?.decor || [], dungeon?.pathSurfaces || [], dungeon?.groundSplat || null,
+    { field: TG, textureGrad: renderer.capabilities.isWebGL2 || renderer.extensions.has('EXT_shader_texture_lod'), webgl2: renderer.capabilities.isWebGL2 });
   const gatherables=dungeon?createGatherables(THREE,scene,playtest,DUNGEON_ORIGIN,shapes):null;
   // the map's global settings from the creator's Global tab (src/data/globals.js)
   const G = globalsOf(playtest);
@@ -192,6 +194,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // tints the fog on top of either.
   const OUTDOOR = !dungeon || G.kind === 'outdoor';
   const sky = createSky(THREE, scene, { hour: dungeon ? G.hour : 12, cycle: dungeon ? G.timeCycle !== false : true, dayMinutes: G.dayMinutes || 24, blend: G.phaseBlend ?? 20, view: dungeon ? Math.max(G.view, 60) : 300, fogScale: dungeon ? Math.max(0.4, (G.fogFar || 220) / 240) : 1 });
+  const volumetricLight = OUTDOOR ? createVolumetricLight(THREE, renderer, fx) : null;
   sky.onPhase = ph => { dungeonLights?.setLamps(ph.look.lamps); };
   dungeonLights?.setLamps(OUTDOOR ? sky.state.lamps : true);
   // the weather (src/gfx/weather.js): outdoors only; the map's own weather to begin with (the creator's Global tab)
@@ -216,7 +219,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   // what a footstep sounds like: the ground's own kind (the painted ground: grass, dirt, sand, gravel, mud, rock, snow,
   // cobbles), then the weather on it — wet, a puddle now and then while there are puddles, snow lying (its depth read
   // from the snow map under your feet; streets keep less of it)
-  const SPLAT_SOUND = { 1: 'grass', 2: 'dirt', 3: 'stone', 4: 'sand', 5: 'gravel', 6: 'mud', 7: 'snow', 8: 'stone', 9: 'grass' };
+  const SPLAT_SOUND = { 1: 'grass', 2: 'dirt', 3: 'stone', 4: 'sand', 5: 'gravel', 6: 'mud', 7: 'snow', 8: 'tile', 9: 'grass' };
   // what the weather has done to the ground under you, for movement (src/game/controller.js st.env): the snow's depth
   // (read from the snow map 5 times a second; trodden prints keep less), ice (frozen puddles and wet stone — a puddle
   // is somewhere about, so the chance grows with how many there are; grass barely ices), wet
@@ -1271,7 +1274,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     PROBE_ROWS.map(([k, t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-p="${k}" checked> ${t}</label>`).join('') +
     `<details open style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Post-processing diagnostics (A/B)</summary>` +
     [['fogOff','World / area fog shader'],['bloomOff','Bloom extraction + blur'],['blurOff','Bloom blur only'],['toneMapOff','ACES tone mapping'],['gradeOff','Color grade'],['vignetteOff','Vignette']].map(([k,t]) => `<label style="display:block;cursor:pointer"><input type="checkbox" data-fx="${k}" ${probe[k] ? 'checked' : ''}> Disable ${t}</label>`).join('') + `</details><div style="opacity:.8;font-size:11px;margin:3px 0 6px">World / area fog is a scene shader path, separate from postFX; disabling it removes scene.fog entirely. PostFX toggles require Glow pass ON. “Measure each part” runs a timed A/B for every switch; pass timings below are CPU submission estimates, not GPU timings.</div>` +
-    `<details style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Atmospheric haze prototype (A/B)</summary><div style="font-size:11px;opacity:.85;margin:3px 0 5px">Extends the existing outdoor fog range; preserves the sky, weather color, indoor fog, and strong local fog. This is a tuning prototype, not volumetric scattering.</div><label style="display:block;cursor:pointer"><input type="checkbox" data-atmosphere="enabled"> Enable far-distance haze</label><label style="display:block;margin-top:4px">Start distance <input type="range" data-atmosphere="start" min="80" max="280" step="5" value="140" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="start">140</span></label><label style="display:block">End distance <input type="range" data-atmosphere="end" min="180" max="450" step="10" value="360" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="end">360</span></label><label style="display:block">Strength <input type="range" data-atmosphere="strength" min="0" max="1" step="0.05" value="0.35" style="width:110px;vertical-align:middle"> <span data-atmosphere-value="strength">0.35</span></label></details>` +
+    `<details style="margin-top:7px;border-top:1px solid #5a5490;padding-top:5px"><summary style="cursor:pointer">Eldermere sky lighting</summary><div style="font-size:11px;opacity:.85;margin:3px 0 5px">Live tuning for our procedural clouds and sky. Scattering layers into the authored sky; sun shafts use a half-resolution depth-aware screen-space pass.</div><label style="display:block">Cloud density <input type="range" data-sky="density" min="0" max="1.8" step="0.05" value="1" style="width:110px;vertical-align:middle"> <span data-sky-value="density">1.00</span></label><label style="display:block">Sky scattering <input type="range" data-sky="scatter" min="0" max="1" step="0.05" value="0" style="width:110px;vertical-align:middle"> <span data-sky-value="scatter">0.00</span></label><label style="display:block">Rayleigh <input type="range" data-sky="rayleigh" min="0" max="2" step="0.05" value="1" style="width:110px;vertical-align:middle"> <span data-sky-value="rayleigh">1.00</span></label><label style="display:block">Mie <input type="range" data-sky="mie" min="0" max="2" step="0.05" value="1" style="width:110px;vertical-align:middle"> <span data-sky-value="mie">1.00</span></label><label style="display:block;cursor:pointer"><input type="checkbox" data-sky="shafts"> Enable volumetric sun shafts</label><label style="display:block">Shaft strength <input type="range" data-sky="shaftStrength" min="0" max="1.5" step="0.05" value="0.55" style="width:110px;vertical-align:middle"> <span data-sky-value="shaftStrength">0.55</span></label></details>` +
     `<label style="display:block;margin-top:6px;cursor:pointer" title="Uses an asynchronous GPU timer query when supported; otherwise falls back to a CPU readback wait, which adds more overhead"><input type="checkbox" data-p="sync" checked> Measure GPU time (adds overhead)</label>` +
     `<div style="margin-top:6px">Spawn in front of you: ${Object.entries(MONSTERS).map(([k, M]) => `<button data-spawn="${k}" style="cursor:pointer">${M.name}</button>`).join(' ')}</div>` +
     `<button type="button" data-bench style="margin-top:6px;cursor:pointer">Measure each part (about 30 s — stand still)</button><pre class="pp-bench" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre>` +`<div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>GPU throughput / limit breaker</b><div style="font-size:11px;opacity:.85">Repeats the exact same scene render several times inside each display callback, without advancing gameplay between repeats. This bypasses the monitor-refresh limit for render-work throughput, but is not gameplay FPS. Keep the camera still and remove enemies for a clean map baseline.</div><button type="button" data-gpu-throughput style="margin-top:5px;cursor:pointer">Run GPU throughput test</button> <span data-gpu-throughput-status style="font-size:11px">Ready · about 8 seconds</span><pre data-gpu-throughput-report style="white-space:pre-wrap;font-size:12px;margin:4px 0 0">No throughput test yet.</pre></div><div style="margin-top:10px;padding-top:8px;border-top:1px solid #5a5490"><b>Scenario benchmark</b><div style="font-size:11px;opacity:.85">Benchmarks the currently loaded map. Applies a repeatable time/weather/surface preset, warms up, measures, then restores your previous settings.</div><label style="display:block;margin:5px 0">Preset <select data-scenario><option value="clear-noon">Clear · noon</option><option value="late-clear">Clear · late afternoon</option><option value="night">Clear · night lighting</option><option value="rain">Rainstorm · maximum puddles</option><option value="snow">Snowstorm · maximum snow</option><option value="fog">Thick fog · afternoon</option></select></label><button type="button" data-scenario-run>Run scenario benchmark</button> <button type="button" data-scenario-copy disabled>Copy benchmark report</button><div class="pp-scenario-status" style="font-size:12px;margin-top:4px">Ready. Keep the camera still for comparable results.</div><pre class="pp-scenario-report" style="white-space:pre-wrap;font-size:12px;margin:4px 0 0"></pre></div>` +
@@ -1333,7 +1336,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   schedulerWorkspace.appendChild(schedulerLargePanel);
   const schedulerCategories = [
     { id:'largeFoliage', label:'Large foliage', description:'Trees, pines, dead trees and bushes. This profile currently drives the live tree/bush LOD renderer.' },
-    { id:'smallFoliage', label:'Small foliage', description:'Small-foliage LOD is already integrated through the shared live vegetation-zone policy in Large foliage. Independent worker execution for small foliage is still pending (*).' },
+    { id:'smallFoliage', label:'Small foliage', description:'Adjust grass and flower clump density live from normal to packed. The density slider only affects these small ground plants; its LOD controls remain below.' },
     { id:'npcs', label:'NPCs', description:'Parallel worker tasks cover mesh visibility/LOD for both actor systems, actual simple-enemy animation pose math, and effect parameters. Creature skeletal pose generation and particle simulation remain main-thread work (*); Three.js scene changes and GPU uploads always stay on main.' },
     { id:'buildings', label:'Buildings *', description:'Building and prop visibility/LOD candidates. Rendering and scene-object changes remain on the main thread until a safe worker data path is added.' },
     { id:'weather', label:'Weather *', description:'Weather simulation and surface update scheduling. GPU/scene changes must still be applied on the main thread.' },
@@ -1416,6 +1419,21 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     if(category.id==='smallFoliage'){profileModeSelect.value='main';profileModeSelect.disabled=true;profile.mode='main';}
     schedulerPanelModeSelects.set(category.id,profileModeSelect);
     modeWrap.appendChild(profileModeSelect); settings.appendChild(modeWrap);
+    if (category.id === 'smallFoliage') {
+      const densityWrap = document.createElement('label');
+      densityWrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;min-width:270px';
+      densityWrap.innerHTML = 'Grass &amp; flower density <span style="display:flex;align-items:center;gap:8px"><input type="range" min="1" max="3" step="0.1" style="width:190px"><b data-density-value></b></span><small style="opacity:.75">1× normal · 3× packed · updates live</small>';
+      const densityInput = densityWrap.querySelector('input');
+      const densityValue = densityWrap.querySelector('[data-density-value]');
+      densityInput.value = String(dungeonLights?.foliage?.density || 1);
+      densityValue.textContent = Number(densityInput.value).toFixed(1) + '×';
+      densityInput.addEventListener('input', () => {
+        const value = Number(densityInput.value);
+        densityValue.textContent = value.toFixed(1) + '×';
+        dungeonLights?.foliage?.setDensity?.(value);
+      });
+      settings.appendChild(densityWrap);
+    }
     if(category.id==='ai'){const aiNote=document.createElement('div');aiNote.style.cssText='font-size:12px;opacity:.85;flex:1;min-width:260px';aiNote.textContent='Worker tasks calculate editor-NPC sensory candidates and creature-group perception (nearest living member and threat distance). Main thread retains line-of-sight/occlusion, AI state transitions, combat, movement and all game effects.';settings.appendChild(aiNote);}
     const priorityWrap=document.createElement('label'); priorityWrap.textContent='Auto priority * (1 = highest, 10 = lowest)'; priorityWrap.style.cssText='display:flex;flex-direction:column;gap:5px;min-width:240px';
     const prioritySelect=makeSchedulerSelect(String(profile.priority),Array.from({length:10},(_,i)=>[String(i+1),String(i+1)+(i===0?' · highest':i===9?' · lowest':'')]),v=>profile.priority=Number(v));
@@ -1994,6 +2012,13 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
   syncAtmosphereControls();
   probeEl.addEventListener('input', updateAtmosphereControl);
   probeEl.addEventListener('change', updateAtmosphereControl);
+  const updateSkyControl = e => {
+    const k = e.target.dataset.sky; if (!k) return;
+    if (k === 'density') { sky.setCloudDensity(+e.target.value); probeEl.querySelector('[data-sky-value="density"]').textContent = (+e.target.value).toFixed(2); }
+    if (k === 'scatter' || k === 'rayleigh' || k === 'mie') { sky.setAtmosphereControls({ strength: +probeEl.querySelector('[data-sky="scatter"]').value, rayleigh: +probeEl.querySelector('[data-sky="rayleigh"]').value, mie: +probeEl.querySelector('[data-sky="mie"]').value }); probeEl.querySelector(`[data-sky-value="${k}"]`).textContent = (+e.target.value).toFixed(2); }
+    if (k === 'shafts' || k === 'shaftStrength') probeEl.querySelector('[data-sky-value="shaftStrength"]').textContent = (+probeEl.querySelector('[data-sky="shaftStrength"]').value).toFixed(2);
+  };
+  probeEl.addEventListener('input', updateSkyControl); probeEl.addEventListener('change', updateSkyControl);
 
   probeEl.addEventListener('change', e => { const k = e.target.dataset.fx; if (!k) return; probe[k] = e.target.checked; applyProbe(); });
   const closeProbe = () => { if (scenarioBench?.on) restoreScenarioState(); probe.on = probe.open = false; probe.sync = true; probeEl.hidden = true; probeEl.querySelector('.pp-full').hidden = true; probeEl.querySelector('[data-full-toggle]').textContent = 'Full Monitor ▾'; for (const r of PROBE_ROWS) probe[r[0]] = true; for (const k of ['fogOff','bloomOff','blurOff','toneMapOff','gradeOff','vignetteOff']) probe[k] = false; probe.scale = 1; probeEl.querySelectorAll('input').forEach(i => { if (i.dataset.p) i.checked = true; if (i.dataset.fx) i.checked = false; }); probeEl.querySelector('select').value = '1'; applyProbe(); input.lock(); };
@@ -2320,7 +2345,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
       audio.water(L, Pn);
     }
     for (const e of player.state.events.splice(0)) {
-      if (e.type === 'jump') audio.jump(acoustics());
+      if (e.type === 'jump') audio.jump(acoustics(), surfaceOf(player.state.surface).sound);
       else if (e.type === 'land') { audio.land(acoustics(), e.impact, surfaceOf(player.state.surface).sound); landT = 0; landAmp = Math.min(0.85, 0.12 + e.impact / 16); }
       else if (e.type === 'splash') audio.splash(acoustics(), e.impact);
       else if (e.type === 'slide') audio.slide(acoustics(), surfaceOf(player.state.surface).sound);
@@ -2400,6 +2425,7 @@ float wxSunShadow() { vec4 c = vDirectionalShadowCoord[ 0 ]; vec3 p = c.xyz / c.
     { const t0 = performance.now(); particles.update(dt, camera); if (probe.on) probeLaps['Particles'] = (probeLaps['Particles'] || 0) * 0.9 + (performance.now() - t0) * 0.1; }
     const mainQuery = startGpuQuery('main');
     const stageMainStart = traversalCapture.on ? performance.now() : 0;
+    volumetricLight?.set({ enabled: !!sky.dome.visible && !!probeEl.querySelector('[data-sky="shafts"]')?.checked, depthRequired: reflections?.mode === 'ssr', strength: +(probeEl.querySelector('[data-sky="shaftStrength"]')?.value || 0), color: sun.color, direction: skyNow?.sunDir || { x: 0, y: 1, z: 0 } });
     if (traversalCapture.on) traversalCapture.stage = 'main+postFX';
     if (settings.postfx !== false && !fx.probeOff) fx.render(scene, camera, { bloom: skyNow?.bloom ?? 0.5, grade: skyNow?.grade || 'warm' }); else renderer.render(scene, camera);
     if (traversalCapture.on) { traversalCapture.frameStages.mainRenderMs = performance.now() - stageMainStart; traversalCapture.stage = ''; }

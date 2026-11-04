@@ -96,13 +96,20 @@ export function testGroundsWater() {
 }
 
 // Meshes for the shapes, with a soft grid on the field and floating labels.
-export function buildTestGrounds(THREE, scene, shapes, decor = [], pathSurfaces = [], groundSplat = null, { field = true } = {}) {
+export function buildTestGrounds(THREE, scene, shapes, decor = [], pathSurfaces = [], groundSplat = null, { field = true, textureGrad = false, webgl2 = false } = {}) {
   const grid = document.createElement('canvas'); grid.width = grid.height = 256;
   const g = grid.getContext('2d'); g.fillStyle = '#7f9a6a'; g.fillRect(0, 0, 256, 256);
   g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 2; g.strokeRect(0, 0, 256, 256);
   g.strokeStyle = 'rgba(255,255,255,0.07)'; g.lineWidth = 1; for (let i = 64; i < 256; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, 256); g.moveTo(0, i); g.lineTo(256, i); g.stroke(); }
   const gridTex = new THREE.CanvasTexture(grid); gridTex.wrapS = gridTex.wrapT = THREE.RepeatWrapping; gridTex.repeat.set(60, 60); gridTex.anisotropy = 8;
   gridTex.encoding = THREE.sRGBEncoding;
+  const groundImage = new Image(); groundImage.onload = () => {
+    grid.width = grid.height = 512; const ctx = grid.getContext('2d'); ctx.drawImage(groundImage, 0, 0, 512, 512);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 2; ctx.strokeRect(1, 1, 510, 510);
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+    for (let i = 128; i < 512; i += 128) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 512); ctx.moveTo(0, i); ctx.lineTo(512, i); ctx.stroke(); }
+    gridTex.needsUpdate = true;
+  }; groundImage.src = new URL('../../data/foliage/grass_flowers_free/ground_grass01_biguv.jpg', import.meta.url).href;
   if (field) buildCliff(THREE, scene);                                                     // (the test grounds' cliff: not when a map is played)
   // dungeon stone, hand-painted in the PS2-era style (paintStone / paintFlags below): warm blocks with a lit top
   // edge and a shadowed bottom, soft brush dabs, chips and the odd crack. 512 px covers 6 m.
@@ -131,9 +138,9 @@ export function buildTestGrounds(THREE, scene, shapes, decor = [], pathSurfaces 
       geo.translate(0, -sy / 2, 0);
     } else geo = new THREE.BoxGeometry(sx, sy, sz);
     const isField = s.surface === 'grass';
-    let map = null; if (isField) { map = gridTex.clone(); map.needsUpdate = true; map.repeat.set(sx / 2, sz / 2); }
+    let map = null; if (isField) { map = gridTex.clone(); map.needsUpdate = true; map.repeat.set(sx / 11.52, sz / 11.52); }
     else if (s.dungeon) { map = stoneTex.clone(); map.needsUpdate = true; map.repeat.set(Math.max(0.3, Math.max(sx, sz) / 3), Math.max(0.3, Math.max(sy, Math.min(sx, sz)) / 3)); }
-    const mat = new THREE.MeshStandardMaterial({ color: s.color, roughness: 0.9, map });
+    const mat = new THREE.MeshStandardMaterial({ color: isField && map ? '#ffffff' : s.color, roughness: 0.9, map });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set((s.min[0] + s.max[0]) / 2, (s.min[1] + s.max[1]) / 2, (s.min[2] + s.max[2]) / 2);
     mesh.castShadow = !isField; mesh.receiveShadow = true;
@@ -141,11 +148,61 @@ export function buildTestGrounds(THREE, scene, shapes, decor = [], pathSurfaces 
     if (s.label) scene.add(label(THREE, s.label, [(s.min[0] + s.max[0]) / 2, s.max[1] + 0.7, (s.min[2] + s.max[2]) / 2]));
   }
   const tex = stoneTex; tex.repeat.set(1, 1);
-  const dungeonMat = new THREE.MeshStandardMaterial({ map: tex, vertexColors: true, roughness: 0.9 }); dungeonMat.extensions = { derivatives: true };   // (relief from the textures: dFdx)
   // floors get their own pattern: big irregular flagstones (512 px = 6 m), split at random
   const flagCv = document.createElement('canvas'); flagCv.width = flagCv.height = 512;
   paintFlags(flagCv.getContext('2d'));
-  const flagTex = new THREE.CanvasTexture(flagCv); flagTex.wrapS = flagTex.wrapT = THREE.RepeatWrapping; flagTex.encoding = THREE.sRGBEncoding; flagTex.anisotropy = 4;
+  // The two legacy canvas textures occupy spare tiles in the same atlas: map/flag/stone/PBR all share one sampler.
+  const groundAtlasCanvas = document.createElement('canvas'); groundAtlasCanvas.width = 4096; groundAtlasCanvas.height = 5632;
+  const groundAtlasCtx = groundAtlasCanvas.getContext('2d', { willReadFrequently: true });
+  const makeGroundTileSeamless = (col, row, normalMap) => {
+    const x0 = col * 512 + 32, y0 = row * 512 + 32, size = 448, band = 32, image = groundAtlasCtx.getImageData(x0, y0, size, size), src = image.data;
+    const blend = (a, b, t) => {
+      if (!normalMap) return [0, 1, 2, 3].map(c => a[c] + (b[c] - a[c]) * t);
+      let nx = a[0] / 255 * 2 - 1, ny = a[1] / 255 * 2 - 1, nz = 0;
+      let bx = b[0] / 255 * 2 - 1, by = b[1] / 255 * 2 - 1;
+      const axz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)), bxz = Math.sqrt(Math.max(0, 1 - bx * bx - by * by));
+      nx = nx + (bx - nx) * t; ny = ny + (by - ny) * t; nz = axz + (bxz - axz) * t;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      return [Math.round((nx / nl * 0.5 + 0.5) * 255), Math.round((ny / nl * 0.5 + 0.5) * 255), a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t];
+    };
+    const pixel = (data, px, py) => { const i = (py * size + px) * 4; return [data[i], data[i + 1], data[i + 2], data[i + 3]]; };
+    const put = (data, px, py, rgba) => { const i = (py * size + px) * 4; for (let c = 0; c < 4; c++) data[i + c] = rgba[c]; };
+    const horizontal = new Uint8ClampedArray(src);
+    for (let y = 0; y < size; y++) for (let k = 0; k < band; k++) {
+      const l = k, r = size - 1 - k, t = k / band, fade = 1 - t * t * (3 - 2 * t), a = pixel(src, l, y), b = pixel(src, r, y), midA = blend(a, b, 0.5), midB = blend(b, a, 0.5);
+      put(horizontal, l, y, blend(a, midA, fade)); put(horizontal, r, y, blend(b, midB, fade));
+    }
+    const vertical = new Uint8ClampedArray(horizontal);
+    for (let x = 0; x < size; x++) for (let k = 0; k < band; k++) {
+      const u = k / band, t = 1 - u * u * (3 - 2 * u), top = pixel(horizontal, x, k), bottom = pixel(horizontal, x, size - 1 - k);
+      put(vertical, x, k, blend(top, blend(top, bottom, 0.5), t));
+      put(vertical, x, size - 1 - k, blend(bottom, blend(bottom, top, 0.5), t));
+    }
+    image.data.set(vertical); groundAtlasCtx.putImageData(image, x0, y0);
+    const tx = col * 512, ty = row * 512, core = 448, pad = 32;
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0, y0, core, 1, tx + pad, ty, core, pad);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0, y0 + core - 1, core, 1, tx + pad, ty + pad + core, core, pad);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0, y0, 1, core, tx, ty + pad, pad, core);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0 + core - 1, y0, 1, core, tx + pad + core, ty + pad, pad, core);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0, y0, 1, 1, tx, ty, pad, pad);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0 + core - 1, y0, 1, 1, tx + pad + core, ty, pad, pad);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0, y0 + core - 1, 1, 1, tx, ty + pad + core, pad, pad);
+    groundAtlasCtx.drawImage(groundAtlasCanvas, x0 + core - 1, y0 + core - 1, 1, 1, tx + pad + core, ty + pad + core, pad, pad);
+  };
+  const stampGroundAtlasTile = (source, col, row) => { const x = col * 512, y = row * 512, g = 32, n = 448;
+    groundAtlasCtx.drawImage(source, 0, 0, 512, 512, x + g, y + g, n, n);
+    groundAtlasCtx.drawImage(source, 0, 0, 512, 1, x + g, y, n, g); groundAtlasCtx.drawImage(source, 0, 511, 512, 1, x + g, y + g + n, n, g);
+    groundAtlasCtx.drawImage(source, 0, 0, 1, 512, x, y + g, g, n); groundAtlasCtx.drawImage(source, 511, 0, 1, 512, x + g + n, y + g, g, n);
+    groundAtlasCtx.drawImage(source, 0, 0, 1, 1, x, y, g, g); groundAtlasCtx.drawImage(source, 511, 0, 1, 1, x + g + n, y, g, g);
+    groundAtlasCtx.drawImage(source, 0, 511, 1, 1, x, y + g + n, g, g); groundAtlasCtx.drawImage(source, 511, 511, 1, 1, x + g + n, y + g + n, g, g); };
+  stampGroundAtlasTile(flagCv, 0, 10); stampGroundAtlasTile(stoneCv, 1, 10);
+  const groundAtlasImage = new Image(); groundAtlasImage.onload = () => { groundAtlasCtx.drawImage(groundAtlasImage, 0, 0);
+    for (let tile = 0; tile < 80; tile++) makeGroundTileSeamless(tile % 8, Math.floor(tile / 8), tile % 2 === 1);
+    stampGroundAtlasTile(flagCv, 0, 10); stampGroundAtlasTile(stoneCv, 1, 10); groundPbrAtlas.needsUpdate = true; };
+  groundAtlasImage.src = new URL('../../data/terrain/ground_pbr_atlas.png', import.meta.url).href;
+  const groundPbrAtlas = new THREE.CanvasTexture(groundAtlasCanvas); groundPbrAtlas.wrapS = groundPbrAtlas.wrapT = THREE.ClampToEdgeWrapping; groundPbrAtlas.encoding = THREE.LinearEncoding;
+  groundPbrAtlas.minFilter = THREE.LinearMipmapLinearFilter; groundPbrAtlas.magFilter = THREE.LinearFilter; groundPbrAtlas.anisotropy = 8;
+  const dungeonMat = new THREE.MeshStandardMaterial({ map: groundPbrAtlas, vertexColors: true, roughness: 0.9 }); dungeonMat.extensions = { derivatives: true, shaderTextureLOD: textureGrad && !webgl2 };
   // the town's materials, hand-painted the same way (paintCobbles and the rest, below)
   const canvasTex = (paint, size = 256) => { const cv = document.createElement('canvas'); cv.width = cv.height = size; paint(cv.getContext('2d'), size); const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t; };
   const townTex = { cobbleMap: canvasTex(paintCobbles), tileMap: canvasTex(paintTiles), plasterMap: canvasTex(paintPlaster), woodMap: canvasTex(paintWood), brickMap: canvasTex(paintBrick) };
@@ -153,7 +210,7 @@ export function buildTestGrounds(THREE, scene, shapes, decor = [], pathSurfaces 
   let splatTex = null, splatRect = new THREE.Vector4(0, 0, 1, 1);
   if (groundSplat) { splatTex = new THREE.DataTexture(groundSplat.data, groundSplat.w, groundSplat.h, THREE.RGBAFormat); splatTex.magFilter = splatTex.minFilter = THREE.NearestFilter; splatTex.needsUpdate = true; splatRect.set(groundSplat.x, groundSplat.z, groundSplat.w, groundSplat.h); }
   else { splatTex = new THREE.DataTexture(new Uint8Array([0, 128, 128, 0]), 1, 1, THREE.RGBAFormat); splatTex.needsUpdate = true; }
-  dungeonMat.onBeforeCompile = sh => { sh.uniforms.flagMap = { value: flagTex }; sh.uniforms.splatMap = { value: splatTex }; sh.uniforms.splatRect = { value: splatRect }; for (const [k, v] of Object.entries(townTex)) sh.uniforms[k] = { value: v }; weatherStone(sh); };
+  dungeonMat.onBeforeCompile = sh => { sh.uniforms.splatMap = { value: splatTex }; sh.uniforms.splatRect = { value: splatRect }; for (const [k, v] of Object.entries(townTex)) sh.uniforms[k] = { value: v }; weatherStone(sh); };
   const out = [];
   // Each chunk's mesh sits at its own middle (not the world origin): three.js draws solid things nearest first
   // by that position, so the walls in front hide what's behind before it costs any lighting. With every
@@ -300,7 +357,7 @@ function weatherStone(shader) {
     .replace('#include <common>', `#include <common>
 #define WX_HAS_SNOWK
 float wxSnowK = 1.0, sRock = 0.0;                                                  // how much snow this material keeps (src/gfx/weathering.js): streets less, open ground more
-varying vec3 vStoneW; varying vec3 vStoneN; varying float vTex; varying float vPd; uniform sampler2D flagMap, cobbleMap, tileMap, plasterMap, woodMap, brickMap, splatMap; uniform vec4 splatRect;
+varying vec3 vStoneW; varying vec3 vStoneN; varying float vTex; varying float vPd; uniform sampler2D cobbleMap, tileMap, plasterMap, woodMap, brickMap, splatMap; uniform vec4 splatRect;
 // relief and roughness from the painted textures themselves: a texel against its blurred neighbourhood (a coarse mip)
 // says whether it stands proud (a cobble's face, a brick) or sits in a gap (grout, a crack). sDet: that difference;
 // sBase: the material's own roughness. Proud bits are a little smoother (worn), gaps rougher, and the difference
@@ -314,7 +371,31 @@ float sHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.
 float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(mix(sHash(i), sHash(i + vec3(1,0,0)), f.x), mix(sHash(i + vec3(0,1,0)), sHash(i + vec3(1,1,0)), f.x), f.y),
              mix(mix(sHash(i + vec3(0,0,1)), sHash(i + vec3(1,0,1)), f.x), mix(sHash(i + vec3(0,1,1)), sHash(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
+    .replace('#include <map_pars_fragment>', `#include <map_pars_fragment>
+// 80 edge-padded 512 px tiles: 30 dirt + 10 grass materials, each with albedo/AO and normal/height/specular.
+// Atlas access uses the existing map sampler, so full PBR data costs no additional texture image units.
+vec2 groundAtlasUv(float tile, vec2 uv) { float col = mod(tile, 8.0), row = floor(tile / 8.0), pad = 32.0 / 512.0;
+  vec2 f = fract(uv); return vec2((col + pad + f.x * (1.0 - 2.0 * pad)) / 8.0,
+    1.0 - (row + pad + (1.0 - f.y) * (1.0 - 2.0 * pad)) / 11.0); }
+vec4 groundAtlasSample(float tile, vec2 uv, float lodBias) {
+  vec2 atlasUv = groundAtlasUv(tile, uv), scale = vec2((1.0 - 64.0 / 512.0) / 8.0, (1.0 - 64.0 / 512.0) / 11.0) * exp2(lodBias);
+  vec2 dx = dFdx(uv) * scale, dy = dFdy(uv) * scale;
+  #if __VERSION__ >= 300
+    return textureGrad(map, atlasUv, dx, dy);
+  #elif defined(GL_EXT_shader_texture_lod)
+    return texture2DGradEXT(map, atlasUv, dx, dy);
+  #else
+    return texture2D(map, atlasUv, lodBias);
+  #endif
+}
+vec3 groundSrgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
+vec4 groundAlbedoAO(float material, vec2 uv) { return groundAtlasSample(material * 2.0, uv, 0.0); }
+vec4 groundNormalHeightSpec(float material, vec2 uv) { return groundAtlasSample(material * 2.0 + 1.0, uv, 0.0); }
+vec3 groundAtlasColor(float tile, vec2 uv) { vec3 c = groundSrgbToLinear(groundAtlasSample(tile, uv, 0.0).rgb);
+  sDet = sLum(c) - sLum(groundSrgbToLinear(groundAtlasSample(tile, uv, 4.0).rgb)); return c; }`)
     .replace('#include <map_fragment>', `#include <map_fragment>
+float groundPbrMask = 0.0, groundPbrAO = 0.0, groundPbrHeight = 0.0, groundPbrSpec = 0.0;
+vec3 groundPbrNormal = vec3(0.0);
 { vec3 w = vStoneW; vec3 n = normalize(vStoneN);
   // The noise is sampled in the face's own plane: the coordinate along its normal is held at a constant, so a
   // floor at y 10 (or a wall at x 130) never sits exactly on the noise grid, where rounding flickers between
@@ -329,7 +410,7 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
   bool town = vTex > 0.5;
   if (town) wxSnowK = vTex < 1.5 ? 0.6 : vTex > 9.5 ? 1.1 : (vTex > 7.5 && vTex < 8.5) ? 0.7 : (vTex > 8.5 && vTex < 9.5) ? (vPd - floor((vPd + 50.0) / 100.0) * 100.0 < -0.45 ? (floor((vPd + 50.0) / 100.0) > 1.5 && floor((vPd + 50.0) / 100.0) < 3.5 ? 0.75 : 0.4) : 0.7) : 1.0;   // (cobbles, paving, road carriageway / dirt track, pavement)
   #ifdef USE_MAP
-    if (!town) sDet = sLum(texelColor.rgb) - sLum(mapTexelToLinear(texture2D(map, vUv, 4.0)).rgb);
+    if (!town && vTex < 9.5) { vec3 stoneColor = groundAtlasColor(81.0, vUv); diffuseColor.rgb = diffuse * stoneColor; }
   #endif
   if (town) {
     vec2 tuv = abs(n.y) > 0.5 ? w.xz : (abs(n.x) > abs(n.z) ? w.zy : w.xy);
@@ -351,7 +432,19 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
       float f1 = sNoise(w * 7.0 + 3.1), f2 = sNoise(w * 19.0 + 8.7), blade = sNoise(vec3(w.x * 31.0, 0.5, w.z * 9.0)) * sNoise(vec3(w.x * 9.0, 1.5, w.z * 31.0));
       float fine = 0.72 + 0.38 * f1 + 0.22 * f2, m1 = sNoise(w / 1.4 + 11.0), speck = step(0.72, sNoise(w * 13.0 + 2.0)), ripple = 0.94 + 0.06 * sin(w.x * 2.7 + w.z * 1.3 + sNoise(w * 0.8) * 5.0);
       // (everything that doesn't depend on the splat texel is worked out once here, not four times in the loop below)
-      vec3 grass0 = mix(vec3(0.17, 0.30, 0.08), vec3(0.30, 0.42, 0.12), g1) * (0.8 + 0.35 * g3) * fine * (0.72 + 0.6 * blade) * mix(vec3(0.92, 1.0, 0.86), vec3(1.08, 1.0, 1.1), m1);
+      vec3 proceduralGrass = mix(vec3(0.17, 0.30, 0.08), vec3(0.30, 0.42, 0.12), g1);
+      // Fade continuously between authored variants so a material change never leaves a rectangular patch seam.
+      float dirtVariant = sNoise(vec3(w.x / 96.0, 3.7, w.z / 96.0)) * 29.0, dirtMaterial = floor(dirtVariant);
+      float grassVariant = sNoise(vec3(w.x / 96.0, 8.1, w.z / 96.0)) * 9.0, grassMaterial = floor(grassVariant) + 30.0;
+      float dirtNext = min(dirtMaterial + 1.0, 29.0), grassNext = min(grassMaterial + 1.0, 39.0);
+      float dirtBlend = smoothstep(0.0, 1.0, fract(dirtVariant)), grassBlend = smoothstep(0.0, 1.0, fract(grassVariant));
+      vec2 pbrUv = w.xz * 0.34375; // another 20% smaller in world space
+      vec4 grassAlbedoAO = mix(groundAlbedoAO(grassMaterial, pbrUv), groundAlbedoAO(grassNext, pbrUv), grassBlend);
+      vec4 grassNHS = mix(groundNormalHeightSpec(grassMaterial, pbrUv), groundNormalHeightSpec(grassNext, pbrUv), grassBlend);
+      vec4 dirtAlbedoAO = mix(groundAlbedoAO(dirtMaterial, pbrUv), groundAlbedoAO(dirtNext, pbrUv), dirtBlend);
+      vec4 dirtNHS = mix(groundNormalHeightSpec(dirtMaterial, pbrUv), groundNormalHeightSpec(dirtNext, pbrUv), dirtBlend);
+      vec3 grassPhoto = groundSrgbToLinear(grassAlbedoAO.rgb), dirtPhoto = groundSrgbToLinear(dirtAlbedoAO.rgb);
+      vec3 grass0 = mix(proceduralGrass, grassPhoto, 0.82) * (0.8 + 0.35 * g3) * fine * (0.72 + 0.6 * blade) * mix(vec3(0.92, 1.0, 0.86), vec3(1.08, 1.0, 1.1), m1);
       vec3 dirt = vec3(0.36, 0.27, 0.17) * (0.85 + 0.3 * g3) * fine * (1.0 - 0.18 * speck);
       float bare = max(smoothstep(0.66, 0.74, g2 + (f1 - 0.5) * 0.12), smoothstep(0.8, 0.86, sNoise(w / 1.7 + 4.0)) * 0.7) * 0.8;
       vec3 shoreSand = vec3(0.70, 0.62, 0.45) * ripple * fine, shoreGravel = mix(vec3(0.46, 0.43, 0.38), vec3(0.62, 0.58, 0.52), f2) * (0.85 + 0.25 * speck);
@@ -376,25 +469,38 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
         vec3 shore = mix(shoreSand, shoreGravel, smoothstep(0.4, 0.75, shoreN + (wet - 0.6) * 0.6));
         // rock: strata (bands by height, wavering), grain, cracks; lichen and dirt on the ledges that face up
         bool soft = true;
-        if (kind > 8.5) c = mix(mix(vec3(0.24, 0.30, 0.12), vec3(0.34, 0.36, 0.18), g1) * (0.8 + 0.35 * g3), dirt, smoothstep(0.5, 0.75, g2) * 0.7);   // 9 rough grass
+        if (kind > 8.5) c = mix(mix(grassPhoto * vec3(0.9, 0.95, 0.76), mix(vec3(0.24, 0.30, 0.12), vec3(0.34, 0.36, 0.18), g1), 0.25) * (0.8 + 0.35 * g3), dirt, smoothstep(0.5, 0.75, g2) * 0.7);   // 9 rough grass
         else if (kind > 7.5) { c = (0.4 + 0.6 * tSam(cobbleMap, w.xz / 2.6)) * vec3(0.604, 0.549, 0.478); soft = false; }   // 8 cobbles
         else if (kind > 6.5) c = snow;                                                                                   // 7 snow
         else if (kind > 5.5) c = mix(vec3(0.20, 0.15, 0.10), vec3(0.28, 0.21, 0.13), g1) * (0.85 + 0.2 * g3);         // 6 mud
         else if (kind > 4.5) { c = gravelC; }   // 5 gravel
         else if (kind > 3.5) c = mix(vec3(0.72, 0.64, 0.44), vec3(0.80, 0.72, 0.52), g1) * (0.9 + 0.12 * g3) * ripple * (0.92 + 0.1 * f2);         // 4 sand
         else if (kind > 2.5) { c = rock; soft = false; }                                                                 // 3 rock
-        else if (kind > 1.5) c = mix(vec3(0.30, 0.23, 0.15), vec3(0.40, 0.31, 0.20), g1) * (0.85 + 0.25 * g3);        // 2 dirt
+        else if (kind > 1.5) c = mix(mix(vec3(0.30, 0.23, 0.15), vec3(0.40, 0.31, 0.20), g1) * (0.85 + 0.25 * g3), dirtPhoto, 0.82); // 2 dirt
         else if (kind > 0.5) c = grass;                                                                                  // 1 grass
         else {                                                                                                           // 0 auto: snow on the flat when cold, sand when very dry
+          c = mix(c, groundSrgbToLinear(mix(grassAlbedoAO.rgb, dirtAlbedoAO.rgb, bare)), 0.72);
           c = mix(c, snow, smoothstep(0.2, 0.05, temp) * smoothstep(0.55, 0.85, n.y));
           c = mix(c, vec3(0.72, 0.64, 0.44) * (0.9 + 0.12 * g3), smoothstep(0.15, 0.0, moist) * 0.8);
         }
         if (soft) c = mix(c, shore, smoothstep(0.12, 0.7, wet));                                                   // sand and gravel by the water
         if (soft) c = mix(c, rock, steep);
         c = mix(c, c * vec3(0.62, 0.66, 0.68), smoothstep(0.55, 1.0, wet) * 0.5);                                  // darker where it's wet
+        float pbrWeight = 0.0; vec4 pbrBase = vec4(1.0), pbrNhs = vec4(0.5, 0.5, 0.5, 0.0);
+        if (kind > 8.5 || (kind > 0.5 && kind < 1.5)) { pbrBase = grassAlbedoAO; pbrNhs = grassNHS; pbrWeight = kind > 8.5 ? 0.72 : 0.82; }
+        else if (kind > 1.5 && kind < 2.5) { pbrBase = dirtAlbedoAO; pbrNhs = dirtNHS; pbrWeight = 0.82; }
+        else if (kind < 0.5) { pbrBase = mix(grassAlbedoAO, dirtAlbedoAO, bare); pbrNhs = mix(grassNHS, dirtNHS, bare); pbrWeight = 0.72; }
+        if (pbrWeight > 0.0) {
+          vec2 xy = pbrNhs.rg * 2.0 - 1.0; vec3 pbrN = normalize(vec3(xy, sqrt(max(0.001, 1.0 - dot(xy, xy)))));
+          groundPbrNormal += pbrN * (pbrWeight * wq); groundPbrAO += pbrBase.a * pbrWeight * wq;
+          groundPbrHeight += pbrNhs.b * pbrWeight * wq; groundPbrSpec += pbrNhs.a * pbrWeight * wq;
+          groundPbrMask = min(1.0, groundPbrMask + pbrWeight * wq);
+        }
         acc += c * wq;
       }
       tc = acc; sDet = (f1 - 0.5) * 0.16 + (f2 - 0.5) * 0.12 + (blade - 0.25) * 0.05;
+      if (groundPbrMask > 0.001) { groundPbrAO /= groundPbrMask; groundPbrHeight /= groundPbrMask; groundPbrSpec /= groundPbrMask;
+        groundPbrNormal = normalize(groundPbrNormal); sDet += (groundPbrHeight - 0.5) * 0.32 * groundPbrMask; }
       // cliffs (too steep for grass: the rock): their own relief — the strata stepping out as ledges, the grain, the
       // fissures cut in — and rougher, duller stone
       { float stp = 1.0 - smoothstep(0.55, 0.74, n.y);
@@ -438,15 +544,16 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
       } else if (mi > 3.5) {                                                                     // planks: boards across the road
         tc = tSam(woodMap, tuv / 2.0) * vec3(0.85, 0.72, 0.58); pc = vec3(1.0);
       } else if (rpd < -0.45) {
-        if (mi > 0.5) { pc = vec3(0.70, 0.66, 0.58); tc = tSam(flagMap, tuv / 2.5); }   // flagstones down the carriageway
+        if (mi > 0.5) { pc = vec3(0.70, 0.66, 0.58); tc = groundAtlasColor(80.0, tuv / 2.5); }   // flagstones down the carriageway
         else { pc = vec3(0.604, 0.549, 0.478); tc = 0.4 + 0.6 * tSam(cobbleMap, tuv / 2.6); }   // road #9a8c7a
       }
-      else { tc = tSam(flagMap, tuv / 3.5); if (rpd < 0.0) pc = vec3(0.478, 0.431, 0.376); else if (rpd < 0.3) pc = vec3(0.816, 0.761, 0.651); }   // gutter #7a6e60, kerb #d0c2a6
+      else { tc = groundAtlasColor(80.0, tuv / 3.5); if (rpd < 0.0) pc = vec3(0.478, 0.431, 0.376); else if (rpd < 0.3) pc = vec3(0.816, 0.761, 0.651); }   // gutter #7a6e60, kerb #d0c2a6
       tc *= pc;
     }
-    else if (vTex > 7.5) tc = tSam(flagMap, tuv / 3.5);
+    else if (vTex > 7.5) tc = groundAtlasColor(80.0, tuv / 3.5);
     else if (vTex > 6.5 && vTex < 7.5) tc = tSam(tileMap, abs(n.y) > 0.3 ? w.zx / 3.0 : tuv / 3.0);
     diffuseColor.rgb = diffuse * tc;
+    if (vTex > 9.5 && groundPbrMask > 0.001) diffuseColor.rgb *= mix(1.0, 0.55 + 0.45 * groundPbrAO, groundPbrMask);
     tone = 0.86 + 0.24 * big + 0.08 * (mid - 0.5);                    // the town is cleaner: gentle variation only
   } else
   if (abs(n.y) < 0.5) {                                                // walls
@@ -456,7 +563,7 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
     float damp = smoothstep(0.62, 0.78, sNoise(wn / 3.0 + 9.1)) * (1.0 - smoothstep(0.5, 2.5, h));
     tint = mix(tint, vec3(0.8, 0.92, 0.82), damp * 0.6); tone *= 1.0 - damp * 0.25;
   } else if (n.y > 0.5) {                                              // floors: flagstones instead of wall blocks
-    diffuseColor.rgb = diffuse * tSam(flagMap, w.xz / 6.0);
+    diffuseColor.rgb = diffuse * groundAtlasColor(80.0, w.xz / 6.0);
     tone *= 0.9 + 0.22 * smoothstep(0.55, 0.8, sNoise(wn / 4.0 + 2.2));  // worn, lighter
     tone *= 1.0 - 0.45 * smoothstep(0.62, 0.8, sNoise(wn / 2.5 + 31.0)); // dark stains
   } else tone *= 0.72 + 0.2 * mid;                                     // ceilings: sooty
@@ -465,9 +572,15 @@ float sNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 *
 { float rb = 0.86;                                                     // each material's own roughness
   if (vTex > 0.5) rb = vTex < 1.5 ? 0.74 : vTex < 2.5 ? 0.62 : vTex < 3.5 ? 0.9 : vTex < 4.5 ? 0.8 : vTex < 5.5 ? 0.86 : vTex < 6.5 ? 0.62 : vTex < 7.5 ? 0.62 : vTex < 8.5 ? 0.76 : vTex < 9.5 ? 0.8 : 0.93;
   rb = mix(rb, 0.84, sRock);                                          // (cliff rock: duller than open ground, rougher in its cracks)
-  roughnessFactor = clamp(rb - sDet * 1.5, 0.3, 1.0); }`)
+  roughnessFactor = clamp(rb - sDet * 1.5, 0.3, 1.0);
+  if (vTex > 9.5 && groundPbrMask > 0.001) roughnessFactor = mix(roughnessFactor, clamp(0.96 - groundPbrSpec * 0.48, 0.42, 0.98), groundPbrMask * 0.6); }`)
     .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
 { float fadeB = smoothstep(30.0, 4.0, length(vViewPosition));          // (fades out far off, where it would only shimmer)
+  if (vTex > 9.5 && groundPbrMask > 0.001) {
+    vec3 q0 = dFdx(-vViewPosition), q1 = dFdy(-vViewPosition); vec2 st0 = dFdx(vStoneW.xz * 0.34375), st1 = dFdy(vStoneW.xz * 0.34375);
+    vec3 T = normalize(q0 * st1.y - q1 * st0.y), B = normalize(-q0 * st1.x + q1 * st0.x);
+    normal = normalize(mat3(T, B, normal) * normalize(mix(vec3(0.0, 0.0, 1.0), groundPbrNormal, groundPbrMask)));
+  }
   normal = sBump(-vViewPosition, normal, vec2(dFdx(sDet), dFdy(sDet)) * 0.085 * fadeB, faceDirection); }`);
 }
 

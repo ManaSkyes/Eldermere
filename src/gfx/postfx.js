@@ -26,6 +26,7 @@ export function createPostFX(THREE, renderer) {
   let depthRT = null, sceneRT = msRT;
   const small = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
   const rtA = new THREE.WebGLRenderTarget(1, 1, small), rtB = new THREE.WebGLRenderTarget(1, 1, small);
+  const afterScenePasses = [];
 
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), quadScene = new THREE.Scene();
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; quadScene.add(quad);
@@ -84,10 +85,12 @@ export function createPostFX(THREE, renderer) {
   function render(scene, camera, { bloom = 0.7, threshold = 0.9, grade = 'warm', exposure = 0.85 } = {}) {
     const prev = renderer.getRenderTarget();
     timedPass('Scene → HDR target', () => { renderer.setRenderTarget(sceneRT); renderer.render(scene, camera); });
-    api.afterScene?.(sceneRT, camera);
+    let postSceneRT = sceneRT;
+    const legacyResult = api.afterScene?.(sceneRT, camera); if (legacyResult?.texture) postSceneRT = legacyResult;
+    for (const fn of afterScenePasses) { const next = fn(postSceneRT, camera); if (next?.texture) postSceneRT = next; }
     const bloomOn = bloom > 0 && !probe.bloomOff;
     if (bloomOn) {
-      bright.uniforms.tex.value = sceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / sceneRT.width, 1 / sceneRT.height);
+      bright.uniforms.tex.value = postSceneRT.texture; bright.uniforms.threshold.value = threshold; bright.uniforms.px.value.set(1 / postSceneRT.width, 1 / postSceneRT.height);
       pass(bright, rtA, 'Bright-pass extraction');
       if (!probe.blurOff) {
         blur.uniforms.tex.value = rtA.texture; blur.uniforms.dir.value.set(1 / rtA.width, 0); pass(blur, rtB, 'Bloom blur horizontal');
@@ -95,7 +98,7 @@ export function createPostFX(THREE, renderer) {
       }
     }
     const G = (typeof grade === 'object' && grade) || GRADES[grade] || GRADES.warm, U = final.uniforms;
-    U.tScene.value = sceneRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = bloomOn ? bloom : 0; U.exposure.value = exposure;
+    U.tScene.value = postSceneRT.texture; U.tBloom.value = rtA.texture; U.bloom.value = bloomOn ? bloom : 0; U.exposure.value = exposure;
     U.lift.value.set(...G.lift); U.gain.value.set(...G.gain); U.sat.value = G.sat; U.contrast.value = G.contrast; U.vignette.value = G.vignette;
     U.toneMapEnabled.value = probe.toneMapOff ? 0 : 1; U.gradeEnabled.value = probe.gradeOff ? 0 : 1; U.vignetteEnabled.value = probe.vignetteOff ? 0 : 1;
     pass(final, prev, 'Final composite + tone map + grade');
@@ -112,7 +115,7 @@ export function createPostFX(THREE, renderer) {
     quad.material = final; renderer.setRenderTarget(prev); renderer.setScissorTest(true); renderer.setScissor(x, y, w, h); renderer.setViewport(x, y, w, h);
     renderer.render(quadScene, cam); renderer.setScissorTest(false);
   }
-  const api = { render, renderInset, setSize, afterScene: null, probe, passStats, get sceneRT() { return sceneRT; },
+  const api = { render, renderInset, setSize, afterScene: null, addAfterScene(fn) { afterScenePasses.push(fn); return () => { const i = afterScenePasses.indexOf(fn); if (i >= 0) afterScenePasses.splice(i, 1); }; }, probe, passStats, get sceneRT() { return sceneRT; },
     useDepth(on) { if (on && !depthRT) { depthRT = new THREE.WebGLRenderTarget(1, 1, opts); depthRT.depthTexture = new THREE.DepthTexture(); depthRT.depthTexture.type = THREE.UnsignedIntType; }
       sceneRT = on ? depthRT : msRT; setSize(); } };
   return api;

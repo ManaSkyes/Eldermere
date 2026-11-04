@@ -62,9 +62,9 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
   // ---- the dome: a sphere round the camera, the gradient, the sun's disc and glow, the moon, the stars ----
   const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 24), new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
-    uniforms: { top: { value: C() }, horizon: { value: C() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: C() }, sunK: { value: 1 }, moon: { value: 0 }, stars: { value: 0 }, uTime: { value: 0 }, cover: { value: 0 }, cloudCol: { value: C() }, cloudOff: { value: new THREE.Vector2() }, flash: { value: 0 }, puff: { value: 1 }, cirrus: { value: 0 }, dark: { value: 0 }, cscale: { value: 1 }, windDir: { value: new THREE.Vector2(1, 0) }, boltDir: { value: new THREE.Vector3(0, 1, 0) }, boltGlow: { value: 0 }, boltCol: { value: C() }, aurora: { value: 0 }, auroraA: { value: C().set('#3cff9a') }, auroraB: { value: C().set('#9a5cff') } },
+    uniforms: { top: { value: C() }, horizon: { value: C() }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: C() }, sunK: { value: 1 }, moon: { value: 0 }, stars: { value: 0 }, uTime: { value: 0 }, cover: { value: 0 }, cloudDensity: { value: 1 }, cloudCol: { value: C() }, cloudOff: { value: new THREE.Vector2() }, flash: { value: 0 }, puff: { value: 1 }, cirrus: { value: 0 }, dark: { value: 0 }, cscale: { value: 1 }, windDir: { value: new THREE.Vector2(1, 0) }, boltDir: { value: new THREE.Vector3(0, 1, 0) }, boltGlow: { value: 0 }, boltCol: { value: C() }, aurora: { value: 0 }, auroraA: { value: C().set('#3cff9a') }, auroraB: { value: C().set('#9a5cff') }, atmosphereStrength: { value: 0 }, rayleighScale: { value: 1 }, mieScale: { value: 1 }, mieDirectionality: { value: 0.76 } },
     vertexShader: `varying vec3 vD; void main() { vD = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = p.xyww; }`,
-    fragmentShader: `uniform vec3 top, horizon, sunDir, sunColor, cloudCol; uniform float sunK, moon, stars, uTime, cover, flash, puff, cirrus, dark, cscale, boltGlow; uniform vec2 cloudOff, windDir; uniform vec3 boltDir, boltCol, auroraA, auroraB; uniform float aurora; varying vec3 vD;
+    fragmentShader: `uniform vec3 top, horizon, sunDir, sunColor, cloudCol; uniform float sunK, moon, stars, uTime, cover, cloudDensity, flash, puff, cirrus, dark, cscale, boltGlow; uniform vec2 cloudOff, windDir; uniform vec3 boltDir, boltCol, auroraA, auroraB; uniform float aurora, atmosphereStrength, rayleighScale, mieScale, mieDirectionality; varying vec3 vD;
       float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
       float h2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
@@ -78,6 +78,18 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
         else { col += sunColor * pow(max(sd, 0.0), 30.0) * 0.12; float m = smoothstep(0.99955, 0.9997, sd); col = mix(col, vec3(0.86, 0.9, 1.0) * 1.4, m); }
         if (stars > 0.0 && y > 0.0) { vec3 q = floor(d * 280.0); float s = h3(q); float tw = 0.6 + 0.4 * sin(uTime * (1.0 + s * 3.0) + s * 50.0);
           col += vec3(smoothstep(0.996, 1.0, s)) * tw * stars * smoothstep(0.0, 0.25, y) * 1.2; }
+        // An opt-in Rayleigh/Mie approximation layered over Eldermere's authored sky colors.
+        if (atmosphereStrength > 0.001 && sunDir.y > 0.0 && y > -0.02) {
+          float mu = clamp(dot(d, normalize(sunDir)), -1.0, 1.0), airMass = 1.0 / max(0.12, max(y, 0.0) + 0.12);
+          float rayPhase = 0.75 * (1.0 + mu * mu), g = clamp(mieDirectionality, 0.5, 0.9);
+          float miePhase = (1.0 - g * g) / pow(max(0.04, 1.0 + g * g - 2.0 * g * mu), 1.5);
+          vec3 rayTrans = exp(-vec3(0.016, 0.038, 0.105) * airMass * rayleighScale);
+          vec3 mieTrans = exp(-vec3(0.025) * airMass * mieScale);
+          vec3 rayLight = (1.0 - rayTrans) * sunColor * rayPhase * 0.22 * sunK;
+          vec3 mieLight = (1.0 - mieTrans) * sunColor * miePhase * 0.008 * mieScale * sunK;
+          vec3 scatteredSky = col * rayTrans * mieTrans + rayLight + mieLight;
+          col = mix(col, scatteredSky, atmosphereStrength);
+        }
         // aurora: two curtains of light low over the sky, their bottoms sharp, fading upward, rippling slowly, with fine
         // rays; one colour at the base, another at the top (behind the clouds)
         if (aurora > 0.001 && y > 0.0) { float az = atan(d.x, d.z); vec2 ring = vec2(cos(az), sin(az)); vec3 ac = vec3(0.0);
@@ -97,7 +109,7 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
           vec2 w = vec2(fbm(uv * 0.35 + 1.3), fbm(uv * 0.35 + 7.1)) - 0.5;                               // warp: billowy, not blobby
           float n = fbm(uv * 0.5 + w * 1.6) * 0.65 + fbm(uv * 1.9 + w * 0.8 + 3.7) * 0.25 + fbm(uv * 6.0 + 9.0) * 0.1;
           n = clamp((n - 0.28) / 0.44, 0.0, 1.0);                                                         // (stretched: cover maps evenly onto the sky)
-          float th = 1.0 - cover, c = smoothstep(th - 0.02, th + mix(0.3, 0.06, puff), n);
+          float th = clamp(1.0 - cover * cloudDensity, 0.0, 1.0), c = smoothstep(th - 0.02, th + mix(0.3, 0.06, puff), n);
           // light: sample the density a step toward the sun; thinner there means a lit edge
           vec2 sdir = normalize(sunDir.xz + 1e-4) * 0.12; float n2 = clamp((fbm((uv + sdir) * 0.5 + w * 1.6) * 0.65 + fbm((uv + sdir) * 1.9 + w * 0.8 + 3.7) * 0.25 + 0.05 - 0.28) / 0.44, 0.0, 1.0);
           float lit = clamp(0.7 + (n - n2) * 1.6 * puff + 0.25 * max(sd, 0.0) - (n - th) * 0.35 * puff, 0.3, 1.3) * mix(1.0, 0.45, dark * smoothstep(th, th + 0.5, n));
@@ -111,6 +123,7 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
   }));
   dome.renderOrder = -1000; dome.frustumCulled = false; scene.add(dome);
   const state = { top: cur.top, horizon: cur.horizon, fog: cur.fog, near: 0, far: 0, sunColor: cur.sunColor, sun: 0, sunDir: { x: 0, y: 1, z: 0 }, hemi: ['#ffffff', '#000000', 0], hemiSky: cur.hemiSky, hemiGround: cur.hemiGround, stars: 0, bloom: 0, grade: cur.grade, lamps: PHASES[to].look.lamps, phase: PHASES[to], hour: clock, view };
+  const atmosphereFog = C(), coolAir = C().set('#b9d1e5');
   // the weather's hold on the light (src/gfx/weather.js sets these each frame): cloud cover, a tint over the sky and
   // the fog, the fog pulled closer, the sun and ambient light dimmed, and a lightning flash
   const W = { aurora: 0, auroraDay: 0, auroraA: C().set('#3cff9a'), auroraB: C().set('#9a5cff'), puff: 1, cirrus: 0, dark: 0, cscale: 1, windDir: [1, 0], boltDir: [0, 1, 0], boltGlow: 0, cover: 0, tint: C().set('#8a9098'), tintK: 0, fogTint: C().set('#9aa0a8'), fogTintK: 0, fogK: 1, sunK: 1, ambK: 1, flash: 0, flashColor: C().set('#e4ecff'), cloudOff: [0, 0], cloudCol: null };
@@ -124,11 +137,13 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
   const sync = () => {
     const ck = W.cover, moon = PHASES[to].look.moon, day = Math.min(1, cur.sun / 1.1) * (moon ? 0 : 1);
     tinted(state.top, cur.top, W.tint, W.tintK); tinted(state.horizon, cur.horizon, W.tint, W.tintK * 0.85); tinted(state.fog, cur.fog, W.fogTint, W.fogTintK, 1.05);
+    { const U = dome.material.uniforms, scatter = U.atmosphereStrength.value * Math.max(0, Math.min(1, cur.dir[1] * 1.5));
+      if (scatter > 0) { atmosphereFog.copy(state.horizon).lerp(coolAir, 0.18).lerp(cur.sunColor, 0.16); state.fog.lerp(atmosphereFog, scatter * 0.65); } }
     // overcast evens the light: by day the sun goes weak and grey and the whole sky lights the ground instead; by
     // night the clouds hide the moon and stars, and it gets properly dark
     state.hemiSky.copy(cur.hemiSky).lerp(state.fog, ck * 0.45); state.hemiGround.copy(cur.hemiGround).lerp(state.fog, ck * 0.2);
     grey.setScalar(lum(cur.sunColor)); state.sunColor.copy(cur.sunColor).lerp(grey, ck * 0.6 + W.dark * 0.2);
-    state.near = cur.near * fogScale * W.fogK; state.far = Math.max(state.near + 8, Math.min(cur.far * fogScale * W.fogK, view * 0.95));   /* (fogScale: a map that sees further on a clear day) */
+    state.near = cur.near * fogScale * W.fogK; state.far = Math.max(state.near + 8, Math.min(cur.far * fogScale * W.fogK * (1 - dome.material.uniforms.atmosphereStrength.value * 0.22), view * 0.95));   /* (fogScale: a map that sees further on a clear day; scattering adds distance haze) */
     state.sun = cur.sun * W.sunK * (1 - ck * (moon ? 0.65 : 0.7)) * (1 - W.dark * 0.4); state.sunDir = { x: cur.dir[0], y: cur.dir[1], z: cur.dir[2] };
     state.hemi = [state.hemiSky, state.hemiGround, cur.hemiK * W.ambK * (1 + ck * 0.3 * day - ck * 0.2 * (1 - day)) * (1 - W.dark * 0.3) + W.boltGlow * 0.08];   /* (a bolt: the faintest, slow-eased lift: never a flash) */
     state.stars = cur.stars * Math.max(0, 1 - ck * 1.4); state.bloom = cur.bloom; state.grade = cur.grade; state.phase = PHASES[to]; state.hour = clock;
@@ -147,6 +162,8 @@ export function createSky(THREE, scene, { hour = 12, cycle = true, dayMinutes = 
   sync();
   const api = {
     dome, state, PHASES, onPhase: null, weather: W,
+    setCloudDensity(value) { if (Number.isFinite(value)) dome.material.uniforms.cloudDensity.value = Math.max(0, Math.min(1.8, value)); },
+    setAtmosphereControls({ strength, rayleigh, mie, directionality } = {}) { const u = dome.material.uniforms; if (Number.isFinite(strength)) u.atmosphereStrength.value = Math.max(0, Math.min(1, strength)); if (Number.isFinite(rayleigh)) u.rayleighScale.value = Math.max(0, Math.min(2, rayleigh)); if (Number.isFinite(mie)) u.mieScale.value = Math.max(0, Math.min(2, mie)); if (Number.isFinite(directionality)) u.mieDirectionality.value = Math.max(0.5, Math.min(0.9, directionality)); },
     get hour() { return clock; },
     set cycle(v) { cycle = v; }, get cycle() { return cycle; },
     set dayMinutes(v) { dayMinutes = v; }, set blend(v) { blend = v; },

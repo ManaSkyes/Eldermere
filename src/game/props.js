@@ -75,7 +75,7 @@ export function buildProps(d, kit, shapes, origin) {
     };
     const barrel = (u, v, y = 0) => { B(u - 0.3, u + 0.3, v - 0.3, v + 0.3, y, y + 0.9, K.wood, 4); for (const h of [0.15, 0.7]) T(u - 0.32, u + 0.32, v - 0.32, v + 0.32, y + h, y + h + 0.06, K.iron); T(u - 0.26, u + 0.26, v - 0.26, v + 0.26, y + 0.9, y + 0.92, K.dark, 4); };
     const crate = (u, v, s, y = 0) => { B(u - s, u + s, v - s, v + s, y, y + 2 * s, K.wood, 4); T(u - s - 0.02, u + s + 0.02, v - s - 0.02, v + s + 0.02, y + s * 0.9, y + s * 1.1, K.dark, 4); T(u - s - 0.02, u + s + 0.02, v - s - 0.02, v + s + 0.02, y + 2 * s - 0.06, y + 2 * s, K.dark, 4); };
-    const flower = (u, v, y, n) => { if (kit.plant) { for (let i = 0; i < Math.max(1, Math.round(n / 3)); i++) { const [px, pz] = P(u + (rnd() - 0.5) * 0.25, v + (rnd() - 0.5) * 0.25); kit.plant('flower', px, Y + y - 0.1, pz, 0.7 + rnd() * 0.3, rnd() * 6.28, Math.floor(rnd() * 6)); } return; } for (let i = 0; i < n; i++) { const a = u + (rnd() - 0.5) * 0.3, b = v + (rnd() - 0.5) * 0.3, s = 0.06 + rnd() * 0.04; T(a - s, a + s, b - s, b + s, y, y + 0.1 + rnd() * 0.08, K.flowers[Math.floor(rnd() * 5)]); } };
+    const flower = (u, v, y, n) => { if (kit.plant) { for (let i = 0; i < Math.max(1, Math.round(n / 3)); i++) { const [px, pz] = P(u + (rnd() - 0.5) * 0.25, v + (rnd() - 0.5) * 0.25); kit.plant('flower', px, Y + y - 0.1, pz, 0.7 + rnd() * 0.3, rnd() * 6.28, Math.floor(rnd() * 10)); } return; } for (let i = 0; i < n; i++) { const a = u + (rnd() - 0.5) * 0.3, b = v + (rnd() - 0.5) * 0.3, s = 0.06 + rnd() * 0.04; T(a - s, a + s, b - s, b + s, y, y + 0.1 + rnd() * 0.08, K.flowers[Math.floor(rnd() * 5)]); } };
     switch (o.type) {
       // ---- gatherables ----
       case 'sunCupTulip': {

@@ -31,7 +31,7 @@ export function placeFoliage(c) {
   const shoreSpeed = new Float32Array(N).fill(9); for (let k = 0; k < N; k++) if (wDepth[k] > 0) shoreSpeed[k] = wSpeed[k];
   for (let pass = 0; pass < 4; pass++) for (let j = 1; j < H - 1; j++) for (let i = 1; i < W - 1; i++) { const k = j * W + i; if (wDepth[k] > 0) continue; shoreSpeed[k] = Math.min(shoreSpeed[k], shoreSpeed[k - 1], shoreSpeed[k + 1], shoreSpeed[k - W], shoreSpeed[k + W]); }
   const passive = gp?.passive !== false;
-  const put = (k, i, j, n, x, z, y, s = 1, tint = null) => { const c = CLEAR[k], q = j * W + i; if (c && (rDist[q] < c || bDist[q] < c)) return; plant(k, x, y, z, s * (0.8 + hash(i, j, n + 1) * 0.45), hash(i, j, n + 2) * 6.283, Math.floor(hash(i, j, n + 3) * 6), tint); };
+  const put = (k, i, j, n, x, z, y, s = 1, tint = null) => { const c = CLEAR[k], q = j * W + i; if (c && (rDist[q] < c || bDist[q] < c)) return; const variants = k === 'flower' ? 11 : 6; plant(k, x, y, z, s * (0.8 + hash(i, j, n + 1) * 0.45), hash(i, j, n + 2) * 6.283, Math.floor(hash(i, j, n + 3) * variants), tint); };
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const k = j * W + i; if (roadTop[k] > -Infinity || pieceTop[k] > -Infinity || isFill(i, j)) continue;
     const kind = kindAt(i, j), cl = cliffAt(i + 0.5, j + 0.5); if (cl > 0.3 || kind === 8) continue;   // (cliffs, cobbles)

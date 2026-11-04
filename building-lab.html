@@ -67,7 +67,7 @@ const LABEL = { boards: 'Board and batten', weatherboard: 'Weatherboard', daub: 
 // ---------------------------------------------------------------- the asset library
 // style: which town styles a part belongs to (the Style filter); type: the Type filter
 const STYLES = [['all', 'All'], ['tudor', 'Tudor'], ['wooden', 'Wooden town'], ['victorian', 'Victorian'], ['common', 'Common']];
-const TYPES = [['all', 'All'], ['shells', 'Shells'], ['walls', 'Walls'], ['windows', 'Windows'], ['doors', 'Doors'], ['roofs', 'Roofs'], ['civic', 'Guild & civic'], ['porch', 'Porches & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trims'], ['decor', 'Decoration'], ['street', 'Street props'], ['decals', 'Decals']];
+const TYPES = [['all', 'All'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details']];
 const ITEMS = [
   { id: 'shell_cottage', name: 'Cottage', type: 'shells', style: ['tudor'], box: { w: 6, d: 4.5, s: 1, g: 'timber_close', u: 'timber_close', pitch: 52 } },
   { id: 'shell_tudor', name: 'Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'brick', u: 'timber_close', pitch: 50 } },
@@ -87,13 +87,13 @@ const ITEMS = [
   { id: 'feat_door_stable', name: 'Stable door', type: 'doors', style: ['wooden', 'tudor', 'common'], feature: 'feat_door_stable' },
   { id: 'feat_door_board', name: 'Ledged board door', type: 'doors', style: ['wooden', 'common'], feature: 'feat_door_board' },
   { id: 'feat_shopfront', name: 'Shop counter', type: 'doors', style: ['wooden', 'tudor', 'common'], feature: 'feat_shopfront' },
-  { id: 'feat_shutters_plank', name: 'Plank shutters', type: 'decor', style: ['wooden', 'tudor', 'common'], feature: 'feat_shutters_plank' },
-  { id: 'feat_shutters_louvre', name: 'Louvred shutters', type: 'decor', style: ['wooden', 'victorian', 'common'], feature: 'feat_shutters_louvre' },
+  { id: 'feat_shutters_plank', name: 'Plank shutters', type: 'wall-details', style: ['wooden', 'tudor', 'common'], feature: 'feat_shutters_plank' },
+  { id: 'feat_shutters_louvre', name: 'Louvred shutters', type: 'wall-details', style: ['wooden', 'victorian', 'common'], feature: 'feat_shutters_louvre' },
   // batch 2: small windows, dormers, lean-tos, outside stairs, street props
   { id: 'feat_window_lattice', name: 'Small leaded window', type: 'windows', style: ['wooden', 'tudor'], feature: 'feat_window_lattice' },
   { id: 'feat_window_lattice2', name: 'Leaded two-light window', type: 'windows', style: ['wooden', 'tudor'], feature: 'feat_window_lattice2' },
   { id: 'feat_window_square', name: 'Small timber window', type: 'windows', style: ['wooden', 'common'], feature: 'feat_window_square' },
-  { id: 'dormer', name: 'Dormer', type: 'roofs', style: ['wooden', 'tudor', 'victorian', 'common'], dormer: true },
+  { id: 'dormer', name: 'Dormer', type: 'roof-details', style: ['wooden', 'tudor', 'victorian', 'common'], dormer: true },
   { id: 'leanto', name: 'Lean-to shed', type: 'shells', style: ['wooden', 'common'], leanto: { width: 3, depth: 2, height: 2.1, wall: 'boards', cover: 'shingle' } },
   { id: 'leanto_thatch', name: 'Lean-to, thatched', type: 'shells', style: ['wooden'], leanto: { width: 3, depth: 2, height: 2.1, wall: 'daub', cover: 'thatch' } },
   { id: 'stair_out', name: 'Outside stair', type: 'porch', style: ['wooden', 'tudor', 'common'], platform: { kind: 'stair', material: 'oak', width: 1.0, height: 3.0 } },
@@ -104,17 +104,17 @@ const ITEMS = [
   { id: 'prop_well', name: 'Well', type: 'street', style: ['wooden', 'tudor', 'common'], prop: 'prop_well', natural: true },
   // batch 3: the guild's civic pieces and banners
   { id: 'pediment', name: 'Pediment with crest', type: 'civic', style: ['victorian', 'common'], pediment: { pitch: 20, crest: 'crest' } },
-  { id: 'prop_column_ionic', name: 'Ionic column', type: 'civic', style: ['victorian', 'common'], prop: 'prop_column_ionic' },
-  { id: 'prop_column_plain', name: 'Plain column', type: 'civic', style: ['victorian', 'tudor', 'common'], prop: 'prop_column_plain' },
-  { id: 'portico_ionic', name: 'Ionic portico', type: 'civic', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'ionic', width: 4.4, depth: 2.6, height: 3.4, columns: 4 } },
-  { id: 'portico_plain', name: 'Plain portico', type: 'civic', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'plain', width: 3.2, depth: 2.2, height: 3.0, columns: 2 } },
-  { id: 'feat_window_venetian', name: 'Venetian window', type: 'civic', style: ['victorian', 'common'], feature: 'feat_window_venetian' },
-  { id: 'cupola', name: 'Cupola', type: 'civic', style: ['victorian', 'wooden', 'common'], turret: { turret: 'cupola', finial: 'ball', size: 1.3 } },
-  { id: 'cupola_crystal', name: 'Guild crystal cupola', type: 'civic', style: ['victorian', 'common'], turret: { turret: 'cupola', finial: 'crystal', size: 1.5 } },
-  { id: 'bell_turret', name: 'Bell turret', type: 'civic', style: ['wooden', 'tudor', 'common'], turret: { turret: 'bell', finial: 'spike', size: 1.2 } },
-  { id: 'banner_red', name: 'Crest banner', type: 'decor', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#7a1f22', emblem: 'crest', width: 0.8, length: 1.8 } },
-  { id: 'banner_blue', name: 'Star banner', type: 'decor', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#1f3466', emblem: 'star', width: 0.8, length: 1.8 } },
-  { id: 'sign_hanging', name: 'Hanging sign', type: 'decor', style: ['wooden', 'tudor', 'common'], banner: { kind: 'sign', color: '#2c4a34', emblem: 'sun' } },
+  { id: 'prop_column_ionic', name: 'Ionic column', type: 'supports', style: ['victorian', 'common'], prop: 'prop_column_ionic' },
+  { id: 'prop_column_plain', name: 'Plain column', type: 'supports', style: ['victorian', 'tudor', 'common'], prop: 'prop_column_plain' },
+  { id: 'portico_ionic', name: 'Ionic portico', type: 'supports', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'ionic', width: 4.4, depth: 2.6, height: 3.4, columns: 4 } },
+  { id: 'portico_plain', name: 'Plain portico', type: 'supports', style: ['victorian', 'common'], platform: { kind: 'portico', order: 'plain', width: 3.2, depth: 2.2, height: 3.0, columns: 2 } },
+  { id: 'feat_window_venetian', name: 'Venetian window', type: 'windows', style: ['victorian', 'common'], feature: 'feat_window_venetian' },
+  { id: 'cupola', name: 'Cupola', type: 'roof-details', style: ['victorian', 'wooden', 'common'], turret: { turret: 'cupola', finial: 'ball', size: 1.3 } },
+  { id: 'cupola_crystal', name: 'Guild crystal cupola', type: 'roof-details', style: ['victorian', 'common'], turret: { turret: 'cupola', finial: 'crystal', size: 1.5 } },
+  { id: 'bell_turret', name: 'Bell turret', type: 'roof-details', style: ['wooden', 'tudor', 'common'], turret: { turret: 'bell', finial: 'spike', size: 1.2 } },
+  { id: 'banner_red', name: 'Crest banner', type: 'signage', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#7a1f22', emblem: 'crest', width: 0.8, length: 1.8 } },
+  { id: 'banner_blue', name: 'Star banner', type: 'signage', style: ['victorian', 'tudor', 'wooden', 'common'], banner: { kind: 'banner', color: '#1f3466', emblem: 'star', width: 0.8, length: 1.8 } },
+  { id: 'sign_hanging', name: 'Hanging sign', type: 'signage', style: ['wooden', 'tudor', 'common'], banner: { kind: 'sign', color: '#2c4a34', emblem: 'sun' } },
   { id: 'shell_shed', name: 'Plaster shed', type: 'shells', style: ['common'], box: { w: 4, d: 3, s: 1, g: 'plaster', u: 'plaster', pitch: 40 } },
   { id: 'wall_25', name: 'Wall 2.5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 2.5 } },
   { id: 'wall_5', name: 'Wall 5 m', type: 'walls', style: ['tudor', 'victorian', 'common'], wall: { width: 5 } },
@@ -134,14 +134,14 @@ const ITEMS = [
   { id: 'feat_door', name: 'Arched door', type: 'doors', style: ['victorian'], feature: 'feat_door' },
   { id: 'feat_door_timber', name: 'Plank door', type: 'doors', style: ['tudor', 'common'], feature: 'feat_door_timber' },
   { id: 'roof_gable', name: 'Gable roof', type: 'roofs', style: ['tudor', 'victorian', 'common'], roof: true },
-  { id: 'prop_column', name: 'Stone porch column', type: 'porch', style: ['victorian'], prop: 'prop_column' },
-  { id: 'prop_post', name: 'Oak porch post', type: 'porch', style: ['tudor', 'common'], prop: 'prop_post' },
-  { id: 'feat_window_grand', name: 'Grand arched window', type: 'civic', style: ['victorian'], feature: 'feat_window_grand' },
-  { id: 'feat_door_grand', name: 'Grand double doors', type: 'civic', style: ['victorian'], feature: 'feat_door_grand' },
-  { id: 'feat_pilaster', name: 'Pilaster', type: 'civic', style: ['victorian'], feature: 'feat_pilaster' },
-  { id: 'balustrade', name: 'Balustrade parapet', type: 'civic', style: ['victorian'], balustrade: true },
-  { id: 'trim_entablature', name: 'Entablature', type: 'civic', style: ['victorian'], trim: 'entablature' },
-  { id: 'trim_band', name: 'Stone sill band', type: 'civic', style: ['victorian'], trim: 'band' },
+  { id: 'prop_column', name: 'Stone porch column', type: 'supports', style: ['victorian'], prop: 'prop_column' },
+  { id: 'prop_post', name: 'Oak porch post', type: 'supports', style: ['tudor', 'common'], prop: 'prop_post' },
+  { id: 'feat_window_grand', name: 'Grand arched window', type: 'windows', style: ['victorian'], feature: 'feat_window_grand' },
+  { id: 'feat_door_grand', name: 'Grand double doors', type: 'doors', style: ['victorian'], feature: 'feat_door_grand' },
+  { id: 'feat_pilaster', name: 'Pilaster', type: 'supports', style: ['victorian'], feature: 'feat_pilaster' },
+  { id: 'balustrade', name: 'Balustrade parapet', type: 'supports', style: ['victorian'], balustrade: true },
+  { id: 'trim_entablature', name: 'Entablature', type: 'trims', style: ['victorian'], trim: 'entablature' },
+  { id: 'trim_band', name: 'Stone sill band', type: 'trims', style: ['victorian'], trim: 'band' },
   { id: 'platform_stone', name: 'Stone porch platform', type: 'porch', style: ['victorian', 'common'], platform: { kind: 'platform', material: 'stone', width: 2.5, depth: 1.6, height: 0.48 } },
   { id: 'platform_oak', name: 'Oak porch deck', type: 'porch', style: ['tudor', 'common'], platform: { kind: 'platform', material: 'oak', width: 2.5, depth: 1.6, height: 0.48 } },
   { id: 'steps_stone', name: 'Stone steps', type: 'porch', style: ['victorian', 'common'], platform: { kind: 'steps', material: 'stone', width: 1.5, height: 0.48 } },
@@ -158,21 +158,21 @@ const ITEMS = [
   { id: 'gate_gap_oak', name: 'Oak gate for a wall gap', type: 'fences', style: ['tudor', 'common'], gap: 'rail' },
   { id: 'gate_picket', name: 'Picket gate', type: 'fences', style: ['tudor', 'common'], gate: { kind: 'single', fence: 'picket' } },
   { id: 'gate_rail', name: 'Five-bar gate', type: 'fences', style: ['tudor', 'common'], gate: { kind: 'single', fence: 'rail', width: 2.4 } },
-  ...Object.entries(DECALS).map(([k, d]) => ({ id: 'decal_' + k, name: { wanted: 'Wanted poster', notice: 'Public notice', playbill: 'Theatre playbill', torn: 'Torn poster', ghost_sign: 'Painted coal sign', street_plate: 'Street nameplate', guild_notice: 'Adventurers wanted', soot: 'Soot streak', damp: 'Damp stain', moss: 'Moss patch', brick_showing: 'Plaster fallen off', apothecary: 'Apothecary lettering', chalk: 'Chalk marks', coal_hole: 'Coal-hole cover' }[k] || k, type: 'decals', style: ['tudor', 'victorian', 'common'], decal: k })),
+  ...Object.entries(DECALS).map(([k, d]) => ({ id: 'decal_' + k, name: { wanted: 'Wanted poster', notice: 'Public notice', playbill: 'Theatre playbill', torn: 'Torn poster', ghost_sign: 'Painted coal sign', street_plate: 'Street nameplate', guild_notice: 'Adventurers wanted', soot: 'Soot streak', damp: 'Damp stain', moss: 'Moss patch', brick_showing: 'Plaster fallen off', apothecary: 'Apothecary lettering', chalk: 'Chalk marks', coal_hole: 'Coal-hole cover' }[k] || k, type: ['soot', 'damp', 'moss', 'brick_showing'].includes(k) ? 'weathering' : k === 'coal_hole' ? 'ground-details' : ['street_plate', 'apothecary'].includes(k) ? 'signage' : 'notices', style: ['tudor', 'victorian', 'common'], decal: k })),
   { id: 'trim_plinth', name: 'Plinth', type: 'trims', style: ['victorian', 'common'], trim: 'plinth', variant: 'clean' },
   { id: 'trim_plinth_mossy', name: 'Mossy plinth', type: 'trims', style: ['victorian', 'common', 'tudor'], trim: 'plinth', variant: 'mossy' },
   { id: 'trim_plinth_cracked', name: 'Cracked plinth', type: 'trims', style: ['victorian', 'common'], trim: 'plinth', variant: 'cracked' },
   { id: 'trim_plinth_chipped', name: 'Chipped plinth', type: 'trims', style: ['victorian', 'common', 'tudor'], trim: 'plinth', variant: 'chipped' },
   { id: 'trim_string', name: 'String course', type: 'trims', style: ['victorian'], trim: 'string' },
   { id: 'trim_cornice', name: 'Cornice', type: 'trims', style: ['victorian'], trim: 'cornice' },
-  { id: 'feat_shutters', name: 'Shutters', type: 'decor', style: ['victorian'], feature: 'feat_shutters' },
-  { id: 'feat_flowerbox', name: 'Window box', type: 'decor', style: ['tudor', 'victorian', 'common'], feature: 'feat_flowerbox' },
-  { id: 'feat_lantern', name: 'Wall lantern', type: 'decor', style: ['victorian', 'common'], feature: 'feat_lantern' },
-  { id: 'feat_sign', name: 'Hanging sign', type: 'decor', style: ['tudor', 'victorian', 'common'], feature: 'feat_sign' },
-  { id: 'pipe', name: 'Downpipe', type: 'decor', style: ['victorian', 'common'], pipe: true },
-  { id: 'quoins', name: 'Quoins', type: 'decor', style: ['victorian'], quoins: true },
-  { id: 'ivy', name: 'Ivy', type: 'decor', style: ['tudor', 'victorian', 'common'], ivy: true },
-  { id: 'chimney', name: 'Chimney', type: 'decor', style: ['tudor', 'victorian', 'common'], chimney: true },
+  { id: 'feat_shutters', name: 'Shutters', type: 'wall-details', style: ['victorian'], feature: 'feat_shutters' },
+  { id: 'feat_flowerbox', name: 'Window box', type: 'wall-details', style: ['tudor', 'victorian', 'common'], feature: 'feat_flowerbox' },
+  { id: 'feat_lantern', name: 'Wall lantern', type: 'lighting', style: ['victorian', 'common'], feature: 'feat_lantern' },
+  { id: 'feat_sign', name: 'Hanging sign', type: 'signage', style: ['tudor', 'victorian', 'common'], feature: 'feat_sign' },
+  { id: 'pipe', name: 'Downpipe', type: 'drainage', style: ['victorian', 'common'], pipe: true },
+  { id: 'quoins', name: 'Quoins', type: 'wall-details', style: ['victorian'], quoins: true },
+  { id: 'ivy', name: 'Ivy', type: 'greenery', style: ['tudor', 'victorian', 'common'], ivy: true },
+  { id: 'chimney', name: 'Chimney', type: 'roof-details', style: ['tudor', 'victorian', 'common'], chimney: true },
 ].filter(it => (!it.feature || kit.features[it.feature]) && (!it.prop || kit.features[it.prop]));
 const HINT = { balustrade: 'Drop it on a wall: it runs along the top', gap: 'Drop it in the gap between two wall ends', fence: 'Drag on the ground to draw it (or drop for 5 m)', gate: 'Drop it on a fence, or on the ground', decal: 'Drop it on a wall (the coal-hole cover goes on the ground)', platform: 'Drop it in front of a wall or platform', prop: 'Drop it on the ground', canopy: 'Drop it on a wall', pipe: 'Drop it on a wall', feature: 'Drop it on a wall', wall: 'Drop it on the ground (storey from the Tools panel)', box: 'Drop it on the ground', roof: 'Drop it on a building',
   trim: 'Drop it on a wall', quoins: 'Drop it near the end of a wall', ivy: 'Drop it on a wall', chimney: 'Drop it on a roof' };
@@ -249,7 +249,7 @@ function toDesc(b) {
       segs.push([x, x1]);
       for (const [a, c] of segs) if (c - a > 0.1) {
         const p = new THREE.Vector3(a, 0, 0).applyMatrix4(wallM(w));
-        trims.push({ trim: name, variant: t.variant, x: p.x, z: p.z, rot: w.rot, base: (w.base || 0) + (t.y ?? 0), length: c - a,
+        trims.push({ trim: name, variant: t.variant, wear: t.wear || w.wear, x: p.x, z: p.z, rot: w.rot, base: (w.base || 0) + (t.y ?? 0), length: c - a,
           ends: [a < 0.01 ? endOf(J?.kind[0]) : 0, c > w.width - 0.01 ? endOf(J?.kind[1]) : 0] });
       }
     }
@@ -971,10 +971,27 @@ function props() {
   } else if (sel.kind === 'corner') {
     $('selT').textContent = 'Quoins'; h += field('Height', num('height', o.height, 0.6, 0.6)) + `<div class="btns"><button data-a="del">Delete</button></div>`;
   }
+  // Weathering is stored per part as [weathering, damage, growth], matching buildFromKit.
+  // Wall-mounted features inherit the wall's values; independently built pieces get their own controls.
+  if (['wall', 'trim', 'roof', 'chimney', 'corner', 'prop', 'platform', 'fence'].includes(sel.kind)) {
+    const wear = Array.isArray(o.wear) ? o.wear : [0, 0, 0];
+    const wearSlider = (key, label, value) => field(label, `<span style="display:flex;align-items:center;gap:6px"><input type="range" min="0" max="1" step="0.01" data-k="${key}" value="${Math.max(0, Math.min(1, Number(value) || 0))}" style="flex:1;min-width:0"><output style="width:34px;text-align:right">${Math.round((Number(value) || 0) * 100)}%</output></span>`);
+    h += '<h2>Weather &amp; wear</h2>';
+    h += wearSlider('wearWeather', 'Weathering', wear[0]);
+    h += wearSlider('wearDamage', 'Damage', wear[1]);
+    h += wearSlider('wearGrowth', 'Moss / growth', wear[2]);
+  }
   P.innerHTML = h;
 }
 $('props').addEventListener('change', (e) => {
   const k = e.target.dataset.k; if (!k || !sel) return; const o = sel.o, v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const wearIndex = { wearWeather: 0, wearDamage: 1, wearGrowth: 2 }[k];
+  if (wearIndex !== undefined) {
+    o.wear = Array.isArray(o.wear) ? o.wear.slice(0, 3) : [0, 0, 0];
+    while (o.wear.length < 3) o.wear.push(0);
+    o.wear[wearIndex] = Math.max(0, Math.min(1, +v));
+    changed(); props(); return;
+  }
   const gm = k.match(/^g(\d+)_(at|width|kind|open)$/);
   if (gm) { const g = o.gates[+gm[1]]; g[gm[2]] = gm[2] === 'kind' ? v : gm[2] === 'open' ? v : +v; changed(); props(); return; }
   if (k === 'fkind') { o.kind = v; delete o.height; changed(); props(); return; }

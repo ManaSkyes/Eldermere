@@ -20,11 +20,70 @@ export function createAudio() {
     // one second of white noise, reused by every sound
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    // Warm the most common surface banks after the user's first game interaction; other surfaces load on demand.
+    void loadFootstepBank('grass', 'walk'); void loadFootstepBank('grass', 'run');
+    void loadMovementBank('grass', 'jump'); void loadMovementBank('grass', 'land');
     return true;
   }
   const rnd = (a, b) => a + Math.random() * (b - a);
   // weight → how deep and how loud. 70 kg at average size is 1.
   const heft = b => Math.max(0.4, Math.min(3, Math.pow((b?.mass ?? 70) / 70, 0.6)));
+  const footstepBanks = new Map(), footstepLoading = new Map(), footstepLast = new Map();
+  let footstepManifestPromise = null;
+  const footstepPackKey = { grass: 'grass', dirt: 'dirtyGround', stone: 'rock', tile: 'tile', sand: 'sand', gravel: 'gravel', mud: 'mud', snow: 'snow', water: 'water', wood: 'wood', metal: 'metal', leaves: 'leaves' };
+  async function loadFootstepBank(surface, gait) {
+    const key = `${surface}:${gait}`; if (footstepBanks.has(key)) return footstepBanks.get(key);
+    if (footstepLoading.has(key)) return footstepLoading.get(key);
+    const pending = (async () => {
+      if (!footstepManifestPromise) footstepManifestPromise = fetch(new URL('../../data/audio/footsteps/manifest.json', import.meta.url)).then(r => { if (!r.ok) throw new Error(`Footstep manifest: ${r.status}`); return r.json(); });
+      const manifest = await footstepManifestPromise, files = manifest[footstepPackKey[surface]]?.[gait] || [];
+      if (!ctx || !files.length) return null;
+      const decoded = await Promise.all(files.map(async file => { const r = await fetch(new URL(`../../data/audio/footsteps/${file}`, import.meta.url)); if (!r.ok) throw new Error(`Footstep clip: ${r.status}`); return ctx.decodeAudioData(await r.arrayBuffer()); }));
+      footstepBanks.set(key, decoded); return decoded;
+    })().catch(err => { console.warn('Footstep audio pack could not load; using the synthesized fallback.', err); return null; }).finally(() => footstepLoading.delete(key));
+    footstepLoading.set(key, pending); return pending;
+  }
+  function playFootstep(surface, body, speed, soft, t) {
+    const gait = speed > 0.78 ? 'run' : 'walk', key = `${surface}:${gait}`; let bank = footstepBanks.get(key);
+    if (!bank) { void loadFootstepBank(surface, gait); return false; }
+    if (!bank.length) return false;
+    let pick = Math.floor(Math.random() * bank.length), last = footstepLast.get(key);
+    if (bank.length > 1 && pick === last) pick = (pick + 1 + Math.floor(Math.random() * (bank.length - 1))) % bank.length;
+    footstepLast.set(key, pick);
+    const source = ctx.createBufferSource(), gain = ctx.createGain(), h = heft(body), low = 1 / (Math.pow(h, 0.5) * Math.pow(body?.size ?? 1, 0.6));
+    source.buffer = bank[pick]; source.playbackRate.value = rnd(0.96, 1.04) * Math.max(0.92, Math.min(1.08, 0.98 + speed * 0.04));
+    gain.gain.setValueAtTime(0.72 * (0.25 * (0.45 + 0.55 * Math.min(1.3, speed)) * (soft ? 0.35 : 1)) * Math.min(1.6, 0.6 + 0.4 * h), t);
+    source.connect(gain).connect(master); source.start(t);
+    // Keep a quiet body-weight thud under the recorded surface sound.
+    tone(t, 0.09, { freq: 84 * low, to: 48 * low, gain: 0.035 * Math.min(1.6, 0.6 + 0.4 * h) });
+    return true;
+  }
+
+  const movementBanks = new Map(), movementLoading = new Map(), movementLast = new Map();
+  async function loadMovementBank(surface, action) {
+    const key = `${surface}:${action}`; if (movementBanks.has(key)) return movementBanks.get(key);
+    if (movementLoading.has(key)) return movementLoading.get(key);
+    const pending = (async () => {
+      if (!footstepManifestPromise) footstepManifestPromise = fetch(new URL('../../data/audio/footsteps/manifest.json', import.meta.url)).then(r => { if (!r.ok) throw new Error(`Footstep manifest: ${r.status}`); return r.json(); });
+      const manifest = await footstepManifestPromise, files = manifest[footstepPackKey[surface]]?.[action] || [];
+      if (!ctx || !files.length) return null;
+      const decoded = await Promise.all(files.map(async file => { const r = await fetch(new URL(`../../data/audio/footsteps/${file}`, import.meta.url)); if (!r.ok) throw new Error(`Movement clip: ${r.status}`); return ctx.decodeAudioData(await r.arrayBuffer()); }));
+      movementBanks.set(key, decoded); return decoded;
+    })().catch(err => { console.warn('Jump/landing audio could not load; using the synthesized fallback.', err); return null; }).finally(() => movementLoading.delete(key));
+    movementLoading.set(key, pending); return pending;
+  }
+  function playMovementClip(surface, action, body, force = 1) {
+    const key = `${surface}:${action}`; let bank = movementBanks.get(key);
+    if (!bank) { void loadMovementBank(surface, action); return false; }
+    if (!bank.length) return false;
+    let pick = Math.floor(Math.random() * bank.length), last = movementLast.get(key);
+    if (bank.length > 1 && pick === last) pick = (pick + 1 + Math.floor(Math.random() * (bank.length - 1))) % bank.length;
+    movementLast.set(key, pick);
+    const source = ctx.createBufferSource(), gain = ctx.createGain(), h = heft(body);
+    source.buffer = bank[pick]; source.playbackRate.value = rnd(0.96, 1.04) / Math.max(0.85, Math.min(1.2, Math.pow(h, 0.12)));
+    gain.gain.value = (action === 'land' ? 0.62 : 0.5) * Math.max(0.35, Math.min(1.35, force));
+    source.connect(gain).connect(master); source.start(ctx.currentTime); return true;
+  }
 
   function noise(t, dur, { type = 'lowpass', freq = 800, q = 0.7, gain = 0.3, attack = 0.004, sweepTo = null, out = null }) {
     const src = ctx.createBufferSource(); src.buffer = noiseBuf; src.playbackRate.value = rnd(0.9, 1.1);
@@ -156,7 +215,7 @@ export function createAudio() {
         const deep = Math.min(1, snow / 0.2);
         for (let i = 0; i < 5; i++) noise(t + i * rnd(0.012, 0.03), rnd(0.03, 0.06), { type: 'bandpass', freq: rnd(1400, 2600) * (1 - deep * 0.35), q: 1.2, gain: 0.07 * forceW * (1 - i * 0.12) });
         noise(t, 0.18 + deep * 0.12, { type: 'lowpass', freq: (700 - deep * 300) * lowW, gain: 0.16 * forceW, attack: 0.02 });
-        if (deep > 0.6) return;                                   // (deep: the ground beneath isn't heard)
+        if (deep > 0.6) { if (playFootstep('snow', body, speed, soft, t)) return; return; } // deep snow: use its recorded crunch, not the ground below
       }
       if (splash) {                                               // a puddle
         noise(t, 0.18, { type: 'bandpass', freq: rnd(900, 1400) * lowW, q: 1.1, gain: 0.22 * forceW, attack: 0.006, sweepTo: 500 * lowW });
@@ -167,6 +226,7 @@ export function createAudio() {
       }
       const force = 0.25 * (0.45 + 0.55 * Math.min(1.3, speed)) * (soft ? 0.35 : 1) * Math.min(1.6, 0.6 + 0.4 * h);   // footsteps sit well under everything else
       const low = 1 / (Math.pow(h, 0.5) * Math.pow(sz, 0.6));         // heavier and bigger: deeper
+      if (playFootstep(snow > 0.015 ? 'snow' : surface, body, speed, soft, t)) return;
       if (surface === 'water') {                                  // wading
         noise(t, 0.25, { type: 'bandpass', freq: rnd(1200, 1800) * low, q: 0.8, gain: 0.35 * force, attack: 0.01, sweepTo: 600 * low });
         noise(t + 0.04, 0.2, { type: 'highpass', freq: 3000, gain: 0.08 * force });
@@ -193,7 +253,7 @@ export function createAudio() {
       } else if (surface === 'mud') {                             // squelch
         noise(t, 0.22, { type: 'bandpass', freq: rnd(500, 700) * low, q: 3, gain: 0.25 * force, attack: 0.02, sweepTo: 250 * low });
         tone(t + 0.05, 0.12, { freq: 180 * low, to: 90 * low, gain: 0.08 * force });
-      } else if (surface === 'stone') {
+      } else if (surface === 'stone' || surface === 'tile') {
         noise(t, 0.07, { type: 'bandpass', freq: rnd(1700, 2300) * low, q: 1.2, gain: 0.16 * force });     // heel click
         noise(t + 0.012, 0.11, { type: 'lowpass', freq: 900 * low, gain: 0.22 * force });
         tone(t, 0.09, { freq: 140 * low, to: 70 * low, gain: 0.18 * force * Math.min(1.5, h) });
@@ -204,8 +264,9 @@ export function createAudio() {
       }
     },
     // effort on a jump: a short exhale through a voiced "hup", pitched by the body
-    jump(body) {
+    jump(body, surface = 'grass') {
       if (!ensure()) return; const t = ctx.currentTime, f = body?.fem ?? 0.5, sz = body?.size ?? 1;
+      playMovementClip(surface, 'jump', body);
       const pitch = (110 + 110 * f) / Math.pow(sz, 0.5) * rnd(0.95, 1.06);
       noise(t, 0.16, { type: 'bandpass', freq: (900 + 700 * f), q: 1.4, gain: 0.07, attack: 0.01 });          // breath
       const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(pitch * 1.08, t); o.frequency.exponentialRampToValueAtTime(pitch * 0.92, t + 0.13);
@@ -219,11 +280,13 @@ export function createAudio() {
       if (!ensure()) return; const t = ctx.currentTime, h = heft(body), sz = body?.size ?? 1;
       const force = Math.min(1.8, Math.max(0.25, impact / 6)) * Math.min(1.8, 0.5 + 0.5 * h);
       const low = 1 / (Math.pow(h, 0.55) * Math.pow(sz, 0.6));
-      tone(t, 0.22, { freq: 85 * low, to: 38 * low, gain: 0.35 * force });                                      // body thud
-      noise(t, 0.2, { type: 'lowpass', freq: (surface === 'stone' || surface === 'metal' || surface === 'wood' ? 1400 : 900) * low, gain: 0.3 * force, sweepTo: 200 });
-      if (surface === 'metal') tone(t, 0.5, { freq: 700 * low, to: 660 * low, gain: 0.07 * force, type: 'triangle' });
-      if (surface === 'stone' || surface === 'metal' || surface === 'wood') noise(t, 0.06, { type: 'bandpass', freq: 2200 * low, q: 1.5, gain: 0.12 * force });
-      else noise(t + 0.02, 0.18, { type: 'highpass', freq: 2500, gain: 0.04 * force });                          // grass scatter
+      tone(t, 0.22, { freq: 85 * low, to: 38 * low, gain: 0.24 * force });                                      // body thud
+      if (!playMovementClip(surface, 'land', body, force)) {
+        noise(t, 0.2, { type: 'lowpass', freq: (surface === 'stone' || surface === 'metal' || surface === 'wood' ? 1400 : 900) * low, gain: 0.3 * force, sweepTo: 200 });
+        if (surface === 'metal') tone(t, 0.5, { freq: 700 * low, to: 660 * low, gain: 0.07 * force, type: 'triangle' });
+        if (surface === 'stone' || surface === 'metal' || surface === 'wood') noise(t, 0.06, { type: 'bandpass', freq: 2200 * low, q: 1.5, gain: 0.12 * force });
+        else noise(t + 0.02, 0.18, { type: 'highpass', freq: 2500, gain: 0.04 * force });                          // grass scatter
+      }
     },
     // dropping into a slide: a long scrape that fades
     slide(body, surface = 'grass') {

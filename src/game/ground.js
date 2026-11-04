@@ -448,7 +448,7 @@ function buildFeatures(kit, kind, W, H, l, gyAt, isPiece, isRoad) {
     if (q === 'g') {
       if (h1 < 0.03 && same(i, j, 2, 'g') && kit.plant) kit.plant('tree', x, Y - 0.05, z, 0.6 + h2 * 0.7, hash(i, j, 6) * 6.28, Math.floor(hash(i, j, 5) * 3));
       else if (h1 < 0.08 && same(i, j, 1, 'g') && kit.plant) kit.plant('bush', x, Y - 0.05, z, 0.6 + h2 * 0.6, hash(i, j, 6) * 6.28, Math.floor(h2 * 3));
-      else if (h1 < 0.1 && kit.plant) kit.plant('flower', x, Y - 0.02, z, 0.9 + h2 * 0.4, hash(i, j, 6) * 6.28, Math.floor(hash(i, j, 40) * 6));
+      else if (h1 < 0.1 && kit.plant) kit.plant('flower', x, Y - 0.02, z, 0.9 + h2 * 0.4, hash(i, j, 6) * 6.28, Math.floor(hash(i, j, 40) * 10));
       else if (h1 < 0.4 && kit.plant) kit.plant('grass', x + (h2 - 0.5) * 0.6, Y - 0.02, z + (hash(i, j, 7) - 0.5) * 0.6, 0.8 + h2 * 0.5, hash(i, j, 6) * 6.28, Math.floor(h2 * 3));
       else if (h1 < 0.03 && same(i, j, 2, 'g')) {
         const s = 0.6 + h2 * 0.7, th = 2.6 * s + 1, leaf = K.leaf[Math.floor(hash(i, j, 5) * 4)];

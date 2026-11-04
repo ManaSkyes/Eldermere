@@ -101,7 +101,7 @@ export function buildTownPiece(k, p, x, y, b) {
     trim(px - hx, py, pz - hz, px + hx, py + 0.26, pz + hz, TC.wood, { tex: 4 });
     trim(px - hx + 0.04, py + 0.26, pz - hz + 0.04, px + hx - 0.04, py + 0.36, pz + hz - 0.04, TC.leaf, { tex: 6 });
     const n = Math.max(2, Math.round(len / 0.3));
-    if (k.plant) { const m = Math.max(1, Math.round(len / 0.45)); for (let i = 0; i < m; i++) { const t = (i + 0.5) / m - 0.5; k.plant('flower', px + (axis === 'x' ? t * len : 0), py + 0.3, pz + (axis === 'x' ? 0 : t * len), 0.65 + rnd(seed + i + 9) * 0.25, rnd(seed + i) * 6.28, Math.floor(rnd(seed + i + 3) * 6)); } return; }   // (the shared flower models: src/gfx/foliage.js)
+    if (k.plant) { const m = Math.max(1, Math.round(len / 0.45)); for (let i = 0; i < m; i++) { const t = (i + 0.5) / m - 0.5; k.plant('flower', px + (axis === 'x' ? t * len : 0), py + 0.3, pz + (axis === 'x' ? 0 : t * len), 0.65 + rnd(seed + i + 9) * 0.25, rnd(seed + i) * 6.28, Math.floor(rnd(seed + i + 3) * 10)); } return; }   // (the shared flower models: src/gfx/foliage.js)
     for (let i = 0; i < n; i++) { const t = (i + 0.5) / n - 0.5, c = TC.flowers[Math.floor(rnd(seed + i) * 5)], s = 0.07 + rnd(seed + i + 9) * 0.04;
       const fx = px + (axis === 'x' ? t * len : (rnd(seed + i + 3) - 0.5) * 0.15), fz = pz + (axis === 'x' ? (rnd(seed + i + 3) - 0.5) * 0.15 : t * len);
       trim(fx - s, py + 0.34, fz - s, fx + s, py + 0.44 + rnd(seed + i + 5) * 0.08, fz + s, c, { tex: 6 }); }
@@ -112,7 +112,7 @@ export function buildTownPiece(k, p, x, y, b) {
     trim(px - s - 0.06, Y + 0.6, pz - s - 0.06, px + s + 0.06, Y + 0.68, pz + s + 0.06, TC.cap);
     if (k.plant) { trim(px - s + 0.08, Y + 0.6, pz - s + 0.08, px + s - 0.08, Y + 0.64, pz + s - 0.08, '#4a3628', { tex: 6 });   // the soil, and the shared plant models (src/gfx/foliage.js)
       if (s >= 0.75) k.plant('bush', px, Y + 0.62, pz, s * 0.9, rnd(seed) * 6.28, Math.floor(rnd(seed + 1) * 3));
-      const n = Math.max(3, Math.round(s * s * 10)); for (let i = 0; i < n; i++) { const a = i / n * 6.28 + rnd(seed + i), d = s >= 0.75 ? s * 0.7 : (i ? s * 0.5 : 0); k.plant('flower', px + Math.cos(a) * d, Y + 0.63, pz + Math.sin(a) * d, 0.7 + rnd(seed + i + 9) * 0.25, rnd(seed + i) * 6.28, Math.floor(rnd(seed + i + 3) * 6)); }
+      const n = Math.max(3, Math.round(s * s * 10)); for (let i = 0; i < n; i++) { const a = i / n * 6.28 + rnd(seed + i), d = s >= 0.75 ? s * 0.7 : (i ? s * 0.5 : 0); k.plant('flower', px + Math.cos(a) * d, Y + 0.63, pz + Math.sin(a) * d, 0.7 + rnd(seed + i + 9) * 0.25, rnd(seed + i) * 6.28, Math.floor(rnd(seed + i + 3) * 10)); }
       return; }
     trim(px - s + 0.08, Y + 0.6, pz - s + 0.08, px + s - 0.08, Y + 0.85, pz + s - 0.08, TC.leaf, { tex: 6 });
     for (let i = 0; i < 6; i++) { const fx = px + (rnd(seed + i) - 0.5) * s * 1.4, fz = pz + (rnd(seed + i + 7) - 0.5) * s * 1.4, c = TC.flowers[Math.floor(rnd(seed + i + 3) * 5)];

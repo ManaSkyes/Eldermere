@@ -1,15 +1,12 @@
 // src/gfx/trees.js — the tree system: broadleaf trees, pines, dead trees and bushes (the plants' "big" kinds; grass and
 // the small plants stay in src/gfx/foliage.js, which hands these over).
 //
-// The trees themselves. Each species is grown by a little branching program: a curved trunk, primary limbs off it,
-// secondaries off those, every limb a tapered tube with bark; leaves are cards (two triangles) carrying a painted
-// cluster of dozens of leaves, alpha-cut, so one card reads as a whole spray. Cards are lit as one soft crown (their
-// normals point out from its middle) and darker inside it. Species: oak, elm and birch (tree variants 0–2), pine and
-// spruce (pine 0–1), two dead trees, and three bushes (plain, flowering, with berries). All their textures sit in one
-// painted atlas (src: atlas() below), so a tree is one material.
+// Most species are grown by a little branching program: a curved trunk and tapered limbs with leaf cards.
+// Birch variant 2 uses the authored Riverside birch mesh at near range; its procedural mid and far LODs keep the
+// existing culling and dithered transitions. Other species retain their procedural meshes.
 //
 // Three levels of detail, crossfaded by a screen-door dither (no popping):
-//   near   the full tree (oak ~750 triangles), casting shadows, out to ~45 m (bushes ~30)
+//   near   detailed geometry, casting shadows, out to ~45 m (bushes ~30; imported birch uses its authored LOD0)
 //   mid    trunk, main limbs and a quarter of the cards, each twice the size: ~150 triangles, out to ~130 m
 //   far    an impostor: one quad showing a picture of the tree taken from the nearest of 16 angles round it, with its
 //          own lighting directions baked alongside (so it's lit like the real thing as the sun moves): 2 triangles
@@ -32,12 +29,12 @@ const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], add = (a, b) => [
 const len = a => Math.hypot(a[0], a[1], a[2]), norm = a => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }, cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 
-// ---- the atlas: 1024 × 512, eight 256 px tiles ----
+// ---- the atlas: 1024 × 1024, up to sixteen 256 px tiles ----
 // 0 broadleaf leaves · 1 birch leaves · 2 pine spray · 3 bark · 4 bush leaves with berries · 5 bush in flower ·
 // 6 spruce spray · 7 small dense leaves
-const T = { leaf: 0, birch: 1, pine: 2, bark: 3, berry: 4, bloom: 5, spruce: 6, small: 7 };
+const T = { leaf: 0, birch: 1, pine: 2, bark: 3, berry: 4, bloom: 5, spruce: 6, small: 7, birchBark: 8 };
 function atlas(THREE) {
-  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512; const g = cv.getContext('2d');
+  const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 1024; const g = cv.getContext('2d');
   const S = 256, at = t => [(t % 4) * S, Math.floor(t / 4) * S];
   const leaves = (t, seed, cols, n, L, { twig = '#4a3a2a', dots = null, round = 0.45 } = {}) => {
     const [ox, oy] = at(t), r = rng(seed); g.save(); g.beginPath(); g.rect(ox, oy, S, S); g.clip();
@@ -82,8 +79,21 @@ function atlas(THREE) {
   spray(T.spruce, 16, [44, 80, 58], true);
   leaves(T.small, 17, [[70, 124, 52], [86, 138, 58], [60, 108, 46]], 420, 0.075, { round: 0.55 });
   const tex = new THREE.CanvasTexture(cv); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
-  const uv = (t, x, y) => { const c = t % 4, rw = Math.floor(t / 4), i = 3 / S; return [(c + i + x * (1 - 2 * i)) / 4, 1 - (rw + 1) / 2 + (i + y * (1 - 2 * i)) / 2]; };
-  return { tex, uv };
+  // Retain the custom tree silhouettes and layout, while using the imported tree packs' authored leaf cutouts
+  // in the oak and birch tiles. This keeps the existing instancing, wind, shadows, and impostor pipeline intact.
+  const replaceTile = (file, tile, crop, alpha = 1) => new Promise(resolve => {
+    const image = new Image(); image.onload = () => { const [ox, oy] = at(tile); if (alpha >= 1) g.clearRect(ox, oy, S, S);
+      g.save(); g.globalAlpha = alpha; g.drawImage(image, image.width * crop[0], image.height * crop[1], image.width * crop[2], image.height * crop[3], ox + 3, oy + 3, S - 6, S - 6); g.restore(); tex.needsUpdate = true; resolve(); };
+    image.onerror = resolve; image.src = new URL(`../../data/foliage/rtp_vol1/${file}`, import.meta.url).href;
+  });
+  const ready = Promise.all([
+    replaceTile('tree1 leaf.png', T.leaf, [0.12, 0.12, 0.76, 0.76]),
+    replaceTile('tree2 leaf.png', T.birch, [0.12, 0.12, 0.76, 0.76]),
+    replaceTile('tree1 bark.png', T.bark, [0, 0, 1, 1], 0.58),
+    replaceTile('tree2 bark.png', T.birchBark, [0, 0, 1, 1]),
+  ]);
+  const uv = (t, x, y) => { const c = t % 4, rw = Math.floor(t / 4), i = 3 / S; return [(c + i + x * (1 - 2 * i)) / 4, 1 - (rw + 1) / 4 + (i + y * (1 - 2 * i)) / 4]; };
+  return { tex, uv, ready };
 }
 
 // ---- growing a tree: limbs (polylines with radii) and leaf cards ----
@@ -91,7 +101,7 @@ const SPECIES = {
   tree: [
     { name: 'oak', H: 4.6, base: 1.7, prim: 6, el: [0.45, 0.8], pl: 2.7, sec: 4, sl: 0.5, leaf: T.leaf, cs: 1.5, cards: 8, bark: [0.5, 0.42, 0.36], r0: 0.34, tint: [1, 1, 1] },
     { name: 'elm', H: 6.2, base: 2.6, prim: 5, el: [0.95, 1.25], pl: 3.0, sec: 4, sl: 0.45, leaf: T.small, cs: 1.4, cards: 8, bark: [0.46, 0.4, 0.36], r0: 0.28, tint: [0.95, 1, 0.92] },
-    { name: 'birch', H: 7.0, base: 2.4, prim: 8, el: [0.7, 1.0], pl: 1.9, sec: 3, sl: 0.5, leaf: T.birch, cs: 1.15, cards: 7, bark: [0.95, 0.93, 0.9], r0: 0.17, droop: 0.5, tint: [1, 1, 1] },
+    { name: 'birch', H: 7.0, base: 2.4, prim: 8, el: [0.7, 1.0], pl: 1.9, sec: 3, sl: 0.5, leaf: T.birch, barkTile: T.birchBark, cs: 1.15, cards: 7, bark: [0.95, 0.93, 0.9], r0: 0.17, droop: 0.5, tint: [1, 1, 1] },
   ],
   pine: [{ name: 'pine', H: 9.5, R: 2.5, step: 0.55, leaf: T.pine, bark: [0.3, 0.23, 0.19], r0: 0.27, droop: 0.15 }, { name: 'spruce', H: 8.5, R: 2.2, step: 0.42, leaf: T.spruce, bark: [0.27, 0.21, 0.18], r0: 0.24, droop: 0.35 }],
   dead: [{ name: 'deadoak', H: 4.2, base: 1.6, prim: 5, el: [0.5, 0.9], pl: 2.4, sec: 3, sl: 0.55, leaf: -1, bark: [0.5, 0.47, 0.43], r0: 0.3, twigs: true }, { name: 'snag', H: 5.5, base: 2.4, prim: 3, el: [0.9, 1.2], pl: 1.5, sec: 2, sl: 0.5, leaf: -1, bark: [0.45, 0.42, 0.38], r0: 0.26, twigs: true, broken: true }],
@@ -179,7 +189,7 @@ function build(THREE, A, kind, sp, G, lod, st = {}) {
     const dark = (y) => Math.min(1, 0.7 + Math.max(0, y) * 0.08);
     for (let i = 0; i < n - 1; i++) for (let k = 0; k < sides; k++) {
       const q = [rings[i][k], rings[i + 1][k], rings[i + 1][k + 1], rings[i][k + 1]], fxs = [L.fx[i], L.fx[i + 1], L.fx[i + 1], L.fx[i]];
-      for (const m of [0, 1, 2, 0, 2, 3]) { const R = q[m], sh = dark(R.p[1]); vtx(R.p, R.n, A.uv(T.bark, R.u, Math.min(1, R.v * 0.999)), mulv(sp.bark, sh), [fxs[m], L.phase, 0]); }
+      for (const m of [0, 1, 2, 0, 2, 3]) { const R = q[m], sh = dark(R.p[1]); vtx(R.p, R.n, A.uv(sp.barkTile ?? T.bark, R.u, Math.min(1, R.v * 0.999)), mulv(sp.bark, sh), [fxs[m], L.phase, 0]); }
     }
   }
   // leaf cards (mid: every fourth, about twice the size)
@@ -289,6 +299,48 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   treeMat.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE));
   const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: A.tex, alphaTest: 0.45, side: THREE.DoubleSide });
   depthMat.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE), true, false);
+  const importedBirchPath = new URL('../../data/foliage/riverside_free/birch_big_002.glb', import.meta.url).href;
+  const loadImportedBirch = () => {
+    if (!THREE.GLTFLoader) { console.warn('Birch model: GLTFLoader is unavailable; procedural trees remain active.'); return; }
+    new THREE.GLTFLoader().load(importedBirchPath, gltf => {
+      const node = gltf.scene.getObjectByName('LOD0');
+      if (!node?.geometry || !node.material) { console.warn('Birch model: LOD0 mesh or material is missing.'); return; }
+      gltf.scene.updateMatrixWorld(true);
+      const modelGeometry = node.geometry.clone(); modelGeometry.applyMatrix4(node.matrixWorld); modelGeometry.computeBoundingBox();
+      const bounds = modelGeometry.boundingBox, height = bounds.max.y - bounds.min.y;
+      if (!(height > 0)) { console.warn('Birch model: imported mesh has no height.'); return; }
+      const unitScale = 7 / height;
+      modelGeometry.scale(unitScale, unitScale, unitScale);
+      modelGeometry.translate(-(bounds.max.x + bounds.min.x) * 0.5 * unitScale, -bounds.min.y * unitScale, -(bounds.max.z + bounds.min.z) * 0.5 * unitScale);
+      modelGeometry.computeBoundingBox(); modelGeometry.computeBoundingSphere();
+      const position = modelGeometry.attributes.position, box = modelGeometry.boundingBox, span = Math.max(0.001, box.max.y - box.min.y), flex = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) {
+        const x = position.getX(i), y = position.getY(i), z = position.getZ(i), h = Math.max(0, Math.min(1, (y - box.min.y) / span));
+        const phase = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
+        flex[i * 3] = h * 0.8; flex[i * 3 + 1] = phase - Math.floor(phase); flex[i * 3 + 2] = Math.max(0, (h - 0.35) * 1.5);
+      }
+      modelGeometry.setAttribute('aTW', new THREE.BufferAttribute(flex, 3));
+      const importedMaterial = node.material.clone();
+      importedMaterial.vertexColors = true; importedMaterial.transparent = false; importedMaterial.alphaTest = 0.45;
+      importedMaterial.depthWrite = true; importedMaterial.side = THREE.DoubleSide; importedMaterial.roughness = 0.85; importedMaterial.metalness = 0;
+      importedMaterial.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE));
+      const importedDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: importedMaterial.map, alphaTest: 0.45, side: THREE.DoubleSide });
+      importedDepth.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE), true, false);
+      let replaced = 0;
+      for (const S of sets) {
+        if (S.k !== 'tree' || S.v !== 2) continue;
+        const oldGeometry = S.meshes[0].geometry, nearGeometry = modelGeometry.clone();
+        nearGeometry.setAttribute('aF', oldGeometry.attributes.aF); nearGeometry.setAttribute('aR', oldGeometry.attributes.aR);
+        S.meshes[0].geometry = nearGeometry; S.meshes[0].material = importedMaterial; S.meshes[0].customDepthMaterial = importedDepth;
+        S.g0 = nearGeometry; S.importedModel = true; S.meshes[0].userData.importedModel = 'birch_big_002';
+        const bb = nearGeometry.boundingBox; S.mid = (bb.min.y + bb.max.y) * 0.5; S.rad = Math.hypot(Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x)), (bb.max.y - bb.min.y) * 0.5);
+        replaced++;
+      }
+      if (!replaced) console.info('Birch model loaded; the current scene has no birch tree variant to replace.');
+      last.x = 1e9;
+      console.info(`Imported birch near LOD ready (${replaced} tree variant${replaced === 1 ? '' : 's'}).`);
+    }, undefined, error => console.warn('Birch model could not load; procedural trees remain active.', error));
+  };
   const impAlbedo = new THREE.WebGLRenderTarget(TILE_PX * ATLAS_COLS, TILE_PX * ATLAS_ROWS, { minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
   const impNormal = new THREE.WebGLRenderTarget(TILE_PX * ATLAS_COLS, TILE_PX * ATLAS_ROWS, { minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
   impAlbedo.texture.encoding = THREE.sRGBEncoding;
@@ -346,9 +398,10 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       const im = new THREE.InstancedMesh(geo, mat, n); im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage);
       im.count = 0; im.frustumCulled = false; im.castShadow = cast; im.receiveShadow = true; if (cast) im.customDepthMaterial = depthMat; im.userData.canopy = true; scene.add(im); return im;   // (canopy: src/gfx/weathering.js lets a tenth of the snow through crowns)
     };
-    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, cellLookup, g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
+    sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, cellLookup, g0, bakeG0: g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
     row++;
   }
+  loadImportedBirch();
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null, cellSignature: null };
   const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };
@@ -376,12 +429,15 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     out.tested = tested;
     return out;
   };
-  return {
+  let bakePendingRenderer = null, atlasReady = false;
+  const api = {
     hidden: false,
     sets,
     // the impostor pictures: every species from 16 angles, its colours and its lighting directions
     bake(renderer) {
-      if (baked || !sets.length) return; baked = true;
+      if (baked || !sets.length) return;
+      if (!atlasReady) { bakePendingRenderer = renderer; return; }
+      baked = true;
       const bakeMat = new THREE.ShaderMaterial({ uniforms: { map: { value: A.tex }, mode: { value: 0 } }, vertexColors: true, side: THREE.DoubleSide,
         vertexShader: `varying vec2 vUv; varying vec3 vN, vC; void main() { vUv = uv; vC = color; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
         fragmentShader: `uniform sampler2D map; uniform float mode; varying vec2 vUv; varying vec3 vN, vC; void main() { vec4 t = texture2D(map, vUv); if (t.a < 0.45) discard;
@@ -389,7 +445,7 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       const sc = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100), prevRT = renderer.getRenderTarget(), cc = new THREE.Color(); renderer.getClearColor(cc); const ca = renderer.getClearAlpha(), as = renderer.autoClear;
       renderer.autoClear = false;
       for (const S of sets) {
-        const m = new THREE.Mesh(S.g0, bakeMat); sc.add(m);
+        const m = new THREE.Mesh(S.bakeG0 || S.g0, bakeMat); sc.add(m);
         const pos = S.meshes[2].geometry.attributes.position.array, hw = pos[3], y0 = pos[1], y1 = pos[7];
         cam.left = -hw; cam.right = hw; cam.bottom = y0; cam.top = y1; cam.updateProjectionMatrix();
         for (let k = 0; k < VIEWS; k++) {
@@ -725,4 +781,6 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
       }
     },
   };
+  A.ready.then(() => { atlasReady = true; const queued = bakePendingRenderer; bakePendingRenderer = null; if (queued) api.bake(queued); });
+  return api;
 }

@@ -68,7 +68,7 @@ const LABEL = { boards: 'Board and batten', weatherboard: 'Weatherboard', daub: 
 // ---------------------------------------------------------------- the asset library
 // style: which town styles a part belongs to (the Style filter); type: the Type filter
 const STYLES = [['all', 'All'], ['tudor', 'Tudor'], ['wooden', 'Wooden town'], ['victorian', 'Victorian'], ['common', 'Common']];
-const TYPES = [['all', 'All'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details'], ['plants', 'Grass & trees']];
+const TYPES = [['all', 'All'], ['plants', 'Grass & trees'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details'], ['plants', 'Grass & trees']];
 const ITEMS = [
   { id: 'shell_cottage', name: 'Cottage', type: 'shells', style: ['tudor'], box: { w: 6, d: 4.5, s: 1, g: 'timber_close', u: 'timber_close', pitch: 52 } },
   { id: 'shell_tudor', name: 'Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'brick', u: 'timber_close', pitch: 50 } },
@@ -653,7 +653,21 @@ function place(it, ev) {
 
 // ---------------------------------------------------------------- library strip: thumbnails, filters, drag
 const thumbR = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true }); thumbR.setSize(192, 168); thumbR.outputEncoding = THREE.sRGBEncoding;
+function plantThumb(kind) {
+  const shapes = {
+    grass: '<g fill="none" stroke="#83b85b" stroke-width="5" stroke-linecap="round"><path d="M96 145 Q77 95 67 79 M96 145 Q91 87 91 63 M96 145 Q110 92 124 74 M96 145 Q132 111 143 101 M96 145 Q64 116 49 108 M96 145 Q102 111 105 91"/></g>',
+    tallgrass: '<g fill="none" stroke="#91bd5d" stroke-width="5" stroke-linecap="round"><path d="M96 145 Q45 78 43 48 M96 145 Q67 66 72 34 M96 145 Q92 57 96 25 M96 145 Q119 64 129 36 M96 145 Q145 82 151 55 M96 145 Q76 105 58 83"/></g>',
+    flower: '<g stroke="#78a94d" stroke-width="4" fill="none"><path d="M76 145 Q70 90 74 67 M111 145 Q118 91 116 61 M93 145 Q92 91 95 49"/></g><g fill="#e8c7df"><circle cx="74" cy="62" r="11"/><circle cx="116" cy="56" r="11"/><circle cx="95" cy="44" r="12"/></g><g fill="#f2d36c"><circle cx="74" cy="62" r="4"/><circle cx="116" cy="56" r="4"/><circle cx="95" cy="44" r="4"/></g>',
+    tree: '<path d="M88 145 L88 83 L105 83 L105 145" fill="#806044"/><g fill="#5c9146"><circle cx="96" cy="61" r="39"/><circle cx="67" cy="78" r="25"/><circle cx="125" cy="78" r="25"/><circle cx="80" cy="42" r="24"/><circle cx="112" cy="39" r="25"/></g>',
+    pine: '<path d="M90 145 L90 69 L103 69 L103 145" fill="#806044"/><g fill="#477d50"><path d="M96 20 L48 91 L144 91 Z"/><path d="M96 48 L39 119 L153 119 Z"/><path d="M96 78 L30 143 L162 143 Z"/></g>',
+    bush: '<g fill="#5e9147"><circle cx="65" cy="112" r="29"/><circle cx="91" cy="91" r="36"/><circle cx="124" cy="111" r="31"/><circle cx="101" cy="125" r="27"/></g>'
+  };
+  const art = shapes[kind] || shapes.grass;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="168" viewBox="0 0 192 168"><rect width="192" height="168" rx="9" fill="#2a2e52"/><ellipse cx="96" cy="147" rx="65" ry="9" fill="#1b2431"/>' + art + '<path d="M30 148 H162" stroke="#7c7657" stroke-width="3" stroke-linecap="round"/></svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
 function thumbFor(it) {
+  if (it.plant) return plantThumb(it.plant);
   const s = new THREE.Scene(); s.add(new THREE.HemisphereLight('#e8eef6', '#6a5a48', 0.75)); const d = new THREE.DirectionalLight('#fff4e0', 1.3); d.position.set(4, 6, 7); s.add(d);
   let desc = { walls: [] };
   if (it.feature && !['feat_flowerbox', 'feat_lantern', 'feat_sign'].includes(it.feature) && !it.feature.startsWith('feat_shutters_')) desc.walls.push({ x: -1.25, z: 0, rot: 0, width: 2.5, height: 3, variant: (it.type === 'civic' ? 'ashlar' : it.style[0] === 'wooden' ? 'weatherboard' : it.style.includes('tudor') ? 'plaster' : 'brick'), openings: [{ feature: it.feature, x: 1.25, y: 0 }] });

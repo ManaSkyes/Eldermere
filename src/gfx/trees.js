@@ -299,48 +299,6 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
   treeMat.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE));
   const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: A.tex, alphaTest: 0.45, side: THREE.DoubleSide });
   depthMat.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE), true, false);
-  const importedBirchPath = new URL('../../data/foliage/riverside_free/birch_big_002.glb', import.meta.url).href;
-  const loadImportedBirch = () => {
-    if (!THREE.GLTFLoader) { console.warn('Birch model: GLTFLoader is unavailable; procedural trees remain active.'); return; }
-    new THREE.GLTFLoader().load(importedBirchPath, gltf => {
-      const node = gltf.scene.getObjectByName('LOD0');
-      if (!node?.geometry || !node.material) { console.warn('Birch model: LOD0 mesh or material is missing.'); return; }
-      gltf.scene.updateMatrixWorld(true);
-      const modelGeometry = node.geometry.clone(); modelGeometry.applyMatrix4(node.matrixWorld); modelGeometry.computeBoundingBox();
-      const bounds = modelGeometry.boundingBox, height = bounds.max.y - bounds.min.y;
-      if (!(height > 0)) { console.warn('Birch model: imported mesh has no height.'); return; }
-      const unitScale = 7 / height;
-      modelGeometry.scale(unitScale, unitScale, unitScale);
-      modelGeometry.translate(-(bounds.max.x + bounds.min.x) * 0.5 * unitScale, -bounds.min.y * unitScale, -(bounds.max.z + bounds.min.z) * 0.5 * unitScale);
-      modelGeometry.computeBoundingBox(); modelGeometry.computeBoundingSphere();
-      const position = modelGeometry.attributes.position, box = modelGeometry.boundingBox, span = Math.max(0.001, box.max.y - box.min.y), flex = new Float32Array(position.count * 3);
-      for (let i = 0; i < position.count; i++) {
-        const x = position.getX(i), y = position.getY(i), z = position.getZ(i), h = Math.max(0, Math.min(1, (y - box.min.y) / span));
-        const phase = Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 43758.5453;
-        flex[i * 3] = h * 0.8; flex[i * 3 + 1] = phase - Math.floor(phase); flex[i * 3 + 2] = Math.max(0, (h - 0.35) * 1.5);
-      }
-      modelGeometry.setAttribute('aTW', new THREE.BufferAttribute(flex, 3));
-      const importedMaterial = node.material.clone();
-      importedMaterial.vertexColors = true; importedMaterial.transparent = false; importedMaterial.alphaTest = 0.45;
-      importedMaterial.depthWrite = true; importedMaterial.side = THREE.DoubleSide; importedMaterial.roughness = 0.85; importedMaterial.metalness = 0;
-      importedMaterial.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE));
-      const importedDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: importedMaterial.map, alphaTest: 0.45, side: THREE.DoubleSide });
-      importedDepth.onBeforeCompile = sh => patch(sh, TREE_WIND(wind.TILE), true, false);
-      let replaced = 0;
-      for (const S of sets) {
-        if (S.k !== 'tree' || S.v !== 2) continue;
-        const oldGeometry = S.meshes[0].geometry, nearGeometry = modelGeometry.clone();
-        nearGeometry.setAttribute('aF', oldGeometry.attributes.aF); nearGeometry.setAttribute('aR', oldGeometry.attributes.aR);
-        S.meshes[0].geometry = nearGeometry; S.meshes[0].material = importedMaterial; S.meshes[0].customDepthMaterial = importedDepth;
-        S.g0 = nearGeometry; S.importedModel = true; S.meshes[0].userData.importedModel = 'birch_big_002';
-        const bb = nearGeometry.boundingBox; S.mid = (bb.min.y + bb.max.y) * 0.5; S.rad = Math.hypot(Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x)), (bb.max.y - bb.min.y) * 0.5);
-        replaced++;
-      }
-      if (!replaced) console.info('Birch model loaded; the current scene has no birch tree variant to replace.');
-      last.x = 1e9;
-      console.info(`Imported birch near LOD ready (${replaced} tree variant${replaced === 1 ? '' : 's'}).`);
-    }, undefined, error => console.warn('Birch model could not load; procedural trees remain active.', error));
-  };
   const impAlbedo = new THREE.WebGLRenderTarget(TILE_PX * ATLAS_COLS, TILE_PX * ATLAS_ROWS, { minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
   const impNormal = new THREE.WebGLRenderTarget(TILE_PX * ATLAS_COLS, TILE_PX * ATLAS_ROWS, { minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
   impAlbedo.texture.encoding = THREE.sRGBEncoding;
@@ -401,7 +359,6 @@ export function createTrees(THREE, scene, plants, wind, stages = {}) {
     sets.push({ k, v, sp, n, X, Y, Z, Sc, Ro, Co, Rn, cells, cellLookup, g0, bakeG0: g0, row, mid: (y0 + y1) / 2, rad: Math.hypot(hw, (y1 - y0) / 2), edges: LODS[k], meshes: [mesh(g0, treeMat, true), mesh(g1, treeMat, false), mesh(gi, impMat, false)] });
     row++;
   }
-  loadImportedBirch();
   let baked = false;
   const fr = new THREE.Frustum(), pm = new THREE.Matrix4(), sph = new THREE.Sphere(), cv = new THREE.Vector3(), wide = new THREE.PerspectiveCamera(), last = { x: 1e9, y: 0, z: 0, q: new THREE.Quaternion(), fov: 0, hid: null, cellSignature: null };
   const diagnostics = { enabled: false, calls: 0, skipped: 0, totalMs: 0, maxMs: 0, scanMs: 0, bufferMs: 0, instances: 0, cellsTested: 0, cellsVisited: 0, instancesTested: 0, workerMs: 0, workerQueueMs: 0, workerJobs: 0, workerError: '' };

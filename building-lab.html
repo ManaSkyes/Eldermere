@@ -338,7 +338,7 @@ function rebuild() {
   built = buildFromKit(kit, toDesc(B)); scene.add(built.group);
   if (gardenLayer) scene.remove(gardenLayer);
   gardenLayer = new THREE.Group(); scene.add(gardenLayer);
-  gardenSystem = createFoliage(THREE, gardenLayer, (B.garden || []).map(p => ({ ...p, y: 0, s: p.s || 1, r: p.r || 0, v: p.v || 0 })));
+  gardenSystem = createFoliage(THREE, gardenLayer, (B.garden || []).map(p => ({ ...p, k: p.kind, y: 0, s: p.s || 1, r: p.r || 0, v: p.v || 0 })));
   gardenSystem.bake(renderer);
   gardenLayer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const ms = performance.now() - t0;

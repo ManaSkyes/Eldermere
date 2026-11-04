@@ -68,7 +68,7 @@ const LABEL = { boards: 'Board and batten', weatherboard: 'Weatherboard', daub: 
 // ---------------------------------------------------------------- the asset library
 // style: which town styles a part belongs to (the Style filter); type: the Type filter
 const STYLES = [['all', 'All'], ['tudor', 'Tudor'], ['wooden', 'Wooden town'], ['victorian', 'Victorian'], ['common', 'Common']];
-const TYPES = [['all', 'All'], ['plants', 'Grass & trees'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details'], ['plants', 'Grass & trees']];
+const TYPES = [['all', 'All'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details']];
 const ITEMS = [
   { id: 'shell_cottage', name: 'Cottage', type: 'shells', style: ['tudor'], box: { w: 6, d: 4.5, s: 1, g: 'timber_close', u: 'timber_close', pitch: 52 } },
   { id: 'shell_tudor', name: 'Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'brick', u: 'timber_close', pitch: 50 } },
@@ -174,12 +174,12 @@ const ITEMS = [
   { id: 'quoins', name: 'Quoins', type: 'wall-details', style: ['victorian'], quoins: true },
   { id: 'ivy', name: 'Ivy', type: 'greenery', style: ['tudor', 'victorian', 'common'], ivy: true },
   { id: 'chimney', name: 'Chimney', type: 'roof-details', style: ['tudor', 'victorian', 'common'], chimney: true },
-  { id: 'plant_grass', name: 'Grass patch', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'grass' },
-  { id: 'plant_tallgrass', name: 'Tall grass', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tallgrass' },
-  { id: 'plant_flower', name: 'Wild flowers', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'flower' },
-  { id: 'plant_tree', name: 'Broadleaf tree', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tree' },
-  { id: 'plant_pine', name: 'Pine tree', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'pine' },
-  { id: 'plant_bush', name: 'Bush', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'bush' },
+  { id: 'plant_grass', name: 'Grass patch', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'grass' },
+  { id: 'plant_tallgrass', name: 'Tall grass', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tallgrass' },
+  { id: 'plant_flower', name: 'Wild flowers', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'flower' },
+  { id: 'plant_tree', name: 'Broadleaf tree', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tree' },
+  { id: 'plant_pine', name: 'Pine tree', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'pine' },
+  { id: 'plant_bush', name: 'Bush', type: 'greenery', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'bush' },
 ].filter(it => (!it.feature || kit.features[it.feature]) && (!it.prop || kit.features[it.prop]));
 const HINT = { balustrade: 'Drop it on a wall: it runs along the top', gap: 'Drop it in the gap between two wall ends', fence: 'Drag on the ground to draw it (or drop for 5 m)', gate: 'Drop it on a fence, or on the ground', decal: 'Drop it on a wall (the coal-hole cover goes on the ground)', platform: 'Drop it in front of a wall or platform', prop: 'Drop it on the ground', canopy: 'Drop it on a wall', pipe: 'Drop it on a wall', feature: 'Drop it on a wall', wall: 'Drop it on the ground (storey from the Tools panel)', box: 'Drop it on the ground', roof: 'Drop it on a building',
   trim: 'Drop it on a wall', quoins: 'Drop it near the end of a wall', ivy: 'Drop it on a wall', chimney: 'Drop it on a roof' };

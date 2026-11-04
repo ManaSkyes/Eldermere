@@ -339,6 +339,7 @@ function rebuild() {
   if (gardenLayer) scene.remove(gardenLayer);
   gardenLayer = new THREE.Group(); scene.add(gardenLayer);
   gardenSystem = createFoliage(THREE, gardenLayer, (B.garden || []).map(p => ({ ...p, y: 0, s: p.s || 1, r: p.r || 0, v: p.v || 0 })));
+  gardenSystem.bake(renderer);
   gardenLayer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const ms = performance.now() - t0;
   let tris = 0; built.group.traverse(o => { if (o.geometry && o.geometry.index) tris += o.geometry.index.count / 3; });
@@ -852,7 +853,7 @@ function turnSel(dir) {
     o.rot = (o.rot || 0) + a;
     const s = new THREE.Vector3(-len / 2, 0, dep / 2).applyAxisAngle(new THREE.Vector3(0, 1, 0), o.rot).add(c);
     o.x = snap(s.x, 0.05); o.z = snap(s.z, 0.05);
-  } else if (['chimney', 'corner', 'prop', 'platform', 'fence'].includes(sel.kind)) o.rot = (o.rot || 0) + a;
+  } else if (['chimney', 'corner', 'prop', 'platform', 'fence', 'garden'].includes(sel.kind)) o.rot = (o.rot || 0) + a;
   else if (sel.kind === 'pmount') o.side = ((o.side || 0) + (dir > 0 ? 1 : 3)) % 4;
   else if (sel.kind === 'decal' || sel.kind === 'fdecal') o.rot = ((o.rot || 0) + dir * 15) % 360;
   else return;

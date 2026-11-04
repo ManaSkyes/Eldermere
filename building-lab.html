@@ -706,7 +706,17 @@ function thumbFor(it) {
   thumbR.render(s, cam); return thumbR.domElement.toDataURL();
 }
 const thumbs = {};
-function drawThumbs() { for (const it of ITEMS) thumbs[it.id] = thumbFor(it); fillStrip(); }
+function drawThumbs() {
+  // A single broken preview must never prevent later library entries (including greenery) from appearing.
+  for (const it of ITEMS) {
+    try { thumbs[it.id] = thumbFor(it); }
+    catch (err) {
+      console.warn('[Building Lab] Preview failed for ' + it.id, err);
+      thumbs[it.id] = it.plant ? plantThumb(it.plant) : plantThumb('bush');
+    }
+  }
+  fillStrip();
+}
 function fillStrip() {
   const c = $('cat').value, t = $('typ').value;
   const list = ITEMS.filter(it => (c === 'all' || it.style.includes(c)) && (t === 'all' || it.type === t));

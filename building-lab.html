@@ -55,6 +55,7 @@
 // toDesc() turns it into buildFromKit's description, and the whole building is rebuilt on every change.
 // Parts come from the asset library along the bottom (style + type filters), dragged or clicked into place.
 import { loadBuildKit, buildFromKit, featureFits, FRAMES, notchRect, canopyFront, joinWalls, DECALS, PROP_RADIUS } from './src/game/buildKit.js';
+import { createFoliage } from './src/gfx/foliage.js';
 const $ = (id) => document.getElementById(id);
 const kit = await loadBuildKit();
 const FLOOR = 3, T = kit.thick, SNAP = 0.25;
@@ -67,7 +68,7 @@ const LABEL = { boards: 'Board and batten', weatherboard: 'Weatherboard', daub: 
 // ---------------------------------------------------------------- the asset library
 // style: which town styles a part belongs to (the Style filter); type: the Type filter
 const STYLES = [['all', 'All'], ['tudor', 'Tudor'], ['wooden', 'Wooden town'], ['victorian', 'Victorian'], ['common', 'Common']];
-const TYPES = [['all', 'All'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details']];
+const TYPES = [['all', 'All'], ['shells', 'Building shells'], ['walls', 'Walls & partitions'], ['windows', 'Windows'], ['doors', 'Doors & entrances'], ['roofs', 'Roof coverings'], ['roof-details', 'Roof structures'], ['civic', 'Civic & facade details'], ['supports', 'Columns & supports'], ['porch', 'Porches, steps & awnings'], ['fences', 'Fences & gates'], ['trims', 'Trim & mouldings'], ['wall-details', 'Wall details'], ['lighting', 'Lighting'], ['signage', 'Signs & banners'], ['drainage', 'Drainage'], ['greenery', 'Ivy & greenery'], ['street', 'Street furniture'], ['notices', 'Posters & notices'], ['weathering', 'Weathering decals'], ['ground-details', 'Ground details'], ['plants', 'Grass & trees']];
 const ITEMS = [
   { id: 'shell_cottage', name: 'Cottage', type: 'shells', style: ['tudor'], box: { w: 6, d: 4.5, s: 1, g: 'timber_close', u: 'timber_close', pitch: 52 } },
   { id: 'shell_tudor', name: 'Tudor house', type: 'shells', style: ['tudor'], box: { w: 7.5, d: 5, s: 2, g: 'brick', u: 'timber_close', pitch: 50 } },
@@ -173,6 +174,12 @@ const ITEMS = [
   { id: 'quoins', name: 'Quoins', type: 'wall-details', style: ['victorian'], quoins: true },
   { id: 'ivy', name: 'Ivy', type: 'greenery', style: ['tudor', 'victorian', 'common'], ivy: true },
   { id: 'chimney', name: 'Chimney', type: 'roof-details', style: ['tudor', 'victorian', 'common'], chimney: true },
+  { id: 'plant_grass', name: 'Grass patch', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'grass' },
+  { id: 'plant_tallgrass', name: 'Tall grass', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tallgrass' },
+  { id: 'plant_flower', name: 'Wild flowers', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'flower' },
+  { id: 'plant_tree', name: 'Broadleaf tree', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'tree' },
+  { id: 'plant_pine', name: 'Pine tree', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'pine' },
+  { id: 'plant_bush', name: 'Bush', type: 'plants', style: ['tudor', 'wooden', 'victorian', 'common'], plant: 'bush' },
 ].filter(it => (!it.feature || kit.features[it.feature]) && (!it.prop || kit.features[it.prop]));
 const HINT = { balustrade: 'Drop it on a wall: it runs along the top', gap: 'Drop it in the gap between two wall ends', fence: 'Drag on the ground to draw it (or drop for 5 m)', gate: 'Drop it on a fence, or on the ground', decal: 'Drop it on a wall (the coal-hole cover goes on the ground)', platform: 'Drop it in front of a wall or platform', prop: 'Drop it on the ground', canopy: 'Drop it on a wall', pipe: 'Drop it on a wall', feature: 'Drop it on a wall', wall: 'Drop it on the ground (storey from the Tools panel)', box: 'Drop it on the ground', roof: 'Drop it on a building',
   trim: 'Drop it on a wall', quoins: 'Drop it near the end of a wall', ivy: 'Drop it on a wall', chimney: 'Drop it on a roof' };
@@ -206,7 +213,7 @@ $('shadow').onchange = () => { sun.castShadow = $('shadow').checked; }; $('grid'
 
 // ---------------------------------------------------------------- the building
 let B = blank(), sel = null, uid = 1;
-function blank() { return { name: 'townhouse', walls: [], corners: [], roofs: [], chimneys: [], props: [], platforms: [], fences: [], floorDecals: [] }; }
+function blank() { return { name: 'townhouse', walls: [], corners: [], roofs: [], chimneys: [], props: [], platforms: [], fences: [], floorDecals: [], garden: [] }; }
 const newId = () => 'i' + (uid++) + Math.random().toString(36).slice(2, 5);
 const wallM = (w) => new THREE.Matrix4().makeRotationY(w.rot || 0).setPosition(w.x, w.base || 0, w.z);
 const wallH = (w) => w.shape === 'gable' ? w.width / 2 * Math.tan((w.pitch || 50) * Math.PI / 180) : w.height;
@@ -220,6 +227,7 @@ function trimPiece(w, trim, variant) {
   return { id: newId(), trim, variant: trim === 'plinth' ? (variant || 'clean') : undefined, x0: 0, x1: w.width, y };
 }
 function upgrade(b) {
+  b.garden ||= [];
   for (const w of b.walls || []) {
     if (w.trims && !w.trimList) {
       w.trimList = [];
@@ -319,7 +327,7 @@ function roofOver(b, walls, pitch = 50, g = null) {
 const merge = (a, b) => { for (const k of ['walls', 'corners', 'roofs', 'chimneys', 'props', 'platforms', 'fences', 'floorDecals']) (a[k] = a[k] || []).push(...(b[k] || [])); };
 
 // ---------------------------------------------------------------- build + pick proxies
-let built = null; const proxies = new THREE.Group(); scene.add(proxies);
+let built = null, gardenLayer = null, gardenSystem = null; const proxies = new THREE.Group(); scene.add(proxies);
 const hiMat = new THREE.MeshBasicMaterial({ color: 0xffd060, wireframe: true, transparent: true, opacity: 0.85, depthTest: false });
 const hoverMat = new THREE.MeshBasicMaterial({ color: 0x80c8ff, wireframe: true, transparent: true, opacity: 0.7, depthTest: false });
 const pickMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -328,6 +336,10 @@ function rebuild() {
   if (built) scene.remove(built.group);
   const t0 = performance.now();
   built = buildFromKit(kit, toDesc(B)); scene.add(built.group);
+  if (gardenLayer) scene.remove(gardenLayer);
+  gardenLayer = new THREE.Group(); scene.add(gardenLayer);
+  gardenSystem = createFoliage(THREE, gardenLayer, (B.garden || []).map(p => ({ ...p, y: 0, s: p.s || 1, r: p.r || 0, v: p.v || 0 })));
+  gardenLayer.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   const ms = performance.now() - t0;
   let tris = 0; built.group.traverse(o => { if (o.geometry && o.geometry.index) tris += o.geometry.index.count / 3; });
   $('stats').textContent = `${B.walls.length} walls · ${built.group.children.length} meshes · ${Math.round(tris)} tris · built in ${ms.toFixed(0)} ms`;
@@ -353,6 +365,7 @@ function rebuild() {
     for (const pp of w.pipes || []) prox(0.25, wallH(w), 0.25, m.clone().multiply(new THREE.Matrix4().makeTranslation(pp.x, wallH(w) / 2, 0.12)), { kind: 'pipe', w, o: pp });
     for (const v of w.vines || []) prox(v.width, v.height, 0.14, m.clone().multiply(new THREE.Matrix4().makeTranslation(v.x, (v.y || 0) + v.height / 2, 0.12)), { kind: 'vine', w, o: v });
   }
+  for (const p of B.garden || []) prox(0.8 * (p.s || 1), Math.max(0.4, (p.kind === 'tree' || p.kind === 'pine' ? 7 : p.kind === 'bush' ? 1.4 : 0.8) * (p.s || 1)), 0.8 * (p.s || 1), new THREE.Matrix4().makeRotationY(p.r || 0).setPosition(p.x, 0, p.z), { kind: 'garden', o: p });
   for (const r of B.roofs) {
     const rise = r.depth / 2 * Math.tan((r.pitch || 50) * Math.PI / 180);
     prox(r.width + 0.6, rise, r.depth + 0.7, new THREE.Matrix4().makeRotationY(r.rot || 0).setPosition(r.x, r.base, r.z).multiply(new THREE.Matrix4().makeTranslation(r.width / 2, rise / 2, -r.depth / 2)), { kind: 'roof', o: r });
@@ -564,6 +577,10 @@ function place(it, ev) {
     const pl = { id: newId(), ...it.platform, x: snap(p.x), z: snap(p.z), rot: 0, base: +$('storey').value * FLOOR };
     snapPlatform(pl, p);
     B.platforms.push(pl); sel = { kind: 'platform', o: pl };
+  } else if (it.plant) {
+    const p = groundAt(ev, 0); if (!p) return;
+    const plant = { id: newId(), kind: it.plant, x: snap(p.x, 0.05), z: snap(p.z, 0.05), s: it.plant === 'tree' || it.plant === 'pine' ? 1 : 0.9, r: Math.random() * Math.PI * 2, v: 0 };
+    (B.garden ||= []).push(plant); sel = { kind: 'garden', o: plant };
   } else if (it.prop) {
     const p = groundAt(ev, +$('storey').value * FLOOR); if (!p) return;
     const pr = { id: newId(), prop: it.prop, x: snap(p.x, 0.05), z: snap(p.z, 0.05), rot: 0, base: +$('storey').value * FLOOR, ...(it.natural ? {} : { height: 2.7 }) };
@@ -856,6 +873,7 @@ function removeSel() {
   else if (sel.kind === 'chimney') B.chimneys = B.chimneys.filter(o => o !== sel.o);
   else if (sel.kind === 'corner') B.corners = B.corners.filter(o => o !== sel.o);
   else if (sel.kind === 'prop') B.props = B.props.filter(o => o !== sel.o);
+  else if (sel.kind === 'garden') B.garden = (B.garden || []).filter(o => o !== sel.o);
   else if (sel.kind === 'platform') B.platforms = B.platforms.filter(o => o !== sel.o);
   else if (sel.kind === 'fence') B.fences = B.fences.filter(o => o !== sel.o);
   else if (sel.kind === 'bal') sel.w.balustrades = sel.w.balustrades.filter(o => o !== sel.o);
@@ -936,6 +954,11 @@ function props() {
     h += field('Material', opts('material', [['stone', 'Flagstone'], ['oak', 'Oak']], o.material || 'stone')) + field('Width', num('width', o.width || 2.5, 0.25, 0.5));
     if (o.kind !== 'steps') h += field('Depth', num('depth', o.depth || 1.5, 0.25, 0.5));
     h += field('Height', num('height', o.height || 0.48, 0.04, 0.12)) + `<p class="help">Drag to move · Q / E to turn</p><div class="btns"><button data-a="del">Delete</button></div>`;
+  } else if (sel.kind === 'garden') {
+    const names = { grass: 'Grass patch', tallgrass: 'Tall grass', flower: 'Wild flowers', tree: 'Broadleaf tree', pine: 'Pine tree', bush: 'Bush' };
+    $('selT').textContent = names[o.kind] || 'Plant';
+    h += field('Size', num('s', o.s || 1, 0.05, 0.2, 4)) + field('Turn (°)', num('rDeg', (o.r || 0) * 180 / Math.PI, 5));
+    h += `<p class="help">Drag to reposition · Q / E to turn</p><div class="btns"><button data-a="del">Delete</button></div>`;
   } else if (sel.kind === 'prop') {
     $('selT').textContent = (ITEMS.find(i => i.prop === o.prop) || {}).name || 'Prop';
     h += field('Part', opts('prop', ITEMS.filter(i => i.prop).map(i => [i.prop, i.name]), o.prop)) + field('Height', num('height', o.height || 2.7, 0.05, 1, 4)) + field('Base', num('base', o.base || 0, 0.5));
@@ -1008,7 +1031,8 @@ $('props').addEventListener('change', (e) => {
   else if (k === 'pdPitch' || k === 'pdCrest' || k === 'pdFinial') for (const pd of o.pediments) pd[{ pdPitch: 'pitch', pdCrest: 'crest', pdFinial: 'finial' }[k]] = k === 'pdPitch' ? +v : v;
   else if (k === 'bnColor' || k === 'bnEmblem') for (const bn of o.banners) bn[k === 'bnColor' ? 'color' : 'emblem'] = v;
   else o[k] = +v;
-  if (sel.kind === 'roof' && k === 'pitch') for (const w of B.walls) if (w.shape === 'gable' && w.g === o.g) w.pitch = +v;
+  if (sel.kind === 'garden' && k === 'rDeg') o.r = +v * Math.PI / 180;
+  else if (sel.kind === 'roof' && k === 'pitch') for (const w of B.walls) if (w.shape === 'gable' && w.g === o.g) w.pitch = +v;
   changed(); props();
 });
 $('props').addEventListener('click', (e) => {
@@ -1059,6 +1083,7 @@ if (!B.walls.length) merge(B, boxParts(ITEMS.find(i => i.id === 'shell_tudor').b
 lastSnap = JSON.stringify(B); rebuild(); props();
 drawThumbs(); THREE.DefaultLoadingManager.onLoad = () => drawThumbs();
 setTimeout(drawThumbs, 1500);
-renderer.setAnimationLoop(() => renderer.render(scene, camera));
+let labClock = 0;
+renderer.setAnimationLoop(() => { labClock += 1 / 60; gardenSystem?.update(labClock, camera.position); gardenSystem?.cull(camera); renderer.render(scene, camera); });
 window.lab = { B: () => B, kit, rebuild, toDesc, cam: camera, place, fit: fitUnderCanopy, ITEMS, fitGap, boxParts, merge, addLeanTo };
 </script></body></html>
